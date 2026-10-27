@@ -1,8 +1,9 @@
 // Mandates over the dashboard's Foreman page: GET /api/mandates lists them with the latest directives, the
 // classes a mandate may be given and a new mandate's defaults; GET /api/mandates/:id adds the owner's
-// guidance and goal (token: they are the owner's own words); POST /api/mandates and /api/mandates/:id/
-// edit|pause|resume|close write as a person through the same mandateWrite `forge mandate` calls, so the
-// dashboard gets the CLI's exact refusals. A goal mandate's milestone draft: GET /api/mandates/:id/draft
+// guidance and goal (token: they are the owner's own words); POST /api/mandates (which picks the id when
+// none is sent, as `forge mandate new` does) and /api/mandates/:id/edit|pause|resume|close write as a
+// person through the same mandateWrite `forge mandate` calls, so the dashboard gets the CLI's exact
+// refusals. A goal mandate's milestone draft: GET /api/mandates/:id/draft
 // renders it, and POST decides it through the same decideDraft the CLI calls, pinned to the request and
 // digest the card read. Every POST's token, Origin and JSON guard runs before these handlers (start.ts).
 import type http from 'node:http';
@@ -142,7 +143,7 @@ const TERMS_SHAPE =
   `title (at most 1000 characters), milestones, labels, issues and decides (lists of at most ${LIST_MAX} strings of at most ${ENTRY_MAX}), ` +
   `until, order, onUnfinishable and scoring (strings), maxJobs, budgetUsd, budgetJobs, stallCadences and stallBounces (numbers), after (a mandate id or null), body (at most ${BODY_MAX} characters)`;
 const SHAPE = {
-  new: `body must be {"id": <mandate id>, "title": string, ...terms}, terms: ${TERMS_SHAPE}`,
+  new: `body must be {"id"?: <mandate id>, "title": string, ...terms}, terms: ${TERMS_SHAPE}`,
   edit: `body must be {"updatedAt": string, ...terms}, terms: ${TERMS_SHAPE}`,
   status: `body must be {"reason"?: string of at most ${REASON_BODY_MAX} characters | null}`,
   resume: 'body must be {}',
@@ -162,7 +163,8 @@ function termsInput(b: unknown, op: 'new' | 'edit'): MandateInput | null {
   if (!isMap(b)) return null;
   const allowed = op === 'new' ? ['id', ...TERMS] : ['updatedAt', ...TERMS];
   if (!Object.keys(b).every((k) => allowed.includes(k))) return null;
-  if (op === 'new' && (!isMandateId(b.id) || typeof b.title !== 'string')) return null;
+  // An absent id is picked by mandateWrite; one sent must be a mandate id (so null is refused).
+  if (op === 'new' && (typeof b.title !== 'string' || (Object.hasOwn(b, 'id') && !isMandateId(b.id)))) return null;
   if (op === 'edit' && typeof b.updatedAt !== 'string') return null;
   const input: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(b)) {
@@ -181,12 +183,13 @@ function statusReason(b: unknown): string | null | undefined | false {
 }
 
 /** One write through mandateWrite, as a person on the dashboard; a refusal is 404 (no such mandate) or 409, and writes nothing. */
-function write(ctx: ServerCtx, res: http.ServerResponse, op: MandateOp, id: string, o: { input?: MandateInput; reason?: string | null; updatedAt?: string }): void {
+function write(ctx: ServerCtx, res: http.ServerResponse, op: MandateOp, given: string | null, o: { input?: MandateInput; reason?: string | null; updatedAt?: string }): void {
   const { root } = ctx;
   const { config } = loadConfig(root);
   let changed: boolean;
+  let id: string;
   try {
-    ({ changed } = mandateWrite(root, config, op, id, { ...o, actor: dashboardActor() }));
+    ({ changed, id } = mandateWrite(root, config, op, given, { ...o, actor: dashboardActor() }));
   } catch (e) {
     if (e instanceof ForgeError) return jsonStatus(res, e.code === 'not_found' ? 404 : 409, { error: e.message });
     throw e;
@@ -198,13 +201,14 @@ function write(ctx: ServerCtx, res: http.ServerResponse, op: MandateOp, id: stri
   json(res, redactDeep(out, allKnownValues(root, config)));
 }
 
-/** POST /api/mandates: a new active mandate; every term not sent comes from foreman.mandate. */
+/** POST /api/mandates: a new active mandate, under a picked id when none is sent; every term not sent comes from foreman.mandate. */
 export async function postMandate(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const parsed = await readJsonBody(req);
   if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
   const input = termsInput(parsed.body, 'new');
   if (!input) return jsonStatus(res, 400, { error: SHAPE.new });
-  write(ctx, res, 'new', (parsed.body as { id: string }).id, { input });
+  const body = parsed.body as { id?: string };
+  write(ctx, res, 'new', Object.hasOwn(body, 'id') ? body.id! : null, { input });
 }
 
 /** POST /api/mandates/:id/edit|pause|resume|close: one handler, switching on the action. */

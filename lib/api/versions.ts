@@ -78,6 +78,8 @@ export const API_CHANGES = [
   { id: 'mandate-scoring' },
   // MandateRow.card (MandateReportCard, CardFigure): the live report card on GET /api/mandates and /api/mandates/:id.
   { id: 'mandate-report-card' },
+  // PostMandateBody.id is optional: POST /api/mandates without one gets a generated id (m-<8 hex>), returned as mandate.id.
+  { id: 'mandate-auto-id' },
 ] as const;
 
 /**
