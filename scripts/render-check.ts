@@ -1,6 +1,6 @@
 // `npm run test:render [-- --scenario NAME]... [--dist DIR]`: seeds each dashboard scenario, serves it
 // from a dashboard build in-process beside a second project and a removed one, signs each browser context in
-// through the login link, and loads every view (and the job and issue panels), the Overview, the Machine page and
+// through the login link (and signs a signed-out page in by a link pasted into its address bar), and loads every view (and the job and issue panels), the Overview, the Machine page and
 // a project switch in headless Chrome. A check fails on a console error, an uncaught page error, a same-origin 5xx
 // or /api 4xx, an expected text that never shows, or a failed load. Outside `npm test`: it needs Chrome and a build, and CI's `render` job runs it.
 // docs/TESTING.md › "Dashboard scenarios and the render check".
@@ -14,6 +14,7 @@ import { startServer } from '../lib/server/start.ts';
 import { addProject } from '../lib/engine/project/machine-index.ts';
 import { VIEWS } from '../dashboard/src/lib/nav.ts';
 import type { ViewId } from '../dashboard/src/lib/nav.ts';
+import { SIGNED_OUT_MESSAGE } from '../dashboard/src/lib/login.ts';
 import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, catalogText, listScenarios, loadScenario, seedScenario } from './scenario.ts';
 import type { Seeded } from './scenario.ts';
 
@@ -31,7 +32,7 @@ const OTHER_PROJECT = 'other-project';
 /** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
 const GONE_PROJECT = 'gone-project';
 
-export type RenderCheckId = ViewId | 'login' | 'overview' | 'machine' | 'switch' | 'add' | 'drawer' | 'issue';
+export type RenderCheckId = ViewId | 'login' | 'relogin' | 'overview' | 'machine' | 'switch' | 'add' | 'drawer' | 'issue';
 
 export interface RenderProblem {
   scenario: string;
@@ -199,6 +200,39 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
             if (page.url().includes('k=')) p.push('the login key stayed in the URL');
           }),
         );
+        // A page left open across a restart (or a browser with no cookie) is signed out, and `forge dash url` outside a repo
+        // prints `<origin>/#k=<key>`: pasted into that page's address bar only the fragment changes, so the open page must
+        // trade the key itself and reload signed in. First the signed-out page: its banner, and a status bar that still shows
+        // the server answered. Not through checkPage: a signed-out page's 401s are the point here, not a problem.
+        await timed(name, 'relogin', async () => {
+          const problems: string[] = [];
+          const fresh = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+          try {
+            const page = await fresh.newPage();
+            page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
+            await page.goto(`${base}${pipeline}`, { waitUntil: 'load', timeout: LOAD_TIMEOUT_MS });
+            try {
+              await page.getByText(SIGNED_OUT_MESSAGE, { exact: true }).first().waitFor({ state: 'visible', timeout });
+            } catch {
+              return ['a page without the login cookie did not show the signed-out banner'];
+            }
+            if (await page.locator('footer').getByText(catalogText('statusbar.conn.offline'), { exact: true }).count()) problems.push('a signed-out page showed the status bar as offline');
+            const reloaded = page.waitForEvent('load', { timeout });
+            await page.evaluate(`location.hash = ${JSON.stringify(`#k=${server!.token}`)}`);
+            try {
+              await reloaded;
+            } catch {
+              return [...problems, 'a login link pasted into the open page did not reload it'];
+            }
+            await waitForTexts(page.locator('#view'), [project.name], timeout, problems, true);
+            if (page.url().includes('k=')) problems.push('the login key stayed in the URL');
+          } catch (e) {
+            problems.push(`relogin failed: ${firstLine(e)}`);
+          } finally {
+            await fresh.close().catch(() => {});
+          }
+          return problems;
+        });
         const at = (view: ViewId): string => `${base}#/p/${project.name}/${view}`;
         for (const { id } of VIEWS) {
           await timed(name, id, () => checkPage(context, at(id), (page, p) => waitForTexts(page, seeded.expect.views[id], timeout, p)));

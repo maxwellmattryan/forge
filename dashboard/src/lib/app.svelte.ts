@@ -1,7 +1,7 @@
 // The dashboard's state and actions, ported from the pre-Svelte app.js: same fetches, toasts and follow-up refreshes.
 // API payloads are $state.raw and replaced wholesale, so a poll re-renders only what reads them.
 import { api, errorText } from './util.ts';
-import { connectionBanner } from './login.ts';
+import { SIGNED_OUT_MESSAGE, connectionBanner, isSignedOutError } from './login.ts';
 import { API_VERSION } from './types.ts';
 import { currentProject, isNotRegisteredError, notRegistered, projectApi, setProject } from './project.ts';
 import { parseRoute, routeProject, type Route } from './routes.ts';
@@ -263,11 +263,13 @@ export async function refresh(): Promise<void> {
     if (S.drawer.id) loadDrawer(false);
   } catch (e) {
     if (currentProject() !== project) return;
-    if (isUnregistered(e)) {
-      // The server is up; this project is not registered (a stale link, or `forge project remove` while the page was open).
-      // The board and its actions go, so nothing on screen calls a route that now 404s; a re-registered project rebaselines.
+    const signedOut = isSignedOutError(errorText(message(e)));
+    if (isUnregistered(e) || signedOut) {
+      // The server is up; either this project is not registered (a stale link, or `forge project remove` while the page was open)
+      // or this browser holds no login cookie (a new profile, or a restart that rotated the key). The board and its actions go,
+      // so nothing on screen calls a route that now 404s or 401s; a re-registered or signed-in project rebaselines.
       S.online = true;
-      S.error = notRegistered(currentProject());
+      S.error = signedOut ? SIGNED_OUT_MESSAGE : notRegistered(currentProject());
       S.data = null;
       S.dataKey = '';
       S.readyAt = null;

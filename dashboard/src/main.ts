@@ -3,11 +3,13 @@
 // project (App's first route() call).
 import { mount } from 'svelte';
 import App from './App.svelte';
-import { consumeLoginFragment } from './lib/login.ts';
+import { consumeLoginFragment, watchLoginFragment } from './lib/login.ts';
 import { entryRedirect } from './lib/routes.ts';
 import { followSystemTheme } from './lib/theme.ts';
 
 followSystemTheme();
+// Before the app mounts, so it runs ahead of App's own hashchange handler: a login link pasted into this open tab changes only the fragment.
+watchLoginFragment(window);
 // First, so the key leaves the address bar before anything else runs; the exchange itself settles below.
 const signedIn = consumeLoginFragment(window);
 // `forge dash`, the README and notify webhooks still print `/?project=<name>#/<view>`: before the app reads the hash.
