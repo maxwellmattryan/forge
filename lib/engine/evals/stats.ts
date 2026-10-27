@@ -1,6 +1,6 @@
 // Eval statistics: where a job's time went, and n / mean / min / max over a run's repeats, so an
 // A/B comparison shows the sample behind every number. Pure: no I/O, so every rule is a test row.
-import type { EvalDelta, EvalResult, EvalRun, EvalStat, EvalTaskAggregate, EvalTaskMetric, JobEvent, Stage } from '#core/types.ts';
+import type { EvalDelta, EvalResult, EvalRun, EvalStat, EvalTaskAggregate, EvalTaskMetric, JobEvent, JobState, Stage, WaitingOn } from '#core/types.ts';
 
 export const TASK_METRICS = [
   'checkPass',
@@ -39,7 +39,105 @@ const round = (x: number, places: number): number => Math.round(x * 10 ** places
 // The same rounding gradeJob uses for `minutes`.
 const minutes = (ms: number): number => Math.round(ms / 600) / 100;
 
-const stageOf = (side: JobEvent['from']): Stage | null => (side && typeof side === 'object' && typeof side.stage === 'string' ? side.stage : null);
+type Side = JobEvent['from'];
+const field = (side: Side, k: 'stage' | 'state' | 'waitingOn'): string | null => (side && typeof side === 'object' && typeof side[k] === 'string' ? side[k] : null);
+const stageOf = (side: Side): Stage | null => field(side, 'stage') as Stage | null;
+
+/** A stretch of a job's life between two transitions, with the stage, state and waitingOn it was in. */
+export interface TimelineSegment {
+  from: number;
+  to: number;
+  stage: Stage;
+  /** Null when the side that opened it is not an object or has no string state: neither running nor waiting. */
+  state: JobState | null;
+  waitingOn: WaitingOn | null;
+}
+
+/** One agent run: an agent-start paired with the next agent-end of its role. */
+export interface TimelineRun {
+  role: string;
+  start: number;
+  end: number;
+  /** The end event's agentId, else the start's, else null. */
+  agentId: string | null;
+}
+
+/** A job's events laid out in time: jobTiming's split and forge stats' speed figures (lib/engine/metrics/speed.ts) read it. */
+export interface Timeline {
+  start: number;
+  end: number;
+  /** Events with a readable ts, oldest first; same-millisecond events keep their file order. */
+  ordered: JobEvent[];
+  /** From createdAt through each transition to the end; a transition before the cursor gives a zero-length segment. */
+  segments: TimelineSegment[];
+  runs: TimelineRun[];
+}
+
+const tsOf = (e: JobEvent): number => Date.parse(e.ts);
+// Stable sort: events written in the same millisecond keep their file order.
+const order = (events: JobEvent[]): JobEvent[] => events.filter((e) => e && Number.isFinite(tsOf(e))).sort((a, b) => tsOf(a) - tsOf(b));
+
+/**
+ * A job's segments and agent runs from createdAt to `endMs`; null when createdAt is unreadable. The
+ * first segment's stage, state and waitingOn come from the first transition's `from` side, else `current`.
+ * An agent-start with no matching end is ignored.
+ */
+export function timeline(
+  events: JobEvent[],
+  createdAt: string | null | undefined,
+  endMs: number,
+  current: { stage: Stage; state?: JobState | null; waitingOn?: WaitingOn | null },
+): Timeline | null {
+  const start = createdAt ? Date.parse(createdAt) : NaN;
+  if (!Number.isFinite(start)) return null;
+  const ordered = order(events);
+  const transitions = ordered.filter((e) => e.type === 'transition');
+  const first = transitions.length ? transitions[0].from : undefined;
+  let stage: Stage = stageOf(first) ?? current.stage;
+  let state = (transitions.length ? field(first, 'state') : (current.state ?? null)) as JobState | null;
+  let waitingOn = (transitions.length ? field(first, 'waitingOn') : (current.waitingOn ?? null)) as WaitingOn | null;
+  const segments: TimelineSegment[] = [];
+  let cursor = start;
+  const add = (to: number) => {
+    const end = Math.max(cursor, to);
+    segments.push({ from: cursor, to: end, stage, state, waitingOn });
+    cursor = end;
+  };
+  for (const t of transitions) {
+    add(tsOf(t));
+    stage = stageOf(t.to) ?? stage;
+    state = field(t.to, 'state') as JobState | null;
+    waitingOn = field(t.to, 'waitingOn') as WaitingOn | null;
+  }
+  add(endMs);
+
+  const open = new Map<string, JobEvent>();
+  const runs: TimelineRun[] = [];
+  for (const e of ordered) {
+    if (typeof e.role !== 'string') continue;
+    if (e.type === 'agent-start') open.set(e.role, e);
+    else if (e.type === 'agent-end' && open.has(e.role)) {
+      const s = open.get(e.role)!;
+      const agentId = typeof e.agentId === 'string' ? e.agentId : typeof s.agentId === 'string' ? s.agentId : null;
+      runs.push({ role: e.role, start: tsOf(s), end: tsOf(e), agentId });
+      open.delete(e.role);
+    }
+  }
+  return { start, end: endMs, ordered, segments, runs };
+}
+
+/** The length of the union of `spans`, each clipped to [from, to]: overlapping agents are one stretch of busy time. */
+export function busyMs(spans: [number, number][], from: number, to: number): number {
+  let busy = 0;
+  let reach = -Infinity;
+  for (const [a, b] of spans.map(([a, b]): [number, number] => [Math.max(a, from), Math.min(b, to)]).sort((x, y) => x[0] - y[0])) {
+    if (b <= a) continue;
+    const lo = Math.max(a, reach);
+    if (b > lo) busy += b - lo;
+    reach = Math.max(reach, b);
+  }
+  return busy;
+}
 
 /**
  * Where a job's wall time went: per stage (from its transitions), in agents (summed across
@@ -51,50 +149,17 @@ export function jobTiming(
   endMs: number,
   currentStage: Stage,
 ): { stages: Partial<Record<Stage, number>>; agentMinutes: number | null; orchestratorMinutes: number | null; reviewerRuns: number } {
-  const ts = (e: JobEvent) => Date.parse(e.ts);
-  // Stable sort: events written in the same millisecond keep their file order.
-  const ordered = events.filter((e) => e && Number.isFinite(ts(e))).sort((a, b) => ts(a) - ts(b));
-  const reviewerRuns = ordered.filter((e) => e.type === 'agent-start' && typeof e.role === 'string' && (e.role === 'reviewer' || e.role.startsWith('reviewer:'))).length;
-  const start = createdAt ? Date.parse(createdAt) : NaN;
-  if (!Number.isFinite(start)) return { stages: {}, agentMinutes: null, orchestratorMinutes: null, reviewerRuns };
-
-  const transitions = ordered.filter((e) => e.type === 'transition');
+  const reviewerRuns = order(events).filter((e) => e.type === 'agent-start' && typeof e.role === 'string' && (e.role === 'reviewer' || e.role.startsWith('reviewer:'))).length;
+  const tl = timeline(events, createdAt, endMs, { stage: currentStage });
+  if (!tl) return { stages: {}, agentMinutes: null, orchestratorMinutes: null, reviewerRuns };
   const ms: Partial<Record<Stage, number>> = {};
-  let stage: Stage = (transitions.length ? stageOf(transitions[0].from) : null) ?? currentStage;
-  let cursor = start;
-  const add = (to: number) => {
-    ms[stage] = (ms[stage] ?? 0) + Math.max(0, to - cursor);
-    cursor = Math.max(cursor, to);
-  };
-  for (const t of transitions) {
-    add(ts(t));
-    stage = stageOf(t.to) ?? stage;
-  }
-  add(endMs);
+  for (const s of tl.segments) ms[s.stage] = (ms[s.stage] ?? 0) + (s.to - s.from);
   const stages: Partial<Record<Stage, number>> = {};
   for (const [k, v] of Object.entries(ms) as [Stage, number][]) stages[k] = minutes(v);
-
-  const open = new Map<string, number>();
-  const runs: [number, number][] = [];
-  for (const e of ordered) {
-    if (typeof e.role !== 'string') continue;
-    if (e.type === 'agent-start') open.set(e.role, ts(e));
-    else if (e.type === 'agent-end' && open.has(e.role)) {
-      runs.push([open.get(e.role)!, ts(e)]);
-      open.delete(e.role);
-    }
-  }
-  const agentMs = runs.reduce((n, [a, b]) => n + Math.max(0, b - a), 0);
-  // The union, clipped to the job's window: overlapping reviewers are one stretch of busy time.
-  let busy = 0;
-  let reach = -Infinity;
-  for (const [a, b] of runs.map(([a, b]): [number, number] => [Math.max(a, start), Math.min(b, endMs)]).sort((x, y) => x[0] - y[0])) {
-    if (b <= a) continue;
-    const from = Math.max(a, reach);
-    if (b > from) busy += b - from;
-    reach = Math.max(reach, b);
-  }
-  return { stages, agentMinutes: minutes(agentMs), orchestratorMinutes: minutes(Math.max(0, endMs - start - busy)), reviewerRuns };
+  const spans = tl.runs.map((r): [number, number] => [r.start, r.end]);
+  const agentMs = spans.reduce((n, [a, b]) => n + Math.max(0, b - a), 0);
+  const busy = busyMs(spans, tl.start, endMs);
+  return { stages, agentMinutes: minutes(agentMs), orchestratorMinutes: minutes(Math.max(0, endMs - tl.start - busy)), reviewerRuns };
 }
 
 /** n, mean, min and max, rounded to 0.001; all null when there is no sample. */
