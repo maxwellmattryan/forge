@@ -73,7 +73,7 @@
     <!-- One wrapping row: the ref, the issue's state, its readiness and its labels. -->
     <div class="flex min-w-0 flex-wrap items-center gap-1.5">
       {#if url}<a class="mono text-[13px] text-gleam hover:underline mr-1" href={url} target="_blank" rel="noopener">{#if github}<Icon name="github" class="sm mr-1 inline-block align-[-2px]" />{/if}{refLabel(ref)}</a>{:else}<span class="mono text-[13px] muted mr-1 break-all">{refLabel(ref)}</span>{/if}
-      {#if issueState === 'open'}<Chip tone="ok" text={$t('issues.view.state.open')} />{:else if issueState === 'closed'}<Chip tone="muted" text={$t('issues.view.state.closed')} />{:else if issueState}<Chip tone="muted" text={issueState} />{/if}
+      {#if issueState === 'open'}<Chip tone="ok" text={$t('issues.view.state.open')} />{:else if issueState === 'closed'}<Chip tone="muted" text={$t('issues.view.state.closed')} />{:else if issueState && issueState !== item?.status}<Chip tone="muted" text={issueState} />{/if}
       {#if ready === 'needs-info'}<Chip tone="warn" text={$t('issues.needsInfo')} />{:else if ready === 'ready'}<Chip tone="ok" text={$t('issues.ready')} />{/if}
       {#each labels as l, k (k)}<Chip tone="muted" text={l} />{/each}
     </div>
@@ -95,7 +95,7 @@
         </div>
         {#if ready === 'needs-info' && item?.triage?.missing?.length}<TriageMissing missing={item.triage.missing} />{/if}
       {:else}
-        <p class="text-sm muted">—</p>
+        <p class="text-sm muted">{item?.status ?? '—'}</p>
       {/if}
       {#if forge.earlier.length}
         <div class="flex flex-col gap-1">

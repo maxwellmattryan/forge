@@ -41,9 +41,10 @@
             {@const u = safeUrl(i.url)}
             <tr class="clickable" onclick={(e) => rowOpen(e, i.ref)}>
               <!-- stopPropagation on the row's own controls: each keeps its action and never opens the panel. -->
-              <td class="font-mono text-xs">{#if u}<a href={u} target="_blank" rel="noopener" class="hover:text-gleam" onclick={(e) => e.stopPropagation()}>{refLabel(i.ref)}</a>{:else}{i.ref}{/if}</td>
-              <!-- stopPropagation: the row's own click would open the panel a second time. -->
-              <td><button data-issue-open class="text-left hover:text-gleam" onclick={(e) => { e.stopPropagation(); void openIssue(i.ref); }}>{i.title}</button><div class="flex flex-wrap gap-1 mt-1">{#each i.labels ?? [] as l, k (k)}<Chip tone="muted" text={l} />{/each}</div></td>
+              <td class="font-mono text-xs">{#if u}<a href={u} target="_blank" rel="noopener" class="hover:text-gleam" onclick={(e) => e.stopPropagation()}>{refLabel(i.ref)}</a>{:else}{refLabel(i.ref)}{/if}</td>
+              <!-- No handler of its own: its click (Enter and Space fire one too) bubbles to the row's rowOpen, which focuses the
+                   button first, as Safari does not on a mouse click. -->
+              <td><button data-issue-open class="text-left hover:text-gleam">{i.title}</button><div class="flex flex-wrap gap-1 mt-1">{#each i.labels ?? [] as l, k (k)}<Chip tone="muted" text={l} />{/each}</div></td>
               <td>{i.status ?? '—'}</td>
               <td>
                 {#if readiness(i) === 'needs-info'}

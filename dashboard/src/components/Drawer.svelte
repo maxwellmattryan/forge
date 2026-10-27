@@ -137,8 +137,9 @@
     {@const verbs = scopeVerbs(j).length > 0}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
-        <!-- Opened from the issue panel (its card, Open job or an earlier job): Back returns to that issue. -->
-        {#if S.drawer.back}{@const back = S.drawer.back}<button class="btn sm self-start" onclick={backToIssue}><Icon name="chevron-down" class="sm rotate-90" />{$t('drawer.backToIssue', { ref: refLabel(back) })}</button>{/if}
+        <!-- Opened from the issue panel (its card, Open job or an earlier job): Back returns to that issue. A local ref can be
+             a long slug, so the label truncates at the header's width and the title carries it whole. -->
+        {#if S.drawer.back}{@const back = S.drawer.back}{@const label = $t('drawer.backToIssue', { ref: refLabel(back) })}<button class="btn sm self-start min-w-0 max-w-full" title={label} onclick={backToIssue}><Icon name="chevron-down" class="sm shrink-0 rotate-90" /><span class="min-w-0 truncate">{label}</span></button>{/if}
         <div class="flex items-start justify-between gap-3"><h2 {@attach focusTitle} tabindex="-1" class="h sheet-title min-w-0">{j.title}</h2><CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div>
         <!-- The meta line, then one right-aligned controls cluster: a daemon-backed job's session controls (here, not in its
              Log, so every tab has them; its Start/Stop sits apart, at the end of the tab row), then Command, nearest the
