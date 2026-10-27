@@ -93,6 +93,32 @@ test('relatedTests problems', () => {
   assert.equal(problems((r) => Object.assign(r, { tests: null, map: ['{x}'], full: [''] })).length, 3);
 });
 
+test('improve.transcripts problems', () => {
+  const problems = (edit: (c: any) => void): string[] => {
+    const c: any = defaults();
+    edit(c);
+    return validateConfig(c, os.tmpdir()).filter((p) => p.startsWith('improve.transcripts'));
+  };
+  assert.equal(defaults().improve.transcripts.max, 12);
+  const range = /^improve\.transcripts\.max must be an integer from 0 to 50 \(got /;
+  const rows: [string, (c: any) => void, RegExp | null][] = [
+    ['the default', () => {}, null],
+    ['0', (c) => (c.improve.transcripts.max = 0), null],
+    ['50', (c) => (c.improve.transcripts.max = 50), null],
+    ['51', (c) => (c.improve.transcripts.max = 51), range],
+    ['negative', (c) => (c.improve.transcripts.max = -1), range],
+    ['a fraction', (c) => (c.improve.transcripts.max = 1.5), range],
+    ['a string', (c) => (c.improve.transcripts.max = '12'), range],
+    ['not a map', (c) => (c.improve.transcripts = 12), /^improve\.transcripts must be a map/],
+    ['a list', (c) => (c.improve.transcripts = [12]), /^improve\.transcripts must be a map/],
+  ];
+  for (const [name, edit, want] of rows) {
+    const got = problems(edit);
+    if (want === null) assert.deepEqual(got, [], name);
+    else assert.ok(got.length === 1 && want.test(got[0]), `${name}: ${JSON.stringify(got)}`);
+  }
+});
+
 test('foreman problems', () => {
   const problems = (edit: (f: any) => void): string[] => {
     const c: any = defaults();

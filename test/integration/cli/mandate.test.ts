@@ -284,6 +284,7 @@ test('forge retro prepare --mandate scopes the retro to the mandate', async () =
     assert.deepEqual([both.status, both.error?.code], [2, 'usage'], JSON.stringify(both.error));
     const out = await ok(r.dir, ['retro', 'prepare', retro, '--mandate', 'm1']);
     assert.deepEqual([out.mandate, out.since, out.jobsInWindow], ['m1', null, 1]);
+    assert.deepEqual([path.basename(out.transcripts), out.transcriptRuns, out.digests], ['transcripts.json', { runs: 0, read: 0, skipped: 0 }, []]);
   } finally {
     r.cleanup();
   }

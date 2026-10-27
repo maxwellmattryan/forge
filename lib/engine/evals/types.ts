@@ -1,4 +1,67 @@
-// The notes layer's shapes, type-only: learnings and experiment entries and what `forge experiment` prints.
+// The notes layer's shapes, type-only: learnings and experiment entries and what `forge experiment` prints,
+// and the retro's transcript stats (transcripts.json) and digest batches.
+import type { Effort } from '#core/types.ts';
+import type { RunCounts } from '#integrations/claude/types.ts';
+
+/** One agent run in transcripts.json: its job, role, per-role run number and agent id, and its friction counts. */
+export interface TranscriptRun extends RunCounts {
+  job: string;
+  role: string;
+  /** 1, 2, … per role, in start order. */
+  run: number;
+  agentId: string;
+  /** The job's tasks.md checkboxes. */
+  tasks: number;
+  /** turns / max(1, tasks), to 2 places. */
+  turnsPerTask: number;
+  /** max(0, job.round - 1). */
+  reworkRounds: number;
+}
+
+/** A role's totals in transcripts.json; repeatedFailures, rereadFiles and forgeNonZero count list entries. */
+export interface TranscriptRoleTotals {
+  runs: number;
+  turns: number;
+  toolCalls: number;
+  toolErrors: number;
+  repeatedFailures: number;
+  permissionDenials: number;
+  rereadFiles: number;
+  forgeNonZero: number;
+}
+
+/** transcripts.json: `forge retro prepare`'s transcript stats. Counts, ids and keys only: never transcript text or a path. */
+export interface TranscriptStats {
+  since: string | null;
+  mandate: string | null;
+  /** improve.transcripts.max. */
+  max: number;
+  /** Agent runs in scope, after a resumed agent's earlier runs are dropped. */
+  runs: number;
+  /** Runs whose transcript was found and read. */
+  read: number;
+  /** Runs past the per-prepare cap, oldest first. */
+  skipped: number;
+  byRole: Record<string, TranscriptRoleTotals>;
+  /** Sorted by job id, role, run. */
+  perRun: TranscriptRun[];
+  /** The runs digest agents read in depth, worst first, with their batch. */
+  deepRead: { job: string; role: string; run: number; batch: number }[];
+}
+
+/** One digest agent's batch in `forge retro prepare`'s output: what the orchestrator spawns. */
+export interface DigestBatch {
+  batch: number;
+  runs: number;
+  /** `<job dir>/digest/batch-<n>.md`. */
+  input: string;
+  /** `<job dir>/friction-<n>.md`. */
+  output: string;
+  subagent: 'forge:digest';
+  model: string;
+  effort: Effort | null;
+  brief: string;
+}
 
 /** One entry of `.forge/notes/learnings.md`: parseLearnings in lib/engine/evals/learnings.ts. Dates are valid or null. */
 export interface LearningEntry {
