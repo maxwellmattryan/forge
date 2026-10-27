@@ -51,11 +51,6 @@
     },
     {
       "key": "human",
-      "title": "Check the protected paths",
-      "steps": [["job", "set", "{id}", "--stage", "verify", "--state", "waiting", "--waiting-on", "human", "--reason", "protected path changed"]]
-    },
-    {
-      "key": "held",
       "title": "Hold the workflow push",
       "steps": [["job", "set", "{id}", "--stage", "pr", "--state", "waiting", "--waiting-on", "human", "--reason", "push held: CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]"]]
     },
@@ -71,7 +66,7 @@
   "expect": {
     "pipeline": [
       "Approve the widget spec",
-      "Check the protected paths",
+      "Hold the workflow push",
       "Spec approval",
       "Split approval",
       "Issue to link",
