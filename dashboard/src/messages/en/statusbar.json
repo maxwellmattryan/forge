@@ -45,12 +45,8 @@
     "inbox": {
       "name": "Inbox",
       "title": "Inbox session",
-      "about": "Handles requests without a job",
       "daemonOff": "Inbox session · daemon off",
-      "off": "The Inbox session runs inside the daemon, which is off. Start it from Workers.",
-      "log": "Inbox session log",
-      "needsNote": "Decisions and permission prompts wait in Needs you.",
-      "openNeeds": "Open Needs you"
+      "off": "The Inbox session runs inside the daemon, which is off. Start it from Workers."
     },
     "foreman": {
       "name": "Foreman",

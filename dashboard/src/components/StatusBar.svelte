@@ -124,11 +124,6 @@
     connection: `${$t('statusbar.conn.title')} · ${connWord}`,
   });
 
-  /** The Inbox popover's "Open Needs you": the Needs-you popover replaces it, anchored on the bell. */
-  function openNeeds(): void {
-    if (needsButton) openPopover('needs', needsButton);
-  }
-
   async function act(action: 'start' | 'stop'): Promise<void> {
     pending = true;
     try {
@@ -371,7 +366,7 @@
       {#if open === 'foreman'}<ForemanPanel foreman={bar.foreman} />
       {:else if open === 'needs'}{#if S.data}<NeedsPanel data={S.data} />{/if}
       {:else if open === 'workers'}<WorkersPanel {model} {pending} {act} billing={S.data?.config?.daemon?.billing ?? null} />
-      {:else if open === 'inbox'}<InboxPanel {model} {openNeeds} />
+      {:else if open === 'inbox'}<InboxPanel {model} />
       {:else if open === 'model'}<ModelPanel />
       {:else}<ConnectionPanel status={conn.state} />{/if}
     </Popover>
