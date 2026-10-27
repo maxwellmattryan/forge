@@ -301,6 +301,16 @@ export interface MandateReportCard {
   outcomes: { final: number; open: number; unmeasured: number; reverted: CardFigure; followedUp: CardFigure; finalAt: string | null };
 }
 
+/**
+ * A closed mandate's report card as its closing summary records it: the card at close, rewritten once when
+ * its outcomes are final (outcomesFinalAt, null until then). Rebuilt by closingCard in
+ * lib/engine/metrics/report-card.ts, so it holds only what a card may.
+ */
+export interface MandateClosingCard {
+  card: MandateReportCard;
+  outcomesFinalAt: string | null;
+}
+
 /** One readable mandate on the Office page: its summary, the contract as it applies now, its chain, its progress and its live report card. Never its body or goal. */
 export interface MandateRow extends MandateSummary {
   effective: MandateContract;
@@ -318,6 +328,8 @@ export interface MandateRow extends MandateSummary {
   draft: { status: DraftStatus; gate: DraftGateStatus } | null;
   /** The report card, computed live, closed mandates too. */
   card: MandateReportCard;
+  /** A closed mandate's card as its closing summary records it (rebuilt by closingCard); null for an open mandate, no summary, an unreadable one or a card that fails the check. */
+  closing: MandateClosingCard | null;
 }
 
 /** A mandate file that can't be read safely: never acted on. */

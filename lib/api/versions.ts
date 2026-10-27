@@ -102,6 +102,8 @@ export const API_CHANGES = [
   { id: 'senior-pass' },
   // DirectiveAction 'retro': a mandate's close queued its retro request.
   { id: 'directive-retro' },
+  // MandateRow.closing (MandateClosingCard): a closed mandate's closing summary card on GET /api/mandates and /api/mandates/:id.
+  { id: 'mandate-closing-card' },
 ] as const;
 
 /**
