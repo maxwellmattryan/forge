@@ -14,6 +14,7 @@ import type { AgentRecordChange, AgentUsage, Config, Effort, EventActor, Fence, 
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
+import { appendConfined } from './session-files.ts';
 import { runTransitionHooks } from './transitions.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
 import { configHash, pluginHash, promptHash } from '#engine/evals/provenance.ts';
@@ -191,11 +192,11 @@ export function logEvent(root: string, id: string, type: string, data: Record<st
 /** The repo-level audit log: human actions with no job, such as `forge config set`. Gitignored with runtime/. */
 export const repoAuditFile = (root: string): string => path.join(paths(root).runtime, 'audit.jsonl');
 
-/** Appends one event-shaped line to the repo-level audit log. */
+/** Appends one event-shaped line to the repo-level audit log; a planted link or FIFO there throws (appendConfined), a caller that must go on catches. */
 export function logRepoEvent(root: string, type: string, data: Record<string, any> = {}): void {
   const file = repoAuditFile(root);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...data }) + '\n');
+  fs.mkdirSync(paths(root).dir, { recursive: true });
+  appendConfined(paths(root).dir, file, JSON.stringify({ v: EVENT_SCHEMA_VERSION, ts: now(), type, ...data }) + '\n');
 }
 
 /**

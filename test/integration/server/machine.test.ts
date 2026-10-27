@@ -4,6 +4,7 @@
 // children (fakeClaude), so nothing real is spawned or signalled.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -339,6 +340,48 @@ test('registering and removing a project while the server runs', async () => {
     await s.cleanup();
     a.cleanup();
     c.cleanup();
+  }
+});
+
+// Every session can write a project's runtime dir. Appending to a planted FIFO would block the machine dashboard's event loop
+// for every project (so serveProjects returning is the check), and a planted link would send the line to another file.
+// The server is asked for its page and the project's entry, not /api/projects: that reads the audit log (repoBudgetStatus).
+test('a link or FIFO planted over the repo audit log never stops a launch-mode project from loading nor redirects the line', { skip: process.platform === 'win32' && 'no FIFOs or links without privileges' }, async () => {
+  const outside = tempRepo();
+  const guarded = path.join(outside.dir, 'settings.json');
+  const keep = '{"keep":true}\n';
+  const rows: { name: string; plant: (runtime: string, audit: string) => void; stillClean: () => boolean }[] = [
+    { name: 'a FIFO at audit.jsonl', plant: (_r, audit) => execFileSync('mkfifo', [audit]), stillClean: () => true },
+    { name: 'a symlink at audit.jsonl', plant: (_r, audit) => fs.symlinkSync(guarded, audit), stillClean: () => fs.readFileSync(guarded, 'utf8') === keep },
+    {
+      name: 'a symlink at .forge/runtime',
+      plant: (runtime) => {
+        fs.rmSync(runtime, { recursive: true, force: true });
+        fs.symlinkSync(outside.dir, runtime);
+      },
+      stillClean: () => !fs.existsSync(path.join(outside.dir, 'audit.jsonl')),
+    },
+  ];
+  const k = kit();
+  try {
+    for (const row of rows) {
+      fs.writeFileSync(guarded, keep);
+      const r = tempRepo();
+      fs.mkdirSync(path.join(r.dir, '.forge', 'runtime'), { recursive: true });
+      fs.writeFileSync(path.join(r.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION }));
+      row.plant(path.join(r.dir, '.forge', 'runtime'), repoAuditFile(r.dir));
+      const s = await serveProjects([{ dir: r.dir, name: 'p' }], { daemon: { ...k.opts, launchPermissionMode: 'auto' } });
+      try {
+        assert.ok(s.entry('p'), `${row.name}: the project loaded`);
+        assert.equal((await hit(s.port, { path: '/' })).status, 200, `${row.name}: the server answers`);
+        assert.ok(row.stillClean(), `${row.name}: the line went elsewhere`);
+      } finally {
+        await s.cleanup();
+        r.cleanup();
+      }
+    }
+  } finally {
+    outside.cleanup();
   }
 });
 
