@@ -78,6 +78,17 @@ test('daemonProblems refuses a bad keepAwake', () => {
   for (const bad of ['always', true, null, undefined, 1]) assert.deepEqual(problemsFor(bad), [`daemon.keepAwake must be auto or never (got ${JSON.stringify(bad)})`], String(bad));
 });
 
+test('daemonProblems refuses a bad freshAfterTokens', () => {
+  const problemsFor = (freshAfterTokens: unknown) => {
+    const c = defaults();
+    (c.daemon as { freshAfterTokens: unknown }).freshAfterTokens = freshAfterTokens;
+    return daemonProblems(c).filter((p) => p.startsWith('daemon.freshAfterTokens'));
+  };
+  assert.equal(defaults().daemon.freshAfterTokens, 200000, 'the default');
+  for (const ok of [null, 1, 200000]) assert.deepEqual(problemsFor(ok), [], String(ok));
+  for (const bad of [0, -1, 1.5, '200000', true]) assert.deepEqual(problemsFor(bad), [`daemon.freshAfterTokens must be null or a positive integer (got ${JSON.stringify(bad)})`], String(bad));
+});
+
 test('trustDigest pins what every agent reads', (t) => {
   const { root, write } = scratch(t);
   const rows: { name: string; change: () => void; changes: boolean }[] = [

@@ -160,6 +160,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v41: forge dash's gate runner replaces the assistant foreman sessions, so foreman.assistants.sessions (how many
   // sessions) becomes foreman.assistants.parallel (how many gate runs at once), unless parallel is already written.
   { id: 'foreman-gate-runs', up: foremanGateRuns },
+  // v42 adds daemon.freshAfterTokens (200000), filled from defaults, so no v41 config changes; the bump lets older
+  // Forges refuse a config whose threshold they would reject as an unknown key.
+  { id: 'daemon-fresh-after-tokens', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

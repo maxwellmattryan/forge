@@ -70,6 +70,8 @@ export function daemonProblems(c: unknown, root?: string): string[] {
   const turn = d.turnTimeoutMinutes;
   if (turn !== null && !(typeof turn === 'number' && Number.isFinite(turn) && turn > 0))
     problems.push(`daemon.turnTimeoutMinutes must be null or a positive number (got ${JSON.stringify(turn)})`);
+  const fresh = d.freshAfterTokens;
+  if (fresh !== null && !(Number.isInteger(fresh) && fresh > 0)) problems.push(`daemon.freshAfterTokens must be null or a positive integer (got ${JSON.stringify(fresh)})`);
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
   problems.push(...jobBudgetProblems(d.jobBudget), ...dailyUsdProblems(d.dailyUsd));
   if (!(KEEP_AWAKE_MODES as readonly unknown[]).includes(d.keepAwake)) problems.push(`daemon.keepAwake must be auto or never (got ${JSON.stringify(d.keepAwake)})`);

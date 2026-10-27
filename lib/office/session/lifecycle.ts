@@ -18,7 +18,6 @@ import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
 import { budgetStopMessage, spawnBudgetCap } from './budget-cap.ts';
 import { createControl } from './control.ts';
-import { createFreshness } from './fresh.ts';
 import { createMeter } from './meter.ts';
 import { routeHolds } from './holds.ts';
 import { confineDigest, spawnConfinement } from './confine.ts';
@@ -26,7 +25,7 @@ import { chatPrompt, checkLaunch } from './launch.ts';
 import { createSessionLog } from './log.ts';
 import { createOwned } from './owned.ts';
 import { withSessionId } from './records.ts';
-import { createTimers } from './timers.ts';
+import { createFreshness, createTimers } from './timers.ts';
 import type { Config, DaemonSessionState, DaemonStatus, Effort } from '#core/types.ts';
 
 const MAX_FAILURES = 3;
@@ -339,6 +338,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     } catch {}
     if (!same) return ctx.untrusted();
     if (stop) stopSelf(stop.message, stop.reason, stop.announce, stop.keepWanted);
+    fresh.result(e);
     ctx.onResult(scope);
   }
 

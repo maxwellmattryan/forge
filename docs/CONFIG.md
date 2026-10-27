@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 41            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 42            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -279,8 +279,9 @@ daemon:                      # opt-in headless sessions supervised by `forge das
     - Bash(gh pr checks:*)
     - Bash(gh run view:*)
   maxConcurrent: 3           # job sessions at once (1-16), besides the inbox
-  idleStopMinutes: 30        # stop an idle session after this long (null: never); new work resumes it
+  idleStopMinutes: 30        # stop an idle session after this long (null: never); new work starts it again
   turnTimeoutMinutes: 60     # stop a turn still running after this long and requeue its work (null: no limit)
+  freshAfterTokens: 200000   # a job session whose last turn's context (input + cache) passes this many tokens stops at the next safe moment and starts its next spawn fresh (null: never)
   auth: subscription         # what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell
   jobBudget:                 # with enabled: true, fills each of tokens, usd and minutes the job's budget leaves unset (null: off; see "Daemon" below)
     tokens: 600000000        # total tokens per job

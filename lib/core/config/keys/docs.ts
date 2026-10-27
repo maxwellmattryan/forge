@@ -287,8 +287,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     layout: 'block',
   },
   'daemon.maxConcurrent': { doc: 'job sessions at once (1-16), besides the inbox' },
-  'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work resumes it' },
+  'daemon.idleStopMinutes': { doc: 'stop an idle session after this long (null: never); new work starts it again' },
   'daemon.turnTimeoutMinutes': { doc: 'stop a turn still running after this long and requeue its work (null: no limit)' },
+  'daemon.freshAfterTokens': { doc: "a job session whose last turn's context (input + cache) passes this many tokens stops at the next safe moment and starts its next spawn fresh (null: never)" },
   'daemon.auth': { doc: "what sessions run on: your Claude login, or api-key for an ANTHROPIC_API_KEY in forge dash's shell" },
   'daemon.jobBudget': {
     doc: 'with enabled: true, fills each of tokens, usd and minutes the job\'s budget leaves unset (null: off; see "Daemon" below)',

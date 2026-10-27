@@ -251,6 +251,9 @@ export function defaults(): Config {
       idleStopMinutes: 30,
       // A turn still running after this long is stopped and its work requeued; null never stops one.
       turnTimeoutMinutes: 60,
+      // A job session whose last turn held more context than this stops at a safe moment and starts its
+      // next spawn fresh: 58 of 97 job session logs here passed 200k; the largest reached ~645k.
+      freshAfterTokens: 200000,
       // Sessions run on the Claude login. An ANTHROPIC_API_KEY exported in the shell that ran
       // `forge dash` is dropped from their environment unless this is api-key, because claude
       // would silently bill it instead of the subscription.
