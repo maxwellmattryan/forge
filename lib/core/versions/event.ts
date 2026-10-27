@@ -34,6 +34,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // actor on a transition their grant made (a job finished while shelved put back to work); an older
   // Forge reads them as generic events.
   { id: 'shelve-events', up: (e) => e },
+  // v10 adds the `senior-pass` event ({ gate, first }, the Foreman's actor): the gate runner's once-per-park marker
+  // under foreman.escalations: foreman. An older Forge reads it as a generic event.
+  { id: 'senior-pass', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

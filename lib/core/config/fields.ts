@@ -6,7 +6,7 @@
 // CONFIG_DISCLOSURE, at the end, is a separate map rather than a ConfigField property: it must
 // classify every key (commands.* and worktrees.setup are not settings), and /api/config stays as is.
 import { defaults } from './load.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_SHIP, KEEP_AWAKE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
+import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_ESCALATIONS, FOREMAN_SHIP, KEEP_AWAKE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
 import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from '../types.ts';
 import { getPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
@@ -21,7 +21,8 @@ const isModelKey = (key: string) =>
   key === 'scoring.model' ||
   key === 'foreman.model' ||
   key === 'foreman.assistants.model' ||
-  key === 'foreman.surveyors.model';
+  key === 'foreman.surveyors.model' ||
+  key === 'foreman.senior.model';
 const LABEL_PREFIX_RE = /^.+[:/-]$/;
 const MODEL_SUGGESTIONS = ['inherit', 'opus', 'sonnet', 'haiku', 'fable'];
 const SEVERITIES = ['blocker', 'major', 'minor', 'nit'];
@@ -216,6 +217,7 @@ export const FIELDS: ConfigField[] = [
   field('foreman.decides', 'daemon', 'Foreman decides', 'The gate classes the foreman may decide; the rest stay with a human.', { type: 'list', options: [...OFFICE_GATES], locked: 'widens what the foreman may decide' }),
   field('foreman.reserved', 'daemon', 'Reserved topics', 'Whole-phrase patterns that keep a gate with a human when the reason, decision or note mentions them; a gate:<class> entry keeps that whole gate class with a human.', { type: 'list', locked: 'narrows what stays with a human' }),
   field('foreman.ship', 'daemon', 'Foreman ship', 'propose leaves merging as it is; merge counts as merge.auto for PRs the approver marks eligible; release does too, and lets a mandate run until its release.', { type: 'enum', options: [...FOREMAN_SHIP], locked: "lets the foreman's pipeline merge" }),
+  field('foreman.escalations', 'daemon', 'Foreman escalations', 'Who takes a gate the assistant escalated or the CLI refused: human leaves it for a person; foreman runs one senior pass, which decides it or shelves the job.', { type: 'enum', options: [...FOREMAN_ESCALATIONS], locked: 'lets the foreman decide gates its assistant escalated' }),
   // Editable like runtime.models and runtime.efforts: they pick a model and how much it thinks, never what it may do.
   field('foreman.model', 'daemon', 'Foreman model', "The office session's model when it directs work under mandates: --model on its spawn. An alias (inherit, opus, sonnet, haiku, fable) or a full model id; inherit keeps daemon.command's.", { type: 'string', suggestions: MODEL_SUGGESTIONS }),
   field('foreman.effort', 'daemon', 'Foreman effort', 'How much the office session thinks when it directs work under mandates. Empty falls through to the default effort.', { type: 'enum', options: [...EFFORTS], nullable: true }),
@@ -223,6 +225,8 @@ export const FIELDS: ConfigField[] = [
   field('foreman.assistants.effort', 'daemon', 'Assistant effort', "Effort for the Foreman's gate assistant; a job's own effort beats it. Empty falls through to the complexity mapping, then the default effort.", { type: 'enum', options: [...EFFORTS], nullable: true }),
   field('foreman.surveyors.model', 'daemon', 'Surveyor model', "The model of the sub-agents that summarise the board for the Foreman. An alias (inherit, opus, sonnet, haiku, fable) or a full model id.", { type: 'string', suggestions: MODEL_SUGGESTIONS }),
   field('foreman.surveyors.effort', 'daemon', 'Surveyor effort', 'How much the surveyors think. Empty falls through to the default effort.', { type: 'enum', options: [...EFFORTS], nullable: true }),
+  field('foreman.senior.model', 'daemon', 'Senior pass model', "The model of the senior pass that takes a gate the assistant escalated, under Foreman escalations: foreman. An alias (inherit, opus, sonnet, haiku, fable) or a full model id.", { type: 'string', suggestions: MODEL_SUGGESTIONS }),
+  field('foreman.senior.effort', 'daemon', 'Senior pass effort', "Effort for the senior pass; it beats a job's own effort. Empty falls through to the assistant's effort.", { type: 'enum', options: [...EFFORTS], nullable: true }),
   // Locked: each one paces, caps or widens unattended work.
   field('foreman.cadence', 'daemon', 'Foreman cadence (minutes)', "Minutes between the Office's passes over its mandates (budgets, stalls, closes and the next starts); a mandate stalls after its stall passes of this many minutes with no progress.", { type: 'integer', min: 1, max: 1440, locked: 'paces unattended work' }),
   field('foreman.assistants.enabled', 'daemon', 'Gate runs', "The gate runner takes the Foreman's gate requests and decides them. Off leaves every parked gate for a person.", { type: 'boolean', locked: 'changes who decides gates unattended' }),

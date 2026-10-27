@@ -166,6 +166,7 @@ const CONFIG_ROWS: Row[] = [
     removed: ['foreman.assistants.sessions'],
     note: 'the assistant sessions count becomes the gate runs at once',
   },
+  { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -297,6 +298,12 @@ const EVENT_ROWS: Row[] = [
     input: { ts: 't', type: 'shelved', reason: 'later', from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, actor: { login: 'al', source: 'gh' } },
     fields: { type: 'shelved', ts: 't', reason: 'later', 'from.waitingOn': 'escalation', actor: { login: 'al', source: 'gh' } },
     note: 'shelve and unshelve events read as written',
+  },
+  {
+    step: 'senior-pass',
+    input: { ts: 't', type: 'senior-pass', gate: 'escalation', first: 'escalate', actor: FOREMAN },
+    fields: { type: 'senior-pass', ts: 't', gate: 'escalation', first: 'escalate', actor: FOREMAN },
+    note: 'a senior-pass marker reads as written',
   },
 ];
 

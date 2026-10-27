@@ -94,6 +94,10 @@ test('foreman problems', () => {
     ['mandate.stall.bounces 0', (f) => (f.mandate.stall.bounces = 0), /^foreman\.mandate\.stall\.bounces must be an integer 1-100/],
     ['mandate.onUnfinishable drop', (f) => (f.mandate.onUnfinishable = 'drop'), /^foreman\.mandate\.onUnfinishable must be one of park \| cancel/],
     ['assistants.enabled "yes"', (f) => (f.assistants.enabled = 'yes'), /^foreman\.assistants\.enabled must be true or false/],
+    ['escalations board', (f) => (f.escalations = 'board'), /^foreman\.escalations must be one of human \| foreman \(got "board"\)$/],
+    ['senior.model --x', (f) => (f.senior.model = '--x'), /^foreman\.senior\.model must be a model alias or id/],
+    ['senior.effort ultra', (f) => (f.senior.effort = 'ultra'), /^foreman\.senior\.effort must be one of low \| medium/],
+    ['senior not a map', (f) => (f.senior = 'opus'), /^foreman\.senior must be a map/],
   ];
   for (const [name, edit, want] of rows) {
     const got = problems(edit);
@@ -105,6 +109,13 @@ test('foreman problems', () => {
   assert.throws(
     () => setConfigValue(os.tmpdir(), 'foreman.assistants.model', '--x', () => ({ login: null, source: 'unknown' })),
     (e: any) => e.reason === 'invalid' && /foreman\.assistants\.model must be a model alias or id/.test(e.message),
+  );
+  // escalations hands escalated gates to the foreman, so only a hand edit of config.yml sets it; the senior's model stays editable and checked.
+  const actor = () => ({ login: null, source: 'unknown' as const });
+  assert.throws(() => setConfigValue(os.tmpdir(), 'foreman.escalations', 'foreman', actor), (e: any) => e.reason === 'locked');
+  assert.throws(
+    () => setConfigValue(os.tmpdir(), 'foreman.senior.model', '--x', actor),
+    (e: any) => e.reason === 'invalid' && /foreman\.senior\.model must be a model alias or id/.test(e.message),
   );
 });
 

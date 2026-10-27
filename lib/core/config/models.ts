@@ -69,8 +69,10 @@ export function validModel(v: unknown): string | null {
  * are review findings, runtime.modelByComplexity[job.complexity], runtime.models.builder, inherit.
  * The judge on a real (non-eval) job is the post-merge scorer: scoring.model, then runtime.models.judge.
  * The Foreman's gate assistant takes foreman.assistants.model, and its surveyors foreman.surveyors.model.
+ * The senior pass (`senior`) takes foreman.senior.model, then the assistant's.
  */
 export function resolveModel(config: Config, job: { complexity?: unknown; round?: unknown; kind?: unknown } | null, role: string, rework: readonly string[] = []): string {
+  if (role === 'senior') return validModel(config.foreman?.senior?.model) ?? resolveModel(config, job, 'assistant');
   if (role === 'assistant') return validModel(config.foreman?.assistants?.model) ?? 'inherit';
   if (role === 'surveyor') return validModel(config.foreman?.surveyors?.model) ?? 'inherit';
   if (role === 'judge' && job && job.kind !== 'eval') {
@@ -113,13 +115,18 @@ function bumpEffort(level: Effort): Effort {
  * (foreman.assistants.effort for the assistant, foreman.surveyors.effort for a surveyor), runtime.effortByComplexity[job.complexity],
  * runtime.effort. With no `role` (a daemon session runs
  * the orchestrator) only the job and runtime.effort layers apply. A builder on a rework round
- * (round >= 2) gets one level more unless the human set the job's own effort.
+ * (round >= 2) gets one level more unless the human set the job's own effort. The senior pass (`senior`) takes
+ * foreman.senior.effort before the job layer, so a job marked low never weakens it; null falls through to the assistant.
  */
 export function resolveEffort(
   config: Config,
   job?: { effort?: unknown; complexity?: unknown; round?: unknown } | null,
   role?: string | null,
 ): { level: Effort | null; source: EffortSource; rework?: true } {
+  if (role === 'senior') {
+    const senior = validEffort(config.foreman?.senior?.effort);
+    return senior ? { level: senior, source: 'role' } : resolveEffort(config, job, 'assistant');
+  }
   const own = validEffort(job?.effort);
   if (own) return { level: own, source: 'job' };
   let found: { level: Effort | null; source: EffortSource } | null = null;
