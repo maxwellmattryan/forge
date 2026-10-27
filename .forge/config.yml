@@ -1,6 +1,6 @@
 # Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.
 # Re-run `/forge init` to change answers interactively, or edit this file directly.
-schemaVersion: 31
+schemaVersion: 34
 project:
   name: Forge
   description: "Claude Code plugin that runs a software factory: jobs in worktrees, agent roster, PR/tracker sync, dashboard, evals and retros. The repo is also its own plugin marketplace."
@@ -58,13 +58,13 @@ verifyE2e:
     - "*.jsx"
     - "*.tsx"
     - "*.astro"
-    - "dashboard/"
-    - "lib/api/"
-    - "lib/server/"
-    - "test/fixtures/scenarios/"
-    - "test/fixtures/render-broken/"
-    - "scripts/scenario.ts"
-    - "scripts/render-check.ts"
+    - dashboard/
+    - lib/api/
+    - lib/server/
+    - test/fixtures/scenarios/
+    - test/fixtures/render-broken/
+    - scripts/scenario.ts
+    - scripts/render-check.ts
 verifyIntegrity: warn
 ports:
   base: 4100
