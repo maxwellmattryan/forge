@@ -15,10 +15,14 @@ import { memberEntry, memberRepos } from '../project/job-repos.ts';
 import { unpromotedDownstream } from '../project/downstream.ts';
 import { jobRepoOrder } from '../project/repo-order.ts';
 import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
-import { checkBranch, logEscalated, protectedApproved, refusalText } from '../guard/protected.ts';
-import type { MemberBranch } from '../guard/protected.ts';
+import { LIST_LIMIT, checkBranch, logEscalated, protectedApproved, refusalText } from '../guard/protected.ts';
+import type { BranchCheck, MemberBranch } from '../guard/protected.ts';
+import { ciHoldReason, isCiHit, pushCiChanges, pushHoldApproved, secretsHoldReason, securityHoldReason } from '../guard/push-hold.ts';
+import type { CiChange } from '../guard/push-hold.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from '../guard/secrets.ts';
+import type { SecretMode } from '../guard/secrets.ts';
+import type { SecretScan } from '../guard/types.ts';
 import { verifiedHead } from '../verify/gate.ts';
 import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { Deferral } from '../release/interim.ts';
@@ -27,7 +31,7 @@ import { findPr } from './adopt.ts';
 import { prText } from './body.ts';
 import { pullPrHead, pushBranch, refreshBase } from './branch.ts';
 import { checkMemberPr, linkSiblingsQuietly, memberSlug, openMemberPr, recordMemberPr } from './members.ts';
-import type { MemberPrResult } from './members.ts';
+import type { MemberPrPlan, MemberPrResult } from './members.ts';
 import { requiredChecksNote } from './required.ts';
 
 export function openPr(
@@ -83,7 +87,9 @@ export function openPr(
   // After checkMemberPr, which refreshes each member's base from its push remote and pushes nothing:
   // a member's remote-tracking base is writable from its worktree, and checked stale it would hide
   // the member's protected paths behind an empty diff, as the root's refresh above prevents for it.
-  refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
+  const check = refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
+  // Still before any push in any repo, and --force doesn't skip it: the held push.
+  refusePushHold(root, config, job, evidence.head, plans, scan, mode, check);
   // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
   // the checks (a stale session, a process the builder left behind) must not ride along.
   const checked = evidence.head;
@@ -240,17 +246,56 @@ function freshMerged(root: string, config: Config, github: GitHub, job: Job, key
 
 /**
  * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
- * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
- * open, and escalate paths stop it until a human approved their current content at a PP1 park.
+ * recomputed from the branch (a hand-cleared job.json flag changes nothing) and a refuse path stops
+ * the open. An escalate CI path stops it until a human approved its current content (PP1, before the
+ * push): pushing it runs it. Other escalate paths are pushed and logged, and wait for the approval
+ * before merge (PP1b).
  */
-function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): void {
+function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): BranchCheck {
   const id = job.id;
   const c = checkBranch(root, config, job, head, 'pr', members);
   if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
   if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
   if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
-    logEscalated(root, id, 'pr', c.escalated, head, true);
-    throw new ForgeError(`protected paths need a human approval: ${c.escalated.length} paths; /forge approve ${id}`, 'protected_path');
+    const ci = c.escalated.filter((h) => isCiHit(h.path));
+    logEscalated(root, id, 'pr', c.escalated, head, ci.length > 0);
+    if (ci.length) throw new ForgeError(`protected CI paths need a human approval before the push: ${ci.length} paths; /forge approve ${id}`, 'protected_path');
+  }
+  return c;
+}
+
+/**
+ * The held push (lib/engine/guard/push-hold.ts), after the protected-paths check and before any push,
+ * member push or create: the latest security verdict, the secrets the scan only reported, then every
+ * repo's CI changes since what Forge last pushed. CI paths a person approved as protected paths at
+ * this content are not held twice. The first hold no person approved at its exact reason is logged
+ * (`push-held`, which step's PR13 parks on) and refused.
+ */
+function refusePushHold(root: string, config: Config, job: Job, head: string, plans: MemberPrPlan[], scan: SecretScan, mode: SecretMode, check: BranchCheck): void {
+  const id = job.id;
+  const events = readEvents(root, id);
+  let changes: CiChange[];
+  try {
+    changes = [
+      ...pushCiChanges(job.worktree!, config, job, head, job.pr?.pushedSha),
+      ...plans.flatMap((p) => pushCiChanges(p.worktree, config, { base: p.base }, p.checked, memberEntry(job, p.repo)?.pr?.pushedSha, p.repo)),
+    ];
+  } catch (e) {
+    throw new ForgeError(`can't check ${id}'s CI changes (${(e as Error).message.split('\n')[0].slice(0, 200)}); forge pr open won't push a branch it can't check`, 'push_held');
+  }
+  if (check.flag && protectedApproved(check.flag, events)) {
+    const approved = new Set(check.escalated.map((h) => `${h.path}\0${h.blob ?? ''}`));
+    changes = changes.filter((c) => !approved.has(`${c.path}\0${c.blob ?? ''}`));
+  }
+  const holds: { kind: 'security' | 'secrets' | 'ci'; reason: string | null; paths?: string[] }[] = [
+    { kind: 'security', reason: securityHoldReason(job) },
+    { kind: 'secrets', reason: secretsHoldReason(scan, mode, head) },
+    { kind: 'ci', reason: changes.length ? ciHoldReason(changes) : null, paths: changes.slice(0, LIST_LIMIT).map((c) => c.path) },
+  ];
+  for (const h of holds) {
+    if (h.reason === null || pushHoldApproved(events, h.reason)) continue;
+    logEvent(root, id, 'push-held', { kind: h.kind, reason: h.reason, head, ...(h.paths ? { paths: h.paths } : {}) });
+    throw new ForgeError(`${h.reason}: nothing was pushed; a person approves it before forge pr open pushes ${id}`, 'push_held', `/forge approve ${id}`);
   }
 }
 

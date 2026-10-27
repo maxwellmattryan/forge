@@ -72,7 +72,7 @@ const rv9Skips: Row[] = [
 for (const row of recallSkips) {
   test(row.name, () => {
     const a = step(fixture(row.fx)) as any;
-    assert.ok(!['RC1', 'RC2'].includes(a.rule), `${row.name}: decided by ${a.rule}`);
+    assert.ok(a.rule !== 'RC1', `${row.name}: decided by ${a.rule}`);
     assertWant(a, row.want, row.name);
     // No gate at all is "not checked", never "none": that would claim the diff changes no reviewer prompts.
     const line =

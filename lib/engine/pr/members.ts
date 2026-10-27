@@ -41,7 +41,7 @@ export function memberSlug(config: Config, name: string): string {
 }
 
 /** What openMemberPr pushes and opens, fixed by checkMemberPr before any repo is pushed. */
-interface MemberPrPlan {
+export interface MemberPrPlan {
   repo: string;
   slug: string;
   worktree: string;

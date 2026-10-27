@@ -46,6 +46,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // v13 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
   // project it loads); an older Forge reads it as `unknown`.
   { id: 'actor-source-launch', up: (e) => e },
+  // v14 adds the `push-held` event ({ kind, reason, head, paths? }): `forge pr open` held the push (CI config,
+  // a security review that isn't PASS, reported secrets) and step's PR13 parks on its reason. An older Forge
+  // reads it as a generic event.
+  { id: 'push-held-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

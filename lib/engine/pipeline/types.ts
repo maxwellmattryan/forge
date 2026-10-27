@@ -149,11 +149,11 @@ export interface StepInput {
    */
   integrationTouched: { head: string; upstream: string; sha: string; files: string[] | null } | null;
   /**
-   * The decide gate's recall eval (lib/engine/pipeline/step/input.ts loadRecall): whether the committed diff touches
+   * The recall eval gate (lib/engine/pipeline/step/input.ts loadRecall): whether the committed diff touches
    * evals.recall.paths, and the worktree's pluginHash a recorded run must match. `invalidFixtures`
-   * when the gate is required but a main-checkout fixture does not load, so `start` cannot run and
-   * RC2 parks at once. Null outside decide, for an eval job, without a worktree, or when the main
-   * checkout has no recall fixture.
+   * when the gate is required but a main-checkout fixture does not load, so `start` cannot run, RC1
+   * skips the eval and PR17 holds the merge. Null outside decide and pr, for an eval job, without a
+   * worktree, or when the main checkout has no recall fixture.
    */
   recall: { required: boolean; pluginHash: string | null; invalidFixtures?: true } | null;
   /** How many `.forge/verifiers/*.md` entries the main checkout has: 0 keeps the verify stage as it was. */

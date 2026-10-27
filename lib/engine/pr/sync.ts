@@ -93,6 +93,9 @@ function rootTransition(
   // A cancel or a failure keeps stage pr, and only a person reopens the job: parking it on pr-review
   // again would hand forge pr merge a job a human stopped.
   if (pr.state !== 'OPEN' || job.stage !== 'pr' || job.state === 'cancelled' || job.state === 'failed') return stay();
+  // A gate park on the open PR (an escalation, a runbook, protected paths, a held push) waits on a
+  // person: parking it on pr-review would drop the gate that holds the merge.
+  if (job.state === 'waiting' && job.waitingOn !== 'pr-review' && job.waitingOn !== 'conflicts') return stay();
   const policy = config.pr.conflicts;
   const conflicting = pr.mergeable === 'CONFLICTING';
   const behindBy = typeof pr.behindBy === 'number' && Number.isSafeInteger(pr.behindBy) && pr.behindBy > 0 ? pr.behindBy : 0;
