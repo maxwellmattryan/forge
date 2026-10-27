@@ -1,6 +1,6 @@
 // Which surfaces render markdown, and how a saved Rendered/Raw choice reads back. Plain TS so the suites can import it;
 // the shared rune state lives in md-view.svelte.ts.
-export const MD_SURFACES = ['files', 'thread', 'session'] as const;
+export const MD_SURFACES = ['files', 'thread', 'session', 'chat'] as const;
 export type MdSurface = (typeof MD_SURFACES)[number];
 export const MD_VIEWS = ['rendered', 'raw'] as const;
 export type MdView = (typeof MD_VIEWS)[number];

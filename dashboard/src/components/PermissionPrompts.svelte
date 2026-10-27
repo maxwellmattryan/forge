@@ -1,19 +1,31 @@
 <!-- Tool calls daemon sessions are waiting on a human to allow: the whole pool's in the status bar's Needs-you popover, one job's in
      its Thread, one Foreman session's (named by `name`, which each card and the section's label then carry) in the Foreman popover.
-     The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
+     A session the pool state doesn't list (a chat's) passes its own state as `session`, and `onanswered` re-reads it after
+     each answer. The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
      Only the decision is posted; the server builds what the session receives from claude's own request. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import { ago } from '../lib/util.ts';
   import { INBOX_SCOPE, OFFICE_SCOPE, assistantNumber, isAssistantScope, sharedScope } from '../lib/types.ts';
-  import type { PermissionDecision } from '../lib/types.ts';
-  import { grantsMore, pendingPrompts, postPermission, promptInput } from '../lib/permissions.ts';
+  import type { DaemonSessionState, PermissionDecision } from '../lib/types.ts';
+  import { grantsMore, pendingPrompts, postPermission, promptInput, sessionPrompts } from '../lib/permissions.ts';
   import { S, forgeToken, openDrawer, refresh } from '../lib/app.svelte.ts';
   import { toast } from '../lib/toast.svelte.ts';
   import { t } from '../lib/locale.ts';
 
-  let { scope, name }: { scope?: string; name?: string } = $props();
-  const prompts = $derived(pendingPrompts(S.data?.daemons ?? null, scope));
+  let {
+    scope,
+    name,
+    session,
+    onanswered,
+  }: {
+    scope?: string;
+    name?: string;
+    /** This one session's state, in place of the pool's (given with `scope`); null while it isn't known. */
+    session?: Partial<DaemonSessionState> | null;
+    onanswered?: () => void;
+  } = $props();
+  const prompts = $derived(session !== undefined && scope !== undefined ? sessionPrompts(session, scope) : pendingPrompts(S.data?.daemons ?? null, scope));
   /** Prompt ids with a POST in flight, so a double click can't answer twice. */
   let answering = $state<string[]>([]);
 
@@ -26,6 +38,7 @@
     }
     answering = answering.filter((a) => a !== id);
     refresh();
+    onanswered?.();
   }
 </script>
 

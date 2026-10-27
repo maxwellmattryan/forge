@@ -22,7 +22,7 @@ import type {
 // ---------- the page's panels ----------
 
 /** The Foreman page's panels, in tab order; the first is the one the page opens on. A new panel is one entry here. */
-export const FOREMAN_PANELS = ['office'] as const;
+export const FOREMAN_PANELS = ['office', 'chats'] as const;
 export type ForemanPanel = (typeof FOREMAN_PANELS)[number];
 export const DEFAULT_FOREMAN_PANEL: ForemanPanel = FOREMAN_PANELS[0];
 
@@ -208,7 +208,7 @@ export function mandateGroups(rows: readonly (MandateRow | UnreadableMandateRow)
 export const STATE_TONE: Record<MandateRow['state'], string> = { active: 'ok', waiting: 'info', paused: 'warn', closed: 'muted' };
 
 /** A directive action's chip tone: the office session's choices are neutral or live, the pass's enforcements warn or bad. */
-export const DIRECTIVE_TONE: Record<Directive['action'], string> = { start: 'ok', resume: 'ok', note: 'muted', skip: 'muted', pause: 'warn', close: 'muted', stall: 'warn', park: 'warn', cancel: 'bad' };
+export const DIRECTIVE_TONE: Record<Directive['action'], string> = { start: 'ok', resume: 'ok', note: 'muted', skip: 'muted', pause: 'warn', close: 'muted', stall: 'warn', park: 'warn', cancel: 'bad', release: 'info' };
 
 export type MandateAction = 'edit' | 'pause' | 'resume' | 'close';
 

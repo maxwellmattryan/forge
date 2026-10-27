@@ -30,7 +30,7 @@ const NOTIFY: HelpGroup = {
       flags: [
         ['--events <e1[,e2]>', 'the events, most specific first'],
         ['--job <id>', 'the job it is about (none for a pool-wide daemon stop)'],
-        ['--mandate <id>', 'the mandate it is about, with no job: only for the mandate-stalled, mandate-budget and mandate-closed reasons'],
+        ['--mandate <id>', 'the mandate it is about, with no job: only for the mandate-stalled, mandate-budget, mandate-closed and mandate-release reasons'],
         ['--reason <code>', 'the reason code, mapped to a fixed English string'],
       ],
       exits: [[1, 'a target failed, or no such job']],

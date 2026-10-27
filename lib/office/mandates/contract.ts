@@ -6,7 +6,7 @@ import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATU
 import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
 import { runSteps } from '#core/versions/steps.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
-import { defaults } from '#core/config/load.ts';
+import { defaults, shipAllows } from '#core/config/load.ts';
 import { isMap } from '#core/shape.ts';
 import { fenceImport, oneLineTitle, visibleText } from '#core/text.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
@@ -311,7 +311,8 @@ function afterProblems(m: Mandate, all: ReadMandate[]): string[] {
 /**
  * The contract as it applies now, and `capped`: one line per term the config changed. decides keeps
  * only the classes the effective foreman.decides grants (none while the foreman is off or
- * foreman.reserved can't be read); `merged` applies only under foreman.ship: merge.
+ * foreman.reserved can't be read); `merged` applies only under foreman.ship merge or release, and
+ * `released` only under release (merged under merge, merge-ready under propose).
  */
 export function effectiveContract(config: Config, m: Mandate): { effective: MandateContract; capped: string[] } {
   const capped: string[] = [];
@@ -330,7 +331,10 @@ export function effectiveContract(config: Config, m: Mandate): { effective: Mand
     }
   }
   let until = m.until;
-  if (until === 'merged' && config.foreman?.ship !== 'merge') {
+  if (until === 'released' && !shipAllows(config, 'release')) {
+    until = shipAllows(config, 'merge') ? 'merged' : 'merge-ready';
+    capped.push(`until: released needs foreman.ship: release; ${until} applies`);
+  } else if (until === 'merged' && !shipAllows(config, 'merge')) {
     until = 'merge-ready';
     capped.push('until: merged needs foreman.ship: merge; merge-ready applies');
   }

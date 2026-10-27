@@ -1,16 +1,19 @@
 // The `release` gate class (#192): a job's release plan the Foreman may approve in place of
-// `forge release run`'s publish prompt. Publishing can't be undone, so the class is a human's unless a
-// project lists it in foreman.decides and drops `gate:release` from foreman.reserved. Nothing here
-// trusts release.json, the request inbox or events.jsonl alone: every check recomputes the plan
-// (freshPlan) and re-reads the policy, at approval time and again at run time.
-// docs/RELEASES.md "Releasing a project", docs/architecture/foreman.md.
+// `forge release run`'s publish prompt, and (through ./mandate.ts) an `until: released` mandate's. Publishing
+// can't be undone, so the class is a human's unless a project lists it in foreman.decides and drops
+// `gate:release` from foreman.reserved. Nothing here trusts release.json, the request inbox or
+// events.jsonl alone: every check recomputes the plan (freshPlan) and re-reads the policy, at approval
+// time and again at run time. docs/RELEASES.md "Releasing a project", docs/architecture/foreman.md.
 import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.ts';
-import { classReservation, decides, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
+import { classReservation, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
 import { assertNoSymlinks, readPlanFile, readState, releaseFiles } from './files.ts';
+import { PLAN_HASH, foremanDecidesRelease, hashOf, mandateReleaseApproval, type ForemanApproval, type MandateReleaseNarrow, type ReleaseOwner } from './mandate.ts';
 import { enqueue, inAssistant, listRequests } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, ForgeRequest, Job, JobEvent } from '#core/types.ts';
+
+export type { ForemanApproval, ReleaseOwner } from './mandate.ts';
 
 /**
  * The job's mandate refusal for `release` (lib/office/foreman.ts releaseMandateRefusal), or null. Passed in
@@ -20,17 +23,11 @@ export type ReleaseNarrow = (job: Job) => string | null;
 
 const RELEASE_PLANNED = 'release-planned';
 export const RELEASE_APPROVAL = 'release-approval';
-/** A full sha256 plan hash; an event carrying anything else is ignored. */
-const PLAN_HASH = /^[0-9a-f]{64}$/;
 
 const GATE = 'release' as const;
 
-export type ReleaseOwner = 'human' | 'foreman';
-
-/** The Foreman decides `release`: it is on, the class is in foreman.decides, and no `gate:release` (decides() drops it). */
-const foremanDecidesRelease = (config: Config): boolean => foremanEnabled(config) && decides(config).includes(GATE);
-
-const hashOf = (e: JobEvent): string | null => (typeof e.planHash === 'string' && PLAN_HASH.test(e.planHash) ? e.planHash : null);
+/** A since plan the Office pass made for an `until: released` mandate: its approval is the mandate's (./mandate.ts). */
+const mandateOf = (plan: Pick<ReleasePlan, 'selection'>): string | null => (plan.selection.kind === 'since' && plan.selection.mandate !== undefined ? plan.selection.mandate : null);
 
 /** The hash of the job's latest `release-planned` event, or null. */
 function latestPlannedHash(events: JobEvent[]): string | null {
@@ -136,19 +133,21 @@ export function checkReleaseDecision(
   return hash;
 }
 
-export interface ForemanApproval {
-  actor: 'foreman';
-  at: string;
-  note: string | null;
-}
-
 /**
  * The Foreman's approval of `plan` (recomputed now, never release.json's word) that `forge release run`
  * may act on without a terminal, or null. It counts only while the policy and the job's mandate that
  * allowed it still hold: the Foreman decides `release`, `narrow` finds the job's mandate still delegating
  * it (not narrowed, paused, closed, deleted or unreadable), and nothing reserved shows in the job or the approval's note.
+ * A mandate's since plan defers to mandateReleaseApproval under `mandateNarrow`; without it, nothing counts (fail closed).
  */
-export function foremanReleaseApproval(root: string, config: Config, plan: Pick<ReleasePlan, 'selection' | 'hash'>, narrow: ReleaseNarrow): ForemanApproval | null {
+export function foremanReleaseApproval(
+  root: string,
+  config: Config,
+  plan: Pick<ReleasePlan, 'selection' | 'hash'>,
+  narrow: ReleaseNarrow,
+  mandateNarrow?: MandateReleaseNarrow,
+): ForemanApproval | null {
+  if (mandateOf(plan) !== null) return mandateNarrow ? mandateReleaseApproval(root, config, plan, mandateNarrow) : null;
   if (plan.selection.kind !== 'job' || !PLAN_HASH.test(plan.hash) || !foremanDecidesRelease(config)) return null;
   const id = plan.selection.job;
   let job;
@@ -173,11 +172,14 @@ export function releaseApprovalStatus(
   config: Config,
   file: Pick<ReleasePlan, 'selection' | 'hash'>,
   narrow: ReleaseNarrow,
+  mandateNarrow?: MandateReleaseNarrow,
 ): { owner: ReleaseOwner; status: 'pending' | 'approved'; actor?: 'foreman'; at?: string } {
-  const a = foremanReleaseApproval(root, config, file, narrow);
+  const a = foremanReleaseApproval(root, config, file, narrow, mandateNarrow);
   if (a) return { owner: 'foreman', status: 'approved', actor: 'foreman', at: a.at };
   let owner: ReleaseOwner = 'human';
-  if (file.selection.kind === 'job' && foremanDecidesRelease(config)) {
+  const mandate = mandateOf(file);
+  if (mandate !== null) owner = mandateNarrow && foremanDecidesRelease(config) && mandateNarrow(mandate) === null ? 'foreman' : 'human';
+  else if (file.selection.kind === 'job' && foremanDecidesRelease(config)) {
     try {
       const job = loadJob(root, file.selection.job);
       owner = reservedFor(root, config, job, GATE) || narrow(job) !== null ? 'human' : 'foreman';
