@@ -1,7 +1,8 @@
 <!-- The job panel, inside the drawer's shell (DrawerShell.svelte, shared with the issue panel). It renders the drawerView
      snapshot, so it changes only where the old renderDrawer() ran. Its header is four rows: the title with the close
      button, the meta line (id · round) with one right-aligned controls cluster, one badge row, and the live agent line
-     while agents run. Every row wraps, so it never scrolls sideways at any width. -->
+     while agents run; opened from the issue panel, a Back to <ref> button sits above them. Every row wraps, so it never
+     scrolls sideways at any width. -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
@@ -45,7 +46,8 @@
   import { ago, dur, num, tokensShort, usd } from '../lib/util.ts';
   import { currentProject } from '../lib/project.ts';
   import { scopeVerbs } from '../lib/command.ts';
-  import { S, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { S, backToIssue, closeDrawer, loadFile, setDrawerTab } from '../lib/app.svelte.ts';
+  import { refLabel } from '../lib/issue-view.ts';
   import { ticker } from '../lib/clock.svelte.ts';
   import { freshCount, sessionActivity } from '../lib/live.ts';
   import { t } from '../lib/locale.ts';
@@ -135,6 +137,8 @@
     {@const verbs = scopeVerbs(j).length > 0}
     <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div bind:this={head} class="shrink-0 max-h-[40%] overflow-y-auto overscroll-contain p-5 md:p-6 pb-3 md:pb-4 flex flex-col gap-2">
+        <!-- Opened from the issue panel (its card, Open job or an earlier job): Back returns to that issue. -->
+        {#if S.drawer.back}{@const back = S.drawer.back}<button class="btn sm self-start" onclick={backToIssue}><Icon name="chevron-down" class="sm rotate-90" />{$t('drawer.backToIssue', { ref: refLabel(back) })}</button>{/if}
         <div class="flex items-start justify-between gap-3"><h2 {@attach focusTitle} tabindex="-1" class="h sheet-title min-w-0">{j.title}</h2><CloseButton size="sm" label={$t('drawer.close')} onclick={closeDrawer} /></div>
         <!-- The meta line, then one right-aligned controls cluster: a daemon-backed job's session controls (here, not in its
              Log, so every tab has them; its Start/Stop sits apart, at the end of the tab row), then Command, nearest the

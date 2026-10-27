@@ -108,6 +108,7 @@
     "label": "Job panel",
     "resize": "Resize panel",
     "close": "Close",
+    "backToIssue": "Back to {ref}",
     "branch": "Branch",
     "base": "Base",
     "port": "Port",

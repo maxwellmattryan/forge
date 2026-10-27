@@ -10,6 +10,7 @@
   import CommandBar from './components/CommandBar.svelte';
   import Drawer from './components/Drawer.svelte';
   import DrawerShell from './components/DrawerShell.svelte';
+  import IssueDrawer from './components/IssueDrawer.svelte';
   import GitHubCard from './components/GitHubCard.svelte';
   import Icon from './components/Icon.svelte';
   import Nav from './components/Nav.svelte';
@@ -355,7 +356,7 @@
 </div>
 <!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->
 <!-- One shell for both panels; `kind` outlives a close, so the drawer slides out with the panel it showed. -->
-<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<DrawerShell open={S.drawer.open} label={$t('drawer.label')}>{#snippet children(focusTitle)}<Drawer {focusTitle} />{/snippet}</DrawerShell>{/key}</div>
+<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<DrawerShell open={S.drawer.open} label={S.drawer.kind === 'issue' ? $t('issues.view.label') : $t('drawer.label')}>{#snippet children(focusTitle)}{#if S.drawer.kind === 'issue'}<IssueDrawer {focusTitle} />{:else}<Drawer {focusTitle} />{/if}{/snippet}</DrawerShell>{/key}</div>
 {#if settingsOpen}{#key project}<Settings bind:this={settings} start={settingsStart} onclose={closeSettings} />{/key}{/if}
 {#if addProjectDialog.open}<AddProject />{/if}
 {#if palette.open}{#key project}<CommandBar bind:this={command} onclose={closePalette} />{/key}{/if}

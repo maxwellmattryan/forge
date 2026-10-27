@@ -21,6 +21,36 @@
       "scope": "bounded scope",
       "duplicate": "possible duplicate",
       "hiddenText": "hidden text"
+    },
+    "view": {
+      "label": "Issue panel",
+      "state": {
+        "open": "Open",
+        "closed": "Closed"
+      },
+      "forge": "Forge",
+      "openJob": "Open job",
+      "costSoFar": "{cost} est. so far",
+      "elsewhere": "Claimed by {by}",
+      "override": "Starting it overrides triage.",
+      "earlier": "Earlier jobs",
+      "description": "Description",
+      "noBody": "No description.",
+      "comments": "Comments",
+      "noComments": "No comments.",
+      "hiddenComments": {
+        "one": "{count} comment from people without write access is hidden (tracker.github.comments)",
+        "other": "{count} comments from people without write access are hidden (tracker.github.comments)"
+      },
+      "noView": "This tracker serves no issue text here.",
+      "details": "Details",
+      "assignees": "Assignees",
+      "milestone": "Milestone",
+      "author": "Author",
+      "created": "Created",
+      "updated": "Updated",
+      "triaged": "Last triaged",
+      "never": "never"
     }
   }
 }
