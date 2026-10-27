@@ -1,4 +1,5 @@
-// Where a done job's time went, for forge stats: working and parked time per stage, time between agents, stalls, agent gaps and extra rounds, over timeline() in lib/engine/evals/stats.ts. Pure: no I/O.
+// Where a done job's time went, for forge stats: working and parked time per stage, time between agents,
+// stalls, agent gaps and extra rounds, over timeline() in lib/engine/evals/stats.ts. Pure: no I/O.
 import { STAGES, WAITING_ON } from '#core/job/schema.ts';
 import { busyMs, timeline } from '../evals/stats.ts';
 import type { TimelineSegment } from '../evals/stats.ts';

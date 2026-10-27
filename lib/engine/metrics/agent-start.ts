@@ -1,4 +1,5 @@
-// Seconds from an agent run's start to its first tool call, read from the head of its Claude Code transcript for forge stats; bounded, and null-safe where transcripts are gone.
+// Seconds from an agent run's start to its first tool call, read from the head of its Claude Code
+// transcript for forge stats; bounded, and null-safe where transcripts are gone.
 import fs from 'node:fs';
 import { AGENT_ID, agentTranscriptById, claudeProjectsDir, firstToolCallAt, openTranscript } from '#integrations/claude/transcripts.ts';
 import { jobSpeed, spread } from './speed.ts';

@@ -347,6 +347,33 @@ Every `agent-start` event (event schema v3) carries `pluginHash` (10 hex), `prom
 
 `forge stats --mandate <id>` prints the mandate's live report card as JSON, the object itself in every output mode: `{ mandate, at, jobs, scores, review, interventions, spend, outcomes }`, where a figure still waiting on a score run or an outcome window reads `pending` and one with nothing to measure `null` (docs/IMPROVEMENT.md "Mandate report card"). It reads the CLI's records with no tracker call, and works for every status, a goal mandate still drafting too (every count 0, every figure null). `--json` is allowed. A bare or repeated `--mandate`, or `--mandate` with `--csv`, `--by`, `--role`, `--since` or `--include-evals`, exits 2 (`usage`, naming the flag and `usage: forge stats --mandate <id>`). An unknown id exits 1 (`not_found`), as does an unreadable mandate. A closed mandate's summary records the card at its close (`forge mandate show`'s `summary.card`).
 
+## Review and timing figures
+
+`forge stats --json` and `GET /api/stats` carry review and timing figures beside the rates (docs/IMPROVEMENT.md "Live metrics" defines each). They follow the usual rules: `--since` sets the window, evals count only with `--include-evals`, live and archived jobs both count, and ratios round to 3 places, minutes to 2 and seconds to 1.
+
+**Review.** Each `reviewers.<lens>` adds `soleChanges` (rounds where its `CHANGES` was the only one) and `reopened` (a `CHANGES` after the lens's `PASS` in the nearest earlier round it ran in), beside the existing `blockers` count. `quality` adds `findingsCarried` and `findingsNew`, summed from each job's findings record (`forge job findings`' `totals.carried` and `totals.new`), which an older archive record lacks and adds 0 to.
+
+**Timing.** Only jobs in state `done` with a readable `createdAt` and `finishedAt` count (`timedJobs`). A `TimeSpread` is `{ median, p90, n }` (p90 nearest-rank), all null with `n: 0` when there is no sample:
+
+```
+"speed": {
+  "medianMinutesToPr", "medianMinutesToDone",
+  "stageMinutes": { "<stage>": minutes },            // median running minutes, STAGES order
+  "waitingMinutes": { "<waitingOn>": minutes },      // median parked minutes, WAITING_ON order
+  "medianHandoffMinutes": minutes|null,              // time between agents per job
+  "stalledMinutes": minutes|null,                    // 5+ min running with no agent, command or event
+  "handoffSeconds": { "withoutCommand": TimeSpread, "withCommand": TimeSpread },   // agent gaps
+  "agentStartSeconds": { "foreground": TimeSpread, "background": TimeSpread },
+  "minutesPerExtraRound": TimeSpread,
+  "timedJobs": n }
+```
+
+`agentStartSeconds` reads each run's Claude Code transcript head (at most 64 KiB, the newest 200 runs) through the same confined lookup as the dashboard's activity line, and returns numbers only; a run whose transcript is gone is left out. Only the repo's own `forge stats` and `/api/stats` fill it: prompt cohorts, experiments and mandate report cards read no transcripts and show `n: 0`.
+
+**Cost.** Each `cost.byRole.<role>` row adds `cacheReadShare`: `cacheRead / (input + cacheRead + cacheWrite)`, null at 0. `byModel` and `sessions` rows have none.
+
+The text output shows all of them: per-lens `blockers`, `sole` and `reopened`, carried and new findings, working minutes by stage, parked minutes, time between agents, stalled minutes, agent gaps, agent start, extra rounds and the cache-read share; the Analytics view shows the lens counts and the stage and parked tables. A figure an older `stats.json` lacks reads as `—` or 0.
+
 ## Experiments
 
 `forge experiment evaluate [<job>] [--dry-run]` settles `.forge/notes/experiments.md` (docs/IMPROVEMENT.md "Settling experiments"): the job worktree's ledger with `<job>`, else the repo's. It prints `{ file, dryRun, written, entries }`, one entry per ledger item: `{ id, metric, direction, baseline, baselineN, jobsAfter, n, value, method, interval, verdict, status, reason }`. `verdict` is `kept`, `reverted`, `inconclusive`, `pending`, or `settled` for an entry that was not open; `status` is the entry's status segment after the run (with `--dry-run`, what the run would write); `reason` names why an entry was closed at once or left open (`status segment is not "status open"`, `no id`, `no date`). It writes only that one file, atomically, and nothing under `.forge/` in the root it reads jobs from. Exit 1: no such job, the job has no worktree, or the ledger (or `.forge` or `.forge/notes` above it) is a link, not a regular file or over 1 MiB.
@@ -1969,7 +1996,7 @@ The per-user login service that starts the machine dashboard at login (a LaunchA
 
 Pipeline metrics: quality, speed and cost.
 
-**`forge stats [--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day] | --mandate <id>`**: pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, recurring findings, escalations, time to PR, tokens and cost (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate's live report card
+**`forge stats [--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day] | --mandate <id>`**: pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, blockers, sole-CHANGES and reopened counts, recurring, carried and new findings, escalations, time to PR, working minutes by stage, parked minutes, time between agents, stalls, agent gaps, agent start and extra-round time, tokens, cost and cache-read share (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate's live report card
 
 | Flag | Meaning |
 |---|---|
