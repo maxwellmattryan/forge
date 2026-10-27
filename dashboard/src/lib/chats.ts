@@ -1,4 +1,4 @@
-// The Foreman page's Chats panel model: a chat log as owner, note and reply blocks, the forge CLI calls in a reply,
+// The Foreman page's chats model: a chat log as owner, note and reply blocks, the forge CLI calls in a reply,
 // each block's and item's plain text for Copy, which chat to open, and the GETs and POSTs of /api/chats
 // (lib/server/routes/chats.ts). Owner text, titles, reasons and session lines are untrusted: this returns plain strings,
 // and the components render them as text or through md(). Plain TS, so a test can pin it. No user-facing text lives here.

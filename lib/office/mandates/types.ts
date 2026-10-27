@@ -1,10 +1,10 @@
-// The mandate shapes, type-only: the file `forge mandate` and the Foreman page write, what a write may
+// The mandate shapes, type-only: the file `forge mandate` and the Office page write, what a write may
 // set, and a goal mandate's milestone draft and filing; the contract terms, summary and state the CLI and
 // the dashboard show are /api shapes, re-exported here. The rules over them are contract.ts and draft.ts,
 // the file I/O store.ts and draft.ts.
 import type { DraftBody, EventActor, MandateContract, MandateScope, MandateStatus } from '#core/types.ts';
 
-// The shapes the Foreman page reads too are /api shapes, owned by lib/api/repo.ts and lib/api/enums.ts.
+// The shapes the Office page reads too are /api shapes, owned by lib/api/repo.ts and lib/api/enums.ts.
 export type { CardFigure, DraftStatus, MandateContract, MandateReportCard, MandateScope, MandateState, MandateStatus, MandateSummary } from '#api/types.ts';
 
 /** One `.forge/runtime/mandates/<id>.md`: every frontmatter key, then the owner's guidance as `body`. */

@@ -1,4 +1,4 @@
-<!-- The Foreman page's mandate list while it loads: two cards shaped like MandateCard (title, id and state chip, a line of
+<!-- The Office page's mandate list while it loads: two cards shaped like MandateCard (title, id and state chip, a line of
      scope terms, the progress block, the contract fold, an action row). `bare` drops the Loading wrapper when a page
      skeleton already provides the one status region. -->
 <script lang="ts">

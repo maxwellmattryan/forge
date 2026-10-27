@@ -1,4 +1,4 @@
-<!-- The Foreman page's directives table while it loads: the real column headers over rows of bones. `bare` drops the
+<!-- The Office page's directives table while it loads: the real column headers over rows of bones. `bare` drops the
      Loading wrapper when a page skeleton already provides the one status region. -->
 <script lang="ts">
   import Loading from '../Loading.svelte';

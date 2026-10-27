@@ -14,7 +14,7 @@ const MESSAGE_DIR = path.resolve(import.meta.dirname, '..', '..', '..', 'dashboa
 const MESSAGES = mergeCatalogs(Object.fromEntries(
   fs.readdirSync(MESSAGE_DIR).filter((f) => f.endsWith('.json')).map((f) => [f, JSON.parse(fs.readFileSync(path.join(MESSAGE_DIR, f), 'utf8'))]),
 )) as any;
-const VIEW_IDS = ['project', 'pipeline', 'issues', 'agents', 'foreman', 'analytics', 'evals'];
+const VIEW_IDS = ['office', 'foreman', 'project', 'pipeline', 'issues', 'agents', 'analytics', 'evals'];
 const SEED_BUDGET_MS = 60_000;
 
 function tempDir(): string {

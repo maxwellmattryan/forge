@@ -123,7 +123,7 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/jobs\/([^/]+)\/delete$/, handler: postJobDelete },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },
-  // The Foreman page's mandates. The list carries titles only; the detail carries the owner's guidance and
+  // The Office page's mandates. The list carries titles only; the detail carries the owner's guidance and
   // goal, so it takes the token like a POST. Writes run while the pool runs: a mandate is runtime state, and
   // a change wakes the Office pass.
   { method: 'GET', path: '/mandates', guards: ['read'], handler: getMandates },

@@ -1,4 +1,4 @@
-// Mandates over the dashboard API, the Foreman page's reads and writes: the list with its directives,
+// Mandates over the dashboard API, the Office page's reads and writes: the list with its directives,
 // grantable classes and defaults, the detail with the owner's guidance, and the writes through the same
 // mandateWrite `forge mandate` calls, as the dashboard, with the CLI's refusals. A refused write writes
 // nothing. The POSTs' and the detail's guards are security.test.ts's rows.
