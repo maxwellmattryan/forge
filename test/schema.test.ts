@@ -300,6 +300,7 @@ const EVENT_ROWS: Row[] = [
     fields: { type: 'shelved', ts: 't', reason: 'later', 'from.waitingOn': 'escalation', actor: { login: 'al', source: 'gh' } },
     note: 'shelve and unshelve events read as written',
   },
+  { step: 'components-event', input: { ts: 't', type: 'components', declared: null, components: ['cli'], added: ['cli'], dropped: [], sha: 'abc' }, fields: { type: 'components', components: ['cli'], added: ['cli'], dropped: [] }, note: 'read as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [

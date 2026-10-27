@@ -34,6 +34,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // actor on a transition their grant made (a job finished while shelved put back to work); an older
   // Forge reads them as generic events.
   { id: 'shelve-events', up: (e) => e },
+  // v10 adds the `components` event (forge verify's recompute of a job's components from its diff:
+  // declared, components, added, dropped, sha); an older Forge reads it as a generic event.
+  { id: 'components-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

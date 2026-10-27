@@ -23,6 +23,7 @@ import { resolveLinks } from '../project/links.ts';
 import { memberRepos, memberWorktree, trustedMemberWorktree } from '../project/job-repos.ts';
 import { commandTemplate, restoreLocks, runCommand, runCommandAsync } from '../workspace/run.ts';
 import { headVerified, nextAttempt, recordRun, reportRun } from './record.ts';
+import { recordComponents } from './components.ts';
 import { instructionsSection, notesStep, renderSteps, restoreGroup, runGroups, verifyLockSnapshot, verifyMember } from './steps.ts';
 import type { CommandRunner, MemberVerify, VerifyStep } from './steps.ts';
 import type { Config, VerifyRun, VerifyRunRepo } from '#core/types.ts';
@@ -70,11 +71,12 @@ export async function verify(root: string, base: Config, id: string, runner: Com
   // guessing at it could pass a gate whose steps never ran.
   if (base.schemaVersion > CONFIG_SCHEMA_VERSION)
     throw new ForgeError(`config schemaVersion ${base.schemaVersion} is newer than this Forge (${CONFIG_SCHEMA_VERSION}); update Forge before running verify`);
-  const job = loadJob(root, id);
+  let job = loadJob(root, id);
   // An eval job's overlay picks its steps, e2e and budget; an invalid one throws here.
   const config = configForJob(root, base, job);
   const groups = verifyGroups(config.verify);
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
+  const worktree = job.worktree;
   // Every member's worktree is checked before anything runs, so a missing one records nothing.
   const checkedMembers = memberRepos(job).map((m) => memberWorktree(root, config, job, m.repo));
   // Before any HEAD is read: git-ref and canary pins, and release bumps, are committed here, so the
@@ -83,12 +85,15 @@ export async function verify(root: string, base: Config, id: string, runner: Com
   const interim = refreshInterim(root, config, job);
   const members = checkedMembers.map((wt) => ({ ...wt, head: runGit(wt.worktree, ['rev-parse', 'HEAD']).stdout.trim() }));
   const sha = runGit(job.worktree, ['rev-parse', 'HEAD']).stdout.trim();
-  const changed = runGit(job.worktree, [...STATUS_ARGV]).stdout.trim();
+  // Before anything reads a component (the environment, the steps through the runner, which reloads
+  // the job, and the e2e plan): the components follow the committed diff, not the spec's estimate.
+  job = recordComponents(root, config, job, sha, members);
+  const changed = runGit(worktree, [...STATUS_ARGV]).stdout.trim();
   let hiddenError: string | null = null;
   let hidden = '';
   if (!changed) {
     try {
-      hidden = hiddenChanges(job.worktree, config).join('\n');
+      hidden = hiddenChanges(worktree, config).join('\n');
     } catch (e) {
       hiddenError = (e as Error).message;
     }

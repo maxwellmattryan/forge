@@ -10,6 +10,7 @@
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `components.ts` | The recompute of a job's components from its committed diff, run by `forge verify` before anything reads a component, so the commands verify picks follow what the build changed rather than the spec's estimate. |
 | `e2e.ts` | Whether `forge verify` should run the e2e command: unit tests alone don't prove UI work, but a browser suite is too slow to run on every backend-only change. |
 | `failing.ts` | The verify report's `Failing:` list: each failing `node --test` test by file, line, name and message, parsed from a failed step's log, so a rework builder starts from names instead of a tail. |
 | `gate.ts` | `forge verify`, the gate between build and review, and verifiedHead, which asks the verify record whether the worktree's HEAD is verified. |
