@@ -97,16 +97,19 @@ export interface StatsOpts {
   jobs?: Job[];
   /** The loaded config: the review panel decides which lenses a human delta's files count against. */
   config?: Config;
+  /** Only the jobs, live and archived, whose `mandate` is this id (a mandate retro's stats). */
+  mandate?: string;
 }
 
 export function computeStats(root: string, opts: StatsOpts = {}): Stats {
   const stats = statsFrom(statsSources(root, opts), opts);
-  // Jobs passed in are the whole population (tests, evals): no daemon session spent for them.
-  if (!opts.jobs && opts.config) stats.cost.sessions = sessionRows(spendLedger(root, opts.config, { write: false, since: opts.since ?? null }));
+  // Jobs passed in are the whole population (tests, evals): no daemon session spent for them. Session
+  // rows aren't per mandate, so a mandate's stats carry none either.
+  if (!opts.jobs && !opts.mandate && opts.config) stats.cost.sessions = sessionRows(spendLedger(root, opts.config, { write: false, since: opts.since ?? null }));
   return stats;
 }
 
-/** The jobs stats reads, live and archived, filtered by kind and creation date; each is read lazily. */
+/** The jobs stats reads, live and archived, filtered by kind, creation date and mandate; each is read lazily. */
 export function statsSources(root: string, opts: StatsOpts = {}): StatsSource[] {
   const since = opts.since ? Date.parse(opts.since) : 0;
   const all: StatsSource[] = (opts.jobs ?? listJobs(root)).map((job) => {
@@ -120,7 +123,9 @@ export function statsSources(root: string, opts: StatsOpts = {}): StatsSource[] 
     // listJobs' order, so sums of rounded values come out the same after a job moves to the archive.
     all.sort((a, b) => String(b.job.updatedAt).localeCompare(String(a.job.updatedAt)));
   }
-  return all.filter(({ job: j }) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since);
+  return all.filter(
+    ({ job: j }) => (opts.includeEvals || j.kind !== 'eval') && Date.parse((j.createdAt ?? 0) as string) >= since && (opts.mandate === undefined || j.mandate === opts.mandate),
+  );
 }
 
 /** The metrics over exactly these sources: computeStats over a subset (one job, one prompt cohort). */

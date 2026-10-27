@@ -626,7 +626,7 @@ test('segments and nav expose their selected state', () => {
   assert.match(pipeline, /\{@const on = S\.filter === f\}/);
   assert.match(pipeline, /\{@const on = S\.layout === l\}/);
 
-  // One link loop per section (the global pages, the project's views), shared by the sidebar, the rail and the phone strip.
+  // One link loop per section (General: the global pages and the Office and Foreman; the project's other views), shared by the sidebar, the rail and the phone strip.
   const nav = readSrc('components/Nav.svelte');
   const links = tags('components/Nav.svelte', nav).filter((t) => t.name === 'a');
   assert.equal(links.length, 2, 'one link per section');
@@ -635,7 +635,7 @@ test('segments and nav expose their selected state', () => {
     assert.equal(attr('aria-current'), `{on ? 'page' : undefined}`);
     assert.equal(attr('class'), `{on ? 'active' : ''}`);
   }
-  assert.match(nav, /\{@const on = S\.route\.scope === 'global' && S\.route\.view === g\.id\}/);
+  assert.match(nav, /\{@const on = S\.route\.scope === g\.scope && S\.route\.view === g\.id\}/);
   assert.match(nav, /\{@const on = S\.route\.scope === 'project' && S\.route\.view === v\.id\}/);
 });
 

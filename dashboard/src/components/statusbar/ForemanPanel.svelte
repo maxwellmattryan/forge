@@ -6,7 +6,7 @@
      title. The list follows /api/state's refreshes. Off: what the Foreman is and how to turn it on by hand.
      foreman.enabled is locked in Settings and forge config set, so nothing here writes config. A reason is model or
      policy text and every value here renders as text, never markup. Both states end their identity block with Open chat,
-     which lands on the Foreman page's Chats tab (chats don't need foreman.enabled) and closes the popover. -->
+     which lands on the Foreman page's chats (chats don't need foreman.enabled) and closes the popover. -->
 <script lang="ts">
   import Chip from '../Chip.svelte';
   import Icon from '../Icon.svelte';
@@ -53,17 +53,9 @@
   {#each parts(text) as part, i (i)}{#if Object.hasOwn(CODE, part)}<code class="mono">{CODE[part]}</code>{:else}{part}{/if}{/each}
 {/snippet}
 
-<!-- The hash may already be the Foreman page's, so the click sets the tab itself rather than leaving it to the route. -->
 {#snippet openChat()}
   {#if S.selected}
-    <a
-      class="btn sm"
-      href="#/p/{S.selected}/foreman"
-      onclick={() => {
-        S.foremanPanel = 'chats';
-        closePopover('navigate');
-      }}><Icon name="foreman" />{$t('statusbar.foreman.openChat')}</a
-    >
+    <a class="btn sm" href="#/p/{S.selected}/foreman" onclick={() => closePopover('navigate')}><Icon name="foreman" />{$t('statusbar.foreman.openChat')}</a>
   {/if}
 {/snippet}
 

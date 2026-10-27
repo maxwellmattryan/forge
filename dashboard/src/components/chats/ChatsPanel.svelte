@@ -1,4 +1,4 @@
-<!-- The Foreman page's Chats panel: the chat list beside the open chat (at lg and up; below, the list sits above it).
+<!-- The Foreman page's chats: the chat list beside the open chat (at lg and up; below, the list sits above it).
      The list is GET /api/chats: active chats, then the archived ones folded under their count, each in the server's
      order (newest updatedAt first), each row its title (or "Untitled chat") and how long ago it changed. New chat posts
      one, opens it and focuses its composer. The open chat is the per-project pref `chat`, kept while it is in the list

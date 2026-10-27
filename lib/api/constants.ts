@@ -92,9 +92,10 @@ export const REQUEST_TYPES = ['next', 'run', 'approve', 'revise-spec', 'rework',
 /**
  * A directive's action: one record of the director loop (`directive` in the repo audit log). The office
  * session's choices are start, resume, note and skip; the Office pass's enforcements are the rest
- * (release: it planned an `until: released` mandate's release).
+ * (release: it planned an `until: released` mandate's release); retro is a mandate's close queuing its
+ * retro request, by the pass or the owner.
  */
-export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'close', 'stall', 'park', 'cancel', 'release'] as const;
+export const DIRECTIVE_ACTIONS = ['start', 'resume', 'note', 'skip', 'pause', 'close', 'stall', 'park', 'cancel', 'release', 'retro'] as const;
 
 /**
  * The daemon session for requests without a (valid, existing) job. Job ids start with an

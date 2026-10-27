@@ -1,4 +1,4 @@
-// The Chats panel's model: the chat log as owner, note and reply blocks, the forge CLI calls in a reply, each block's
+// The Foreman page's chats model: the chat log as owner, note and reply blocks, the forge CLI calls in a reply, each block's
 // and item's Copy text, which chat opens, the /api/chats helpers' requests, and the chat scopes the engine also checks.
 import test from 'node:test';
 import assert from 'node:assert/strict';

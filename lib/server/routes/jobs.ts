@@ -19,7 +19,7 @@ import { parseIssueRef } from '#core/job/issue-ref.ts';
 import { exists } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { withoutRunHistory } from '#engine/metrics/runs.ts';
-import { enqueue, listRequests, validJobId } from '#core/job/requests.ts';
+import { enqueue, isMandateIdArg, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -446,6 +446,8 @@ function requestArgsProblem(body: Record<string, any>, trackerKind: string): str
     if (body.type !== 'next') return 'args.n is only for next requests';
     if (!Number.isInteger(args.n) || args.n < 1 || args.n > 16) return 'args.n must be an integer from 1 to 16';
   }
+  // The inbox puts it on `forge retro prepare --mandate`; enqueue checks it again.
+  if (body.type === 'retro' && Object.prototype.hasOwnProperty.call(args, 'mandate') && !isMandateIdArg(args.mandate)) return 'args.mandate must be a mandate id';
   return null;
 }
 

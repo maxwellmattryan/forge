@@ -201,13 +201,16 @@ export const CORE: HelpGroup[] = [
     name: 'retro',
     summary: 'retrospectives over finished jobs',
     commands: [
-      { command: 'retro due', args: '', summary: 'whether a retro is due: improve.retroEvery jobs finished since the last one' },
+      { command: 'retro due', args: '', summary: 'whether a retro is due: improve.retroEvery jobs finished since the last one, mandate retros aside' },
       {
         command: 'retro prepare',
-        args: '<job> [--since DATE]',
+        args: '<job> [--since DATE | --mandate ID]',
         summary: "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by",
-        flags: [['--since DATE', 'only jobs since DATE (default: since the last retro)']],
-        exits: [NO_JOB],
+        flags: [
+          ['--since DATE', 'only jobs since DATE (default: since the last retro)'],
+          ['--mandate ID', "only the mandate's jobs, live and archived, with no date window; recorded on the retro job, so a later prepare keeps it (not with --since)"],
+        ],
+        exits: [[1, "no such job, no such mandate (not_found), or the mandate can't be read"], [2, '--mandate with --since, on a job that is not a retro, or naming another mandate than the one recorded (usage)']],
       },
     ],
   },

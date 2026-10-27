@@ -22,6 +22,7 @@
   import Pipeline from './views/Pipeline.svelte';
   import Issues from './views/Issues.svelte';
   import Agents from './views/Agents.svelte';
+  import Office from './views/Office.svelte';
   import Foreman from './views/Foreman.svelte';
   import Analytics from './views/Analytics.svelte';
   import Evals from './views/Evals.svelte';
@@ -31,6 +32,7 @@
   import PipelineSkeleton from './components/skeletons/PipelineSkeleton.svelte';
   import IssuesSkeleton from './components/skeletons/IssuesSkeleton.svelte';
   import AgentsSkeleton from './components/skeletons/AgentsSkeleton.svelte';
+  import OfficeSkeleton from './components/skeletons/OfficeSkeleton.svelte';
   import ForemanSkeleton from './components/skeletons/ForemanSkeleton.svelte';
   import AnalyticsSkeleton from './components/skeletons/AnalyticsSkeleton.svelte';
   import EvalsSkeleton from './components/skeletons/EvalsSkeleton.svelte';
@@ -236,7 +238,7 @@
     refreshMachine().then(checkSelection);
     // The state poll runs whenever a project is selected (the nav's counts read it); the views' only on its pages.
     const poll = setInterval(() => document.visibilityState === 'visible' && refresh(), 2000);
-    const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project', 'foreman'].includes(S.view) && loadView(), 15000);
+    const views = setInterval(() => document.visibilityState === 'visible' && S.route.scope === 'project' && ['analytics', 'evals', 'agents', 'project', 'office'].includes(S.view) && loadView(), 15000);
     // A poll, not /api/projects/events: a stream held by every tab would take the machine's few SSE slots from the session logs.
     const machine = setInterval(() => document.visibilityState === 'visible' && refreshMachine(), 5000);
     // The Overview's graphs re-read every ledger, so they reload less often than its counts.
@@ -337,6 +339,7 @@
           {:else if S.view === 'pipeline'}<PipelineSkeleton />
           {:else if S.view === 'issues'}<IssuesSkeleton />
           {:else if S.view === 'agents'}<AgentsSkeleton />
+          {:else if S.view === 'office'}<OfficeSkeleton />
           {:else if S.view === 'foreman'}<ForemanSkeleton />
           {:else if S.view === 'analytics'}<AnalyticsSkeleton />
           {:else if S.view === 'project'}<ProjectSkeleton />
@@ -347,6 +350,7 @@
           {#if S.view === 'pipeline'}<Pipeline />
           {:else if S.view === 'issues'}<Issues />
           {:else if S.view === 'agents'}<Agents />
+          {:else if S.view === 'office'}<Office />
           {:else if S.view === 'foreman'}<Foreman />
           {:else if S.view === 'analytics'}<Analytics />
           {:else if S.view === 'project'}<Project />

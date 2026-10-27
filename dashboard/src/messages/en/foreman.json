@@ -1,12 +1,7 @@
 {
   "foreman": {
     "title": "Foreman",
-    "sub": "The Office: the mandates you give the Foreman, the gate runs deciding gates, and the directives it records. Chats: talk with the Foreman.",
-    "panels": "Foreman panels",
-    "panel": {
-      "office": "Office",
-      "chats": "Chats"
-    },
+    "sub": "Talk with the Foreman: ask about the board, or have it act for you through the CLI.",
     "chats": {
       "list": "Chats",
       "new": "New chat",
@@ -58,6 +53,8 @@
       "archivedNote": "This chat is archived. Start a new chat to keep talking."
     },
     "office": {
+      "title": "Office",
+      "sub": "The mandates you give the Foreman, the gate runs deciding gates and the directives it records, beside the office session.",
       "session": "Office session",
       "offMandates": "Mandates stay listable and editable while it is off.",
       "mandates": "Mandates",
@@ -128,6 +125,37 @@
       "paused": "Paused {id}",
       "resumed": "Resumed {id}",
       "closed": "Closed {id}"
+    },
+    "card": {
+      "title": "Report card",
+      "live": "Live",
+      "atClose": "Recorded at close, {date}",
+      "final": "Final outcomes, recorded {date}",
+      "empty": "No jobs yet: the card fills in as this mandate's jobs run.",
+      "merged": "Merged",
+      "mergedValue": "{merged} of {total} jobs",
+      "median": "Median score",
+      "scoreValue": "{score} / 5",
+      "below3": "Below 3/5",
+      "avgRounds": "Review rounds (avg)",
+      "firstPass": "First-pass review",
+      "interventions": "Human interventions",
+      "noGate": "no gate",
+      "reverted": "Reverted",
+      "followedUp": "Drew a follow-up bug",
+      "finalAt": "Outcomes final by",
+      "scoreCounts": "Scores: {scored} scored · {pending} pending · {held} held · {failed} failed · {unscored} unscored",
+      "outcomeCounts": "Outcomes: {final} final · {open} open · {unmeasured} unmeasured",
+      "pending": "pending",
+      "pendingScores": {
+        "one": "Waiting on {count} score run",
+        "other": "Waiting on {count} score runs"
+      },
+      "pendingOutcomes": {
+        "one": "Waiting on {count} outcome window",
+        "other": "Waiting on {count} outcome windows"
+      },
+      "none": "nothing to measure"
     },
     "editor": {
       "newTitle": "New mandate",

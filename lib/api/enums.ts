@@ -60,7 +60,7 @@ export type ActorSource = (typeof ACTOR_SOURCES)[number];
 /** Request types the inbox accepts: REQUEST_TYPES in lib/core/job/requests.ts. */
 export type RequestType = (typeof REQUEST_TYPES)[number];
 
-/** A mandate's written status: only `forge mandate pause|resume|close`, the Foreman page and the Office pass move it. */
+/** A mandate's written status: only `forge mandate pause|resume|close`, the Office page and the Office pass move it. */
 export type MandateStatus = (typeof MANDATE_STATUSES)[number];
 /** A mandate's until: MANDATE_UNTIL. */
 export type MandateUntil = (typeof MANDATE_UNTIL)[number];

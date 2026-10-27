@@ -10,17 +10,32 @@ export const GLOBAL_VIEWS = [
 ] as const;
 export type GlobalViewId = (typeof GLOBAL_VIEWS)[number]['id'];
 
-/** One project's pages, at `#/p/<project>/<view>`. */
+/** One project's pages, at `#/p/<project>/<view>`, in sidebar order: the Office and the Foreman first (GENERAL_NAV). */
 export const VIEWS = [
+  { id: 'office', icon: 'office' },
+  { id: 'foreman', icon: 'foreman' },
   { id: 'project', icon: 'graph' },
   { id: 'pipeline', icon: 'pipeline' },
   { id: 'issues', icon: 'issues' },
   { id: 'agents', icon: 'agents' },
-  { id: 'foreman', icon: 'foreman' },
   { id: 'analytics', icon: 'analytics' },
   { id: 'evals', icon: 'evals' },
 ] as const;
 export type ViewId = (typeof VIEWS)[number]['id'];
+
+/**
+ * The General section, in order: the Overview, the selected project's Office and Foreman (project pages, listed here so
+ * they sit beside the machine's own), then the Machine page.
+ */
+export const GENERAL_NAV = [
+  { scope: 'global', id: 'overview', icon: 'dashboard' },
+  { scope: 'project', id: 'office', icon: 'office' },
+  { scope: 'project', id: 'foreman', icon: 'foreman' },
+  { scope: 'global', id: 'machine', icon: 'gauge' },
+] as const satisfies readonly ({ scope: 'global'; id: GlobalViewId; icon: string } | { scope: 'project'; id: ViewId; icon: string })[];
+
+/** The project views listed under the project switcher: every view GENERAL_NAV does not hold. */
+export const PROJECT_NAV = VIEWS.filter((v) => !GENERAL_NAV.some((g) => g.scope === 'project' && g.id === v.id));
 
 /** The view's 1-based position in the sidebar, for the status bar's SHEET fact; unknown ids read as the first view. */
 export const viewIndex = (view: string): number => Math.max(0, VIEWS.findIndex((v) => v.id === view)) + 1;

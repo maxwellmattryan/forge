@@ -1,4 +1,5 @@
-// Mandates over the dashboard's Foreman page: GET /api/mandates lists them with the latest directives, the
+// Mandates over the dashboard's Office page: GET /api/mandates lists them, each with its live report card and,
+// once closed, its closing summary's card (closingCard rebuilds it, or it is null), with the latest directives, the
 // classes a mandate may be given and a new mandate's defaults; GET /api/mandates/:id adds the owner's
 // guidance and goal (token: they are the owner's own words); POST /api/mandates (which picks the id when
 // none is sent, as `forge mandate new` does) and /api/mandates/:id/edit|pause|resume|close write as a
@@ -15,12 +16,13 @@ import { ForgeError } from '#core/errors.ts';
 import { isMap } from '#core/shape.ts';
 import { dashboardActor } from '#integrations/github/actor.ts';
 import { allKnownValues, redactDeep } from '#engine/guard/known-secrets.ts';
-import { buildReportCard } from '#engine/metrics/report-card.ts';
+import { buildReportCard, closingCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { BODY_MAX, effectiveContract, fillDefaults, grantable, isMandateId, isReadable, mandateChain, mandateSummary } from '#office/mandates/contract.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
 import { decideDraft, draftGate, gateView } from '#office/mandates/gate.ts';
+import { readSummary } from '#office/mandates/pass.ts';
 import { jobFigures } from '#office/mandates/progress.ts';
 import { listMandates, mandateWrite, readMandate } from '#office/mandates/store.ts';
 import type { MandateOp } from '#office/mandates/store.ts';
@@ -28,6 +30,7 @@ import type { Mandate, MandateInput, ReadMandate } from '#office/mandates/types.
 import type {
   Config,
   DraftStatus,
+  MandateClosingCard,
   MandateContract,
   MandateDetailResponse,
   MandateDraftResponse,
@@ -57,7 +60,13 @@ const rowCtx = (root: string, config: Config): RowCtx => ({
   at: Date.now(),
 });
 
-/** One readable mandate as the Foreman page shows it: never its body or goal. */
+/** A closed mandate's closing summary card, or null for no summary, an unreadable one or a card closingCard refuses. */
+function closingOf(root: string, id: string): MandateClosingCard | null {
+  const s = readSummary(root, id);
+  return s === null || 'problem' in s ? null : closingCard(s, id);
+}
+
+/** One readable mandate as the Office page shows it: never its body or goal. */
 export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMandate[], ctx: RowCtx): MandateRow {
   const { effective, capped } = effectiveContract(config, m);
   const f = jobFigures(root, config, m, all, ctx);
@@ -76,6 +85,8 @@ export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMa
     draft: gate === null ? null : { status: gate.draftStatus as DraftStatus, gate: gate.status },
     // Live, closed mandates too: numbers, 'pending', null, WAITING_ON keys and ISO times only, so the tokenless list may carry it.
     card: buildReportCard(m, f, config, ctx.at),
+    // Rebuilt from summary.json by closingCard, the same values only, so the tokenless list may carry it too.
+    closing: m.status === 'closed' ? closingOf(root, m.id) : null,
   };
 }
 

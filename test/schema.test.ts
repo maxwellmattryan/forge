@@ -298,12 +298,8 @@ const EVENT_ROWS: Row[] = [
   },
   { step: 'components-event', input: { ts: 't', type: 'components', declared: null, components: ['cli'], added: ['cli'], dropped: [], sha: 'abc' }, fields: { type: 'components', components: ['cli'], added: ['cli'], dropped: [] }, note: 'read as written' },
   { step: 'senior-pass', input: { ts: 't', type: 'senior-pass', gate: 'escalation', first: 'escalate', actor: FOREMAN }, fields: { type: 'senior-pass', ts: 't', gate: 'escalation', first: 'escalate', actor: FOREMAN }, note: 'a senior-pass marker reads as written' },
-  {
-    step: 'actor-source-launch',
-    input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } },
-    fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } },
-    note: 'the launch flag\'s daemon-mode event keeps source launch',
-  },
+  { step: 'retro-scope-event', input: { ts: 't', type: 'retro-scope', mandate: 'm1' }, fields: { type: 'retro-scope', ts: 't', mandate: 'm1' }, note: "a mandate retro's scope reads as written" },
+  { step: 'actor-source-launch', input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } }, fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } }, note: 'the launch flag\'s daemon-mode event keeps source launch' },
 ];
 
 const MACHINE_ROWS: Row[] = [
@@ -385,6 +381,25 @@ const MANDATE_SUMMARY_ROWS: Row[] = [
     },
     fields: { card: null, 'spend.usd': 1.5 },
     note: 'a summary written before the report card reads with no card',
+  },
+  {
+    step: 'summary-final',
+    input: {
+      mandate: 'm1',
+      closedAt: '2026-10-02T00:00:00.000Z',
+      until: 'merge-ready',
+      jobs: [],
+      spend: { usd: 1.5, started: 1 },
+      humanInterventions: 0,
+      stalls: 0,
+      parked: [],
+      skipped: [],
+      elsewhere: [],
+      needsInfo: [],
+      card: { mandate: 'm1', at: '2026-10-02T00:00:00.000Z', outcomes: { final: 0, open: 1, unmeasured: 0, reverted: 'pending', followedUp: 'pending', finalAt: null } },
+    },
+    fields: { outcomesFinalAt: null, 'card.outcomes.open': 1 },
+    note: 'a summary written before the final rewrite reads with outcomesFinalAt null and keeps its card',
   },
 ];
 

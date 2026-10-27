@@ -1,6 +1,6 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
 // without following a link or blocking on a FIFO, and written under one lock only through mandateWrite
-// (`forge mandate new|edit|pause|resume|close` and the dashboard's Foreman page, the same checks for
+// (`forge mandate new|edit|pause|resume|close` and the dashboard's Office page, the same checks for
 // both) and by the Office pass (`forge office pass`, which pauses and closes). Read for a job whose
 // `mandate` is set to narrow what the Foreman decides (jobMandateDecides), and to tell `forge sync`
 // whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
@@ -19,6 +19,8 @@ import * as yaml from '#core/format/yaml.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { decides } from '#engine/pipeline/moves/foreman-gates.ts';
 import { MANDATE_ID, MANDATE_KEYS, applyInput, blankMandate, cleanReason, fillDefaults, isMandateId, isReadable, issueRefs, mandateProblems, storedMandate } from './contract.ts';
+import { queueMandateRetro } from '#engine/evals/retro.ts';
+import { logDirective } from './directives.ts';
 import type { Config, EventActor, GateClass, Job, MandateScoring } from '#core/types.ts';
 import type { Mandate, MandateInput, ReadMandate } from './types.ts';
 
@@ -134,7 +136,7 @@ export function writeMandate<T extends { mandate: Mandate; action: MandateAction
   });
 }
 
-/** The owner's mandate writes: `forge mandate <op>` and the Foreman page's POSTs. */
+/** The owner's mandate writes: `forge mandate <op>` and the Office page's POSTs. */
 export type MandateOp = 'new' | 'edit' | 'pause' | 'resume' | 'close';
 
 /** The readable mandate `id` among `all`; not_found when there is none, refused when it can't be read. */
@@ -190,8 +192,9 @@ export function newMandateId(root: string, all: ReadMandate[], random: () => str
  * writes no file and no audit line. `new` takes every term not given from foreman.mandate, and with a
  * null id picks one (newMandateId, under the same lock); `edit` replaces only the terms given, and with
  * `updatedAt` refuses once the stored mandate has moved on (a CLI edit or a pass pause in between); the
- * status moves are idempotent. `changed` is false when nothing was written; `id` is the mandate's id,
- * the picked one for a new mandate without one.
+ * status moves are idempotent. A close that writes queues the mandate's retro (queueMandateRetro) and
+ * logs its `retro` directive with the owner's actor. `changed` is false when nothing was written; `id` is
+ * the mandate's id, the picked one for a new mandate without one.
  */
 export function mandateWrite(
   root: string,
@@ -226,6 +229,11 @@ export function mandateWrite(
     if (problems.length) throw new ForgeError(problems.join('; '), 1);
     return same(m, existing) ? null : { mandate: { ...m, updatedAt: now() }, action: 'edit' as MandateAction, ...actor };
   });
+  // After the mandates lock is released: the retro queue takes its own lock.
+  if (op === 'close' && out !== null) {
+    const retro = queueMandateRetro(root, config, out.mandate.id);
+    if (retro) logDirective(root, { mandate: out.mandate.id, action: 'retro', reason: `queued request ${retro.request} over ${retro.jobs} jobs`, actor: o.actor ?? currentActor(root) });
+  }
   return { changed: out !== null, id: out?.mandate.id ?? (id as string) };
 }
 

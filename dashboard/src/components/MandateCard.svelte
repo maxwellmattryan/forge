@@ -1,5 +1,5 @@
-<!-- One readable mandate on the Office panel: its title, id, state and reason; its scope; its chain (with the active link
-     marked) and what it waits on; its progress against its budget; the contract as it applies now and every line the
+<!-- One readable mandate on the Office page: its title, id, state and reason; its scope; its chain (with the active link
+     marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and every line the
      config capped; its live jobs (each opens the drawer); a goal mandate's draft and gate, pointing at Needs you, which
      decides it. Then the actions its status offers (mandateActions): Pause and Close open a confirm row with an optional
      one-line reason (Close says it is final and starts the next link); focus moves to Confirm, and Cancel hands it back to
@@ -8,6 +8,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import Chip from './Chip.svelte';
+  import ReportCard from './ReportCard.svelte';
   import { STATE_TONE, inIntake, mandateActions, postMandateStatus, type MandateStatusAction } from '../lib/foreman.ts';
   import { usd } from '../lib/util.ts';
   import { S, forgeToken, loadMandates, openDrawer, refresh } from '../lib/app.svelte.ts';
@@ -95,6 +96,8 @@
     <p class="text-[13px]">{$t('foreman.mandate.jobs', { reached: p.jobs.reached, inFlight: p.jobs.inFlight, handled: p.jobs.handled, unfinishable: p.jobs.unfinishable })}</p>
     <p class="text-[13px] num">{$t('foreman.mandate.spend', { spent: usd(p.spend.usd), budget: usd(p.spend.budget) })} · {$t('foreman.mandate.started', { started: p.started.jobs, budget: p.started.budget })}</p>
   </div>
+
+  <ReportCard {m} />
 
   <details class="text-[13px]">
     <summary class="text-muted cursor-pointer">{$t('foreman.mandate.contract')}</summary>

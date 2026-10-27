@@ -1,4 +1,4 @@
-<!-- One open chat (the Chats panel keys it by id): ChatHeader, the log, the chat session's permission prompts, and
+<!-- One open chat (ChatsPanel keys it by id): ChatHeader, the log, the chat session's permission prompts, and
      ChatComposer. The log is one chronological pane, oldest at the top, in the station's screen: owner messages tagged as
      yours (the gleam `you` tag, never the ember "a person is needed" tone), not-delivered notes in the warn tone, and the
      Foreman's replies as LogItem rows, with forge CLI calls tagged as CLI actions. Every block and every top-level reply

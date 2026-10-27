@@ -1,4 +1,4 @@
-// The Foreman page (#/p/<project>/foreman): its panels, the Office panel's mandates, pending gates and directives,
+// The Office page (#/p/<project>/office): its mandates, pending gates and directives,
 // the editor's POST bodies, the mandate badge on a job, and the GETs and POSTs of /api/mandates
 // (lib/server/routes/mandates.ts). Every string from a mandate, a directive or a request is owner, session or tracker
 // text: the components render it as text. Plain TS, so a test can pin it.
@@ -16,24 +16,6 @@ import type {
   PostMandateResponse,
   UnreadableMandateRow,
 } from './types.ts';
-
-// ---------- the page's panels ----------
-
-/** The Foreman page's panels, in tab order; the first is the one the page opens on. A new panel is one entry here. */
-export const FOREMAN_PANELS = ['office', 'chats'] as const;
-export type ForemanPanel = (typeof FOREMAN_PANELS)[number];
-export const DEFAULT_FOREMAN_PANEL: ForemanPanel = FOREMAN_PANELS[0];
-
-/** The panel Left/Right (wrapping), Home or End moves to from `current`, or null for other keys (as the drawer's tabs). */
-export function panelKey(current: ForemanPanel, key: string, panels: readonly ForemanPanel[] = FOREMAN_PANELS): ForemanPanel | null {
-  const n = panels.length;
-  const i = Math.max(0, panels.indexOf(current));
-  if (key === 'ArrowLeft') return panels[(i - 1 + n) % n]!;
-  if (key === 'ArrowRight') return panels[(i + 1) % n]!;
-  if (key === 'Home') return panels[0]!;
-  if (key === 'End') return panels[n - 1]!;
-  return null;
-}
 
 // ---------- the API ----------
 
@@ -206,7 +188,7 @@ export function mandateGroups(rows: readonly (MandateRow | UnreadableMandateRow)
 export const STATE_TONE: Record<MandateRow['state'], string> = { active: 'ok', waiting: 'info', paused: 'warn', closed: 'muted' };
 
 /** A directive action's chip tone: the office session's choices are neutral or live, the pass's enforcements warn or bad. */
-export const DIRECTIVE_TONE: Record<Directive['action'], string> = { start: 'ok', resume: 'ok', note: 'muted', skip: 'muted', pause: 'warn', close: 'muted', stall: 'warn', park: 'warn', cancel: 'bad', release: 'info' };
+export const DIRECTIVE_TONE: Record<Directive['action'], string> = { start: 'ok', resume: 'ok', note: 'muted', skip: 'muted', pause: 'warn', close: 'muted', stall: 'warn', park: 'warn', cancel: 'bad', release: 'info', retro: 'info' };
 
 export type MandateAction = 'edit' | 'pause' | 'resume' | 'close';
 

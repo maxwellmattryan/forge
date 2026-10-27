@@ -44,6 +44,8 @@ export const ICONS = {
   inbox: [{ el: 'path', d: 'M4 13l2-7h12l2 7v7H4z' }, { el: 'path', d: 'M4 13h5l1.5 3h3L15 13h5' }],
   // The markdown mark: a frame, an M and a down arrow.
   markdown: [{ el: 'rect', x: '2.5', y: '5.5', width: '19', height: '13', rx: '1' }, { el: 'path', d: 'M6 15V9l2.5 3L11 9v6M16.5 9v6M14 12.5l2.5 2.5 2.5-2.5' }],
+  // A building's face with its windows and a door: the Office.
+  office: [{ el: 'rect', x: '4.5', y: '3.5', width: '15', height: '17', rx: '1' }, { el: 'path', d: 'M8.5 7.5h2M13.5 7.5h2M8.5 11.5h2M13.5 11.5h2M10.5 20.5v-4h3v4' }],
   // Three stages on one line: work flowing through. Not bars, which Analytics already draws.
   pipeline: [{ el: 'circle', cx: '5', cy: '12', r: '2' }, { el: 'circle', cx: '12', cy: '12', r: '2' }, { el: 'circle', cx: '19', cy: '12', r: '2' }, { el: 'path', d: 'M7 12h3M14 12h3' }],
   play: [{ el: 'path', d: 'M7 4l13 8-13 8z' }],
