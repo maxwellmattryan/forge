@@ -88,7 +88,11 @@ export interface JobFindings {
    * written before it carry none, and stats leaves those out of its severity counts.
    */
   byLens: Record<string, FindingCounts & { recurring: number; severity?: Record<Severity, number> }>;
-  totals: FindingCounts & { recurring: number };
+  /**
+   * `carried` / `new`: findings in rounds 2 and later whose (lens, path) was, or was not, raised the round
+   * before; path-less ones are new. Absent on archive records written before it; stats adds 0.
+   */
+  totals: FindingCounts & { recurring: number; carried?: number; new?: number };
   recurring: { lens: string; path: string; rounds: number[] }[];
   disputed: { round: number; lens: string; severity: Severity; path: string | null }[];
 }
