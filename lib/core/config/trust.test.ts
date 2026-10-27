@@ -50,11 +50,13 @@ test('daemonProblems refuses a bad daily cap', () => {
     (c.daemon as { dailyUsd: unknown }).dailyUsd = dailyUsd;
     return daemonProblems(c).filter((p) => p.startsWith('daemon.dailyUsd'));
   };
-  assert.deepEqual(defaults().daemon.dailyUsd, { inbox: 25, office: 60 }, 'the defaults');
-  for (const ok of [null, { office: null }, defaults().daemon.dailyUsd, { inbox: 0 }]) assert.deepEqual(problemsFor(ok), [], JSON.stringify(ok));
+  assert.deepEqual(defaults().daemon.dailyUsd, { inbox: 25, office: 60, chat: 25 }, 'the defaults');
+  for (const ok of [null, { office: null }, defaults().daemon.dailyUsd, { inbox: 0 }, { chat: null }, { chat: 0 }, { chat: 12.5 }]) assert.deepEqual(problemsFor(ok), [], JSON.stringify(ok));
   const rows: [unknown, RegExp][] = [
-    [5, /^daemon\.dailyUsd must be null or a map of inbox, office/],
+    [5, /^daemon\.dailyUsd must be null or a map of inbox, office, chat/],
     [{ office: -1 }, /^daemon\.dailyUsd\.office must be null or a number >= 0/],
+    [{ chat: -1 }, /^daemon\.dailyUsd\.chat must be null or a number >= 0/],
+    [{ chat: 'lots' }, /^daemon\.dailyUsd\.chat must be null or a number >= 0/],
     [{ office: 'lots' }, /^daemon\.dailyUsd\.office must be null or a number >= 0/],
     [{ other: 1 }, /^daemon\.dailyUsd\.other is not a key/],
   ];
@@ -63,6 +65,17 @@ test('daemonProblems refuses a bad daily cap', () => {
     assert.equal(problems.length, 1, JSON.stringify(value));
     assert.match(problems[0], want, JSON.stringify(value));
   }
+});
+
+test('daemonProblems refuses a bad keepAwake', () => {
+  const problemsFor = (keepAwake: unknown) => {
+    const c = defaults();
+    (c.daemon as { keepAwake: unknown }).keepAwake = keepAwake;
+    return daemonProblems(c).filter((p) => p.startsWith('daemon.keepAwake'));
+  };
+  assert.equal(defaults().daemon.keepAwake, 'auto', 'the default');
+  for (const ok of ['auto', 'never']) assert.deepEqual(problemsFor(ok), [], ok);
+  for (const bad of ['always', true, null, undefined, 1]) assert.deepEqual(problemsFor(bad), [`daemon.keepAwake must be auto or never (got ${JSON.stringify(bad)})`], String(bad));
 });
 
 test('trustDigest pins what every agent reads', (t) => {

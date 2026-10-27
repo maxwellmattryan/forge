@@ -61,6 +61,8 @@ function memberWait(m: MemberPrState): string {
   return `PR merged; waiting on repo ${m.repo} PR #${m.number}${m.state === 'CLOSED' ? ' (closed without merging)' : ''}`;
 }
 
+const shelved = (job: Pick<Job, 'state' | 'waitingOn'>): boolean => job.state === 'waiting' && job.waitingOn === 'shelved';
+
 function rootTransition(
   job: Pick<Job, 'stage' | 'state' | 'waitingOn' | 'pr'> & { reason?: string | null },
   pr: JobPr,
@@ -80,12 +82,14 @@ function rootTransition(
     // A member whose sync failed counts as not merged: done is final, so it waits for an answer.
     const open = members.find((m) => m.state !== 'MERGED');
     if (!open) return stay(job.state !== 'done' ? { stage: 'done', state: 'done', reason: 'all PRs merged' } : {});
-    if (['running', 'done', 'cancelled'].includes(job.state)) return stay();
+    if (['running', 'done', 'cancelled'].includes(job.state) || shelved(job)) return stay();
     const reason = memberWait(open);
     if (job.stage === 'pr' && job.state === 'waiting' && job.waitingOn === 'pr-review' && job.reason === reason) return stay();
     return stay({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason });
   }
   if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
+  // A person set it aside: only their merge or close on GitHub (above) moves it, never an update, a park or a reopen.
+  if (shelved(job)) return stay();
   // A cancel or a failure keeps stage pr, and only a person reopens the job: parking it on pr-review
   // again would hand forge pr merge a job a human stopped.
   if (pr.state !== 'OPEN' || job.stage !== 'pr' || job.state === 'cancelled' || job.state === 'failed') return stay();
@@ -138,9 +142,19 @@ function ciReworkStreak(events: JobEvent[]): number {
  * Any head counts, a GitHub "Update branch" included: `forge job round` pulls it into the worktree.
  * After `pr.maxCiReworks` in a row with no person's event between, a red head starts nothing: the
  * reason says so, a `ci-rework-capped` event is logged once per head, and the caller queues no gate.
+ * A job in a mandate gets the rework only when `narrow` finds its mandate delegating `pr-feedback`; else
+ * (or with no `narrow`, failing closed) the caller queues the gate, which an assistant foreman hands off.
+ * `job` is the CLI's record (moveJob's `after`), so a session clearing `mandate` in job.json changes nothing.
  */
-async function startCiRework(root: string, config: Config, job: Job, failing: { names: string[]; more: number } = { names: [], more: 0 }): Promise<'started' | 'capped' | false> {
+async function startCiRework(
+  root: string,
+  config: Config,
+  job: Job,
+  failing: { names: string[]; more: number } = { names: [], more: 0 },
+  narrow?: (job: Job) => string | null,
+): Promise<'started' | 'capped' | false> {
   if (config.daemon?.enabled !== true || !foremanEnabled(config) || !decides(config).includes('pr-feedback')) return false;
+  if (job.mandate != null && (!narrow || narrow(job) !== null)) return false;
   const head = job.pr?.headOid;
   if (job.pr?.checks?.state !== 'failing' || typeof head !== 'string' || !isSha(head)) return false;
   const parked = (j: Pick<Job, 'stage' | 'state' | 'waitingOn'>) => j.stage === 'pr' && j.state === 'waiting' && j.waitingOn === 'pr-review';
@@ -218,8 +232,17 @@ export interface SyncResult {
  * pick a job back up with an accurate picture.
  * `route: false` (mergePr) syncs without ever moving the job to integrate.
  */
-export async function syncPr(root: string, config: Config, github: GitHub, id: string, opts: { route?: boolean } = {}): Promise<SyncResult> {
+export async function syncPr(root: string, config: Config, github: GitHub, id: string, opts: SyncOptions = {}): Promise<SyncResult> {
   return (await syncPrDetailed(root, config, github, id, opts)).result;
+}
+
+/**
+ * `narrow` is the job's mandate refusal for `pr-feedback` (lib/office/foreman.ts mandateRefusal), passed in
+ * because engine code can't import lib/office/; a job in a mandate gets no CI rework without it.
+ */
+export interface SyncOptions {
+  route?: boolean;
+  narrow?: (job: Job) => string | null;
 }
 
 /**
@@ -231,7 +254,7 @@ export async function syncPrDetailed(
   config: Config,
   github: GitHub,
   id: string,
-  opts: { route?: boolean } = {},
+  opts: SyncOptions = {},
 ): Promise<{ result: SyncResult; members: Map<string, MemberSync>; baseRef: string | null }> {
   const route = opts.route !== false;
   github.require();
@@ -340,7 +363,7 @@ export async function syncPrDetailed(
   // Feedback on a PR waiting for review: a CI rework or the pr-feedback gate. Never from mergePr.
   if (route) {
     // At the CI rework cap no gate is queued either, so the foreman can't rework that head through the office.
-    if ((await startCiRework(root, config, after, pr.failingChecks)) === false) enqueuePrFeedbackGate(root, config, after, feedback.trusted);
+    if ((await startCiRework(root, config, after, pr.failingChecks, opts.narrow)) === false) enqueuePrFeedbackGate(root, config, after, feedback.trusted);
   }
   return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members, baseRef: pr.baseRefName };
 }

@@ -5,6 +5,8 @@
   import Chip from '../components/Chip.svelte';
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import MachineCapSkeleton from '../components/skeletons/MachineCapSkeleton.svelte';
+  import MachineProjectsSkeleton from '../components/skeletons/MachineProjectsSkeleton.svelte';
   import { S } from '../lib/app.svelte.ts';
   import type { MachineProjectSummary } from '../lib/types.ts';
   import { t } from '../lib/locale.ts';
@@ -45,14 +47,14 @@
         {@render fact($t('machine.live'), m.machine.live)}
         {@render fact($t('machine.source'), m.machine.source === 'auto' ? $t('machine.sourceAuto') : $t('machine.sourceSettings'))}
       </dl>
-    {:else if S.machineOnline !== false}<div class="text-sm text-muted">{$t('common.loading')}</div>{/if}
+    {:else if S.machineOnline !== false}<MachineCapSkeleton />{/if}
     {@render command($t('machine.capCommand'))}
   </section>
 </div>
 <section class="plate flat" aria-labelledby="machine-projects">
   <h2 id="machine-projects" class="label callout px-3 pt-3">{$t('machine.projects')}</h2>
   {#if !m}
-    {#if S.machineOnline !== false}<div class="px-3 py-3 text-sm text-muted">{$t('common.loading')}</div>{/if}
+    {#if S.machineOnline !== false}<MachineProjectsSkeleton />{/if}
   {:else if !m.projects.length}
     <div class="p-3"><Empty>{$t('overview.empty')}</Empty></div>
   {:else}

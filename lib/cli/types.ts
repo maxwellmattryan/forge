@@ -57,6 +57,8 @@ export interface StatusRow {
   session: string | null;
   /** The Foreman left the gate the job waits at for a person; null otherwise. */
   foremanHandoff: ForemanHandoff | null;
+  /** When and why a person shelved the job; null unless it waits on `shelved`. */
+  shelved: { at: string; reason: string } | null;
 }
 
 /** One `forge <command>` in the help tables (`HELP` beside each command module). */
@@ -68,11 +70,14 @@ export interface CommandHelp {
   summary: string;
   /** Every flag the command reads, beyond the global ones. */
   flags?: [flag: string, meaning: string][];
-  /** Every exit other than 0 and 2 the command can produce. */
-  exits?: [code: 1 | 3 | 4 | 5, when: string][];
+  /**
+   * Every exit other than 0 and 2 the command can produce, and 2 only for a usage refusal of the
+   * command's own worth naming: that row replaces the generic usage line, so it keeps its meaning.
+   */
+  exits?: [code: 1 | 2 | 3 | 4 | 5, when: string][];
   docs?: [label: string, href: string];
-  /** A row of README's generated command table. */
-  readme?: true;
+  /** A row of docs/CLI.md's generated Common commands table. */
+  common?: true;
 }
 
 /** A command group: `forge job …`, or a single command such as `forge verify`. */

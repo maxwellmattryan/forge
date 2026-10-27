@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { entryRedirect, parseRoute, routeProject, switchHash, type ParsedRoute } from './routes.ts';
+import { VIEWS } from './nav.ts';
 
 const overview = { scope: 'global', view: 'overview' } as const;
 const toOverview: ParsedRoute = { route: overview, replace: '#/overview', openNeeds: false };
@@ -17,8 +18,12 @@ test('parseRoute', () => {
     ['#/overview', '#/overview', null, { route: overview, replace: null, openNeeds: false }],
     ['#/machine', '#/machine', null, { route: { scope: 'global', view: 'machine' }, replace: null, openNeeds: false }],
     // Project pages.
-    ['a project view', '#/p/web/backlog', null, at('web', 'backlog')],
+    ['a project view', '#/p/web/issues', null, at('web', 'issues')],
+    ['an old backlog link goes to Issues', '#/p/web/backlog', null, at('web', 'issues', '#/p/web/issues')],
+    ['an inherited property is not a view', '#/p/web/constructor', null, at('web', 'pipeline', '#/p/web/pipeline')],
     ['every project view', '#/p/a.b-c_d/evals', null, at('a.b-c_d', 'evals')],
+    ['the Foreman page', '#/p/web/foreman', null, at('web', 'foreman')],
+    ['the Foreman page with more segments', '#/p/web/foreman/x', null, at('web', 'pipeline', '#/p/web/pipeline')],
     ['no view', '#/p/web', null, at('web', 'pipeline', '#/p/web/pipeline')],
     ['an empty view', '#/p/web/', null, at('web', 'pipeline', '#/p/web/pipeline')],
     ['an unknown view', '#/p/web/nope', null, at('web', 'pipeline', '#/p/web/pipeline')],
@@ -38,7 +43,11 @@ test('parseRoute', () => {
     ['a global page with more segments', '#/overview/x', null, toOverview],
     ['text', '#hello world', null, toOverview],
     // Old routes go to the last project, or the Overview.
-    ['an old view with a last project', '#/backlog', 'web', at('web', 'backlog', '#/p/web/backlog')],
+    ['an old view with a last project', '#/backlog', 'web', at('web', 'issues', '#/p/web/issues')],
+    ['old #backlog without the slash', '#backlog', 'web', at('web', 'issues', '#/p/web/issues')],
+    ['old #/backlog with no last project', '#/backlog', null, toOverview],
+    ['an inherited property is not an old view', '#/constructor', 'web', toOverview],
+    ['__proto__ is not an old view', '#/__proto__', 'web', toOverview],
     ['every old view', '#/analytics', 'api', at('api', 'analytics', '#/p/api/analytics')],
     ['an old view without the slash', '#agents', 'web', at('web', 'agents', '#/p/web/agents')],
     ['old #/inbox opens Needs you', '#/inbox', 'web', at('web', 'pipeline', '#/p/web/pipeline', true)],
@@ -47,13 +56,20 @@ test('parseRoute', () => {
     ['old #/inbox with no last project', '#/inbox', '', toOverview],
   ];
   for (const [name, hash, last, want] of rows) assert.deepEqual(parseRoute(hash, last), want, name);
+  // The sidebar lists the Foreman page right after Agents.
+  const ids = VIEWS.map((v) => v.id);
+  assert.equal(ids[ids.indexOf('agents') + 1], 'foreman');
+  assert.equal(VIEWS.find((v) => v.id === 'foreman')?.icon, 'foreman');
 });
 
 test('entryRedirect', () => {
   const rows: [string, string, string | null][] = [
     ['?project=web', '', '/#/p/web/pipeline'],
     ['?project=web', '#/', '/#/p/web/pipeline'],
-    ['?project=web', '#/backlog', '/#/p/web/backlog'],
+    ['?project=web', '#/backlog', '/#/p/web/issues'],
+    ['?project=web', '#/issues', '/#/p/web/issues'],
+    // An inherited property is not a view.
+    ['?project=web', '#/toString', '/#/p/web/pipeline'],
     ['?project=web', '#/inbox', '/#/p/web/inbox'],
     ['?project=web', '#/p/api/agents', '/#/p/api/agents'],
     ['?project=web', '#/machine', '/#/machine'],
@@ -73,7 +89,7 @@ test('entryRedirect', () => {
 });
 
 test('switchHash', () => {
-  assert.equal(switchHash('api', { scope: 'project', project: 'web', view: 'backlog' }), '#/p/api/backlog', 'the same view');
+  assert.equal(switchHash('api', { scope: 'project', project: 'web', view: 'issues' }), '#/p/api/issues', 'the same view');
   assert.equal(switchHash('api', { scope: 'project', project: 'web', view: 'pipeline' }), '#/p/api/pipeline');
   assert.equal(switchHash('api', overview), '#/p/api/pipeline', 'the Pipeline from a global page');
   assert.equal(switchHash('api', { scope: 'global', view: 'machine' }), '#/p/api/pipeline');

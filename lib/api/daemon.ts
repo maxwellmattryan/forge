@@ -1,5 +1,6 @@
 // The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
-// plus the machine dashboard's own GET /api/projects, /api/projects/events and /api/projects/stats, and the machine cap every pool reports.
+// plus the machine dashboard's own GET and POST /api/projects, /api/projects/events and /api/projects/stats, the machine cap every pool reports,
+// and the owner's chats with the Foreman (/api/p/<project>/chats…).
 import type { Effort, JobState, Stage } from './enums.ts';
 
 /** The machine cap as a pool reports it: DaemonPoolState.machine. */
@@ -55,6 +56,21 @@ export interface ProjectsResponse {
   machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number };
   /** Sorted by name. */
   projects: MachineProjectSummary[];
+}
+
+/** POST /api/projects body: postProject in lib/server/routes/machine.ts registers the repo at `path`, as `forge project add`. */
+export interface PostProjectBody {
+  /** An absolute path, or `~` / `~/…`; a worktree or subdirectory registers its main checkout. */
+  path: string;
+  /** Omitted or empty: the directory's default name. */
+  name?: string;
+}
+
+/** POST /api/projects reply on success: `added` is false when the path was already registered (the index untouched). */
+export interface PostProjectResponse {
+  added: boolean;
+  /** Its GET /api/projects entry after the re-read. */
+  project: MachineProjectSummary;
 }
 
 /** One /api/projects/events frame: sent on connect and whenever the summary changes. */
@@ -146,10 +162,12 @@ export interface DaemonPoolState {
   /** The pool is off only because no human has approved the files Forge trusts as they are now (the machine dashboard boots a project's pool only while its approval matches); Start approves them. */
   needsApproval: boolean;
   inbox: DaemonSessionState;
-  /** The foreman's office session (scope `_office`), never counted against maxConcurrent. */
+  /** The Foreman's office session (scope `_office`), never counted against maxConcurrent. */
   office: DaemonSessionState;
   /** foreman.enabled, from the latest read of config.yml: the dashboard shows the office only then. */
   foreman: boolean;
+  /** Assistant foreman sessions by scope (`_assistant-<n>`), never counted against maxConcurrent or the machine cap; `{}` while the foreman or its assistants are off. */
+  assistants: Record<string, DaemonSessionState>;
   /** Job sessions worth showing: running, stopping, waiting, held, failed or stopped by a human. */
   jobs: Record<string, DaemonSessionState>;
   /** The permission mode daemon.command starts sessions in (`manual` reads as `default`). */
@@ -203,3 +221,46 @@ export interface PostDaemonModeBody {
 
 /** POST /api/daemon/mode reply on success: poolState from createContext in lib/server/start.ts. */
 export type PostDaemonModeResponse = DaemonPoolState;
+
+/** Whether a chat still takes messages. Archived is final: nothing unarchives a chat. */
+export type ChatState = 'active' | 'archived';
+
+/** A chat with the Foreman: `.forge/runtime/chats/<id>/chat.json` (lib/office/chat/store.ts), at CHAT_SCHEMA_VERSION. */
+export interface Chat {
+  schemaVersion: number;
+  /** 12 lowercase hex characters; its session's scope is `_chat-<id>`. */
+  id: string;
+  /** One line, at most 120 characters; null until the owner names it. */
+  title: string | null;
+  state: ChatState;
+  createdAt: string;
+  /** Bumped by each message, rename and archive: GET /chats sorts by it, newest first. */
+  updatedAt: string;
+  /** The chat session's Claude session id, which its next spawn resumes; null before its first spawn. */
+  sessionId: string | null;
+}
+
+/**
+ * One line of a chat's log.jsonl, after CHAT_LOG_STEPS: a message the owner sent, the reason it could not reach
+ * the session, or one line the chat's session logged (claude's stream-json or a `forge-daemon` event), already
+ * redacted, as `daemons/_chat-<id>.log` has it; a line over 256 KiB is a ForgeTruncatedLine.
+ */
+export type ChatLogEntry = { v: number; at: string } & ({ kind: 'owner'; text: string } | { kind: 'undelivered'; reason: string } | { kind: 'session'; line: string });
+
+/** GET /api/p/<project>/chats/<id>/log: the entries with index `n > after`, oldest first; `more` when later ones exist. */
+export interface ChatLogPage {
+  id: string;
+  entries: (ChatLogEntry & { n: number })[];
+  more: boolean;
+}
+
+/** GET /api/p/<project>/chats/<id>: the chat and its session's state (the off state from its record when the pool has none). */
+export interface ChatDetail {
+  chat: Chat;
+  session: DaemonSessionState;
+}
+
+/** GET /api/p/<project>/chats: every chat, newest updatedAt first. */
+export interface ChatList {
+  chats: Chat[];
+}

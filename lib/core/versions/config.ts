@@ -137,6 +137,53 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v34 adds merge.requiredChecks ([]), filled from defaults, so no v33 config changes; the bump lets
   // older Forges refuse a config whose required checks they would ignore and merge without.
   { id: 'merge-required-checks', up: (c) => c },
+  // v35 adds the Office's foreman keys (model, effort, cadence, assistants, surveyors, mandate), filled
+  // from defaults, and moves the assistant's model and effort under foreman.assistants as written: an
+  // existing foreman.assistants value wins, and the old runtime keys are deleted. A config with neither
+  // old key, or whose foreman (or foreman.assistants) isn't a map, is unchanged.
+  { id: 'foreman-office', up: foremanOffice },
+  // v36 adds daemon.keepAwake (auto) and the service-restarted notify event, filled from defaults, so
+  // no v35 config changes; the bump lets older Forges refuse a webhook subscribed to an event they lack.
+  { id: 'office-uptime', up: (c) => c },
+  // v37 adds the mandate-stalled, mandate-budget and mandate-closed notify events, so no v36 config
+  // changes; the bump lets older Forges refuse a webhook subscribed to an event they lack.
+  { id: 'mandate-notify', up: (c) => c },
+  // v38 adds daemon.dailyUsd.chat (25), filled from defaults, so no v37 config changes; the bump lets older
+  // Forges refuse a config whose chat cap they would reject as an unknown key.
+  { id: 'daemon-daily-usd-chat', up: (c) => c },
+  // v39 adds the script release mechanism and release.script (null), filled from defaults, so no v38 config
+  // changes; the bump lets older Forges refuse a config whose mechanism they would reject or never run.
+  { id: 'release-script', up: (c) => c },
+  // v40 adds foreman.ship release (and foreman.mandate.until released), so no v39 config changes; the
+  // bump lets older Forges refuse a config whose ship or until they would reject.
+  { id: 'foreman-ship-release', up: (c) => c },
 ];
+
+const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+function foremanOffice(c: any): any {
+  const models = c?.runtime?.models;
+  const efforts = c?.runtime?.efforts;
+  const model = isPlainMap(models) ? models.assistant : undefined;
+  const effort = isPlainMap(efforts) ? efforts.assistant : undefined;
+  if (model === undefined && effort === undefined) return c;
+  // Left as written for validation to report: there is no map to move the values into.
+  if (c.foreman !== undefined && !isPlainMap(c.foreman)) return c;
+  if (c.foreman?.assistants !== undefined && !isPlainMap(c.foreman.assistants)) return c;
+  const assistants = c.foreman?.assistants ?? {};
+  const moved: Record<string, unknown> = {};
+  if (model !== undefined) moved.model = model;
+  if (effort !== undefined) moved.effort = effort;
+  const runtime = { ...c.runtime };
+  if (model !== undefined) {
+    const { assistant: _m, ...rest } = models;
+    runtime.models = rest;
+  }
+  if (effort !== undefined) {
+    const { assistant: _e, ...rest } = efforts;
+    runtime.efforts = rest;
+  }
+  return { ...c, runtime, foreman: { ...(c.foreman ?? {}), assistants: { ...moved, ...assistants } } };
+}
 
 export const CONFIG_SCHEMA_VERSION = versionOf(CONFIG_STEPS);

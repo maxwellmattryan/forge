@@ -3,15 +3,18 @@ import type { Progress, Stage } from './types.ts';
 import { STAGE_LABEL } from './labels.ts';
 import { protectedSummary } from './protected.ts';
 import type { ProtectedSummary } from './protected.ts';
-import { isOpen, needsHuman, progressWidth } from './job-state.ts';
+import { isOpen, isShelved, needsHuman, progressWidth } from './job-state.ts';
 import type { JobLike } from './job-state.ts';
 
 const s = (v: unknown): string => String(v ?? '');
 
+/** The Waiting filter: a job waiting, blocked or failed, but not one a person set aside. */
+const waits = (j: JobLike): boolean => ['waiting', 'blocked', 'failed'].includes(j.state as string) && !isShelved(j);
+
 export function filterJobs<T extends JobLike>(jobs: T[], filter: string): T[] {
   const list = jobs.filter((j) => j.kind !== 'eval' || filter === 'all');
   if (filter === 'active') return list.filter(isOpen);
-  if (filter === 'waiting') return list.filter((j) => ['waiting', 'blocked', 'failed'].includes(j.state as string));
+  if (filter === 'waiting') return list.filter(waits);
   if (filter === 'done') return list.filter((j) => ['done', 'cancelled'].includes(j.state as string));
   return list;
 }
@@ -21,7 +24,7 @@ export function pipelineCounts(jobs: JobLike[]): { all: number; active: number; 
   return {
     all: jobs.length,
     active: all.filter(isOpen).length,
-    waiting: all.filter((j) => ['waiting', 'blocked', 'failed'].includes(j.state as string)).length,
+    waiting: all.filter(waits).length,
     done: all.filter((j) => ['done', 'cancelled'].includes(j.state as string)).length,
   };
 }
@@ -44,7 +47,7 @@ function boardGroup(j: JobLike): BoardGroupId {
   return BOARD_GROUPS.find((g) => (g.stages as readonly string[]).includes(s(j.stage)))?.id ?? 'queued';
 }
 
-/** Urgency: 0 needs you, failed or blocked; 1 running; 2 PR review; 3 queued and other waits (dependency parks); 4 finished. */
+/** Urgency: 0 needs you, failed or blocked; 1 running; 2 PR review; 3 queued and other waits (dependency parks, shelved jobs); 4 finished. */
 function boardRank(j: JobLike): 0 | 1 | 2 | 3 | 4 {
   if (needsHuman(j) || j.state === 'failed' || j.state === 'blocked') return 0;
   if (j.state === 'running') return 1;

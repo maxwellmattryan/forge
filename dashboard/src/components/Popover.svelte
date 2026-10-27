@@ -6,10 +6,10 @@
      working (the body scrolls only when the room is too short for the log's own header). Every other size is capped at
      40rem (or the room above the bar, when that is less) and scrolls inside, so none comes near full screen on a desktop. -->
 <script lang="ts">
-  import { onMount, type Snippet } from 'svelte';
+  import { onMount, untrack, type Snippet } from 'svelte';
   import CloseButton from './CloseButton.svelte';
   import { FOCUSABLE, POPOVER_WIDTH, TAB_STOPS, placePopover, type PopoverId, type PopoverSize } from '../lib/popover.ts';
-  import { closePopover, keepFocus } from '../lib/popover.svelte.ts';
+  import { closePopover, keepFocus, popover } from '../lib/popover.svelte.ts';
   import { EXIT, fade, rise, settled } from '../lib/motion.ts';
   import { S } from '../lib/app.svelte.ts';
   import { t } from '../lib/locale.ts';
@@ -20,8 +20,14 @@
   const ready = (): number | null => S.readyAt;
   const edge = settled(Date.now(), S.readyAt);
   // While it fades out it stays in the DOM with its listeners: switching popovers mounts the next one meanwhile, and a
-  // leaving popover must never close (or steal focus from) the one replacing it.
-  let leaving = false;
+  // leaving popover must never close (or steal focus from) the one replacing it. It counts as leaving from the moment
+  // another one is open, not only from its outro: the next one takes focus as it mounts, before this one's outro starts,
+  // and this one's focusin listener would otherwise read that as focus leaving and close the next (a control that opens
+  // another popover). Its id is read once: the prop follows the
+  // parent's open popover, so a leaving one's `id` already names the next.
+  const own = untrack(() => id);
+  let outro = false;
+  const leaving = (): boolean => outro || popover.open !== own;
 
   let el = $state<HTMLDivElement>();
   let body = $state<HTMLDivElement>();
@@ -30,7 +36,7 @@
   const md = (): boolean => matchMedia('(width >= 48rem)').matches;
   let viewport = $state(document.documentElement.clientWidth);
   let narrow = $state(!md());
-  // Follows the window's width and the anchor: a cleared hold hands the Daemon popover back to the Daemon button. The anchor
+  // Follows the window's width and the anchor: a cleared hold hands the Workers popover back to the Workers button. The anchor
   // prop reads the popover state, so it is briefly null while a closing popover unmounts.
   const place = $derived.by(() => {
     const r = anchor ? anchor.getBoundingClientRect() : { left: 0, right: 0 };
@@ -48,12 +54,12 @@
   // Capture phase, so a control that stops the event still counts as outside.
   function down(e: PointerEvent): void {
     const target = e.target instanceof Element ? e.target : null;
-    if (leaving || !target || within(target)) return;
+    if (leaving() || !target || within(target)) return;
     closePopover('outside', { targetFocusable: target.closest(FOCUSABLE) !== null });
   }
 
   function focusOut(e: FocusEvent): void {
-    if (leaving) return;
+    if (leaving()) return;
     const to = e.relatedTarget instanceof Node ? e.relatedTarget : null;
     closePopover('focusout', { relatedInside: to === null ? null : within(to) });
     // No relatedTarget: a control that disabled itself or went away dropped focus to the body.
@@ -63,13 +69,13 @@
   // Tab past the page's last control leaves the document (a focusout with no relatedTarget, which closes nothing); focus
   // that later lands outside closes it then.
   function focusIn(e: FocusEvent): void {
-    if (!leaving && e.target instanceof Node && !within(e.target)) closePopover('focusout', { relatedInside: false });
+    if (!leaving() && e.target instanceof Node && !within(e.target)) closePopover('focusout', { relatedInside: false });
   }
 
   // The popover follows the bar in the DOM. Shift+Tab before its first stop goes back to its indicator, and Tab past its
   // last goes on to what follows the indicator, as if the popover sat right after it.
   function key(e: KeyboardEvent): void {
-    if (leaving || e.key !== 'Tab' || e.defaultPrevented || !el) return;
+    if (leaving() || e.key !== 'Tab' || e.defaultPrevented || !el) return;
     const items = [...el.querySelectorAll<HTMLElement>(TAB_STOPS)].filter(shown);
     const at = document.activeElement;
     if (e.shiftKey) {
@@ -121,7 +127,7 @@
   tabindex="-1"
   in:rise|global={{ ready }}
   out:fade|global={EXIT}
-  onoutrostart={() => (leaving = true)}
+  onoutrostart={() => (outro = true)}
   class="plate solid fixed z-42 flex flex-col {edge ? 'shutter-edge' : ''} bottom-[calc(var(--size-statusbar)_+_env(safe-area-inset-bottom)_+_var(--space-1))] shadow-(--shadow-overlay) {chat ? 'max-h-[calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem)]' : 'max-h-[min(40rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]'} {chat ? 'h-[min(48rem,calc(100dvh_-_var(--size-statusbar)_-_env(safe-area-inset-bottom)_-_2rem))]' : ''}"
   style="left: {place.left}px; width: {place.width}px"
   onfocusout={focusOut}

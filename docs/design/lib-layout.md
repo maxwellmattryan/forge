@@ -143,7 +143,8 @@ Why these sit in core, and why so:
 | `session/` | lifecycle ← `daemon.ts`, split in #416 into `contract.ts`, `control.ts`, `holds.ts`, `launch.ts`, `log.ts`, `owned.ts`, `records.ts` and `timers.ts` |
 | pool | ← `daemon-pool.ts` |
 | owner | ← `daemon-owner.ts` |
-| leaves | `driver.ts` (#459: the id helpers out of `owner.ts`, and the one release), `session-agents.ts`, `reconcile.ts`, `foreman.ts`, `notify.ts` |
+| leaves | `driver.ts` (#459: the id helpers out of `owner.ts`, and the one release), `session-agents.ts` (folded into `session/owned.ts` in #551, to make room for `chat/` under the 12-entry cap), `reconcile.ts`, `foreman.ts`, `notify.ts` |
+| `chat/` | #551: the owner's chats (`store.ts`, `recorder.ts`, `send.ts`, `authority.ts`, `brief.ts`) |
 
 ### server
 

@@ -18,8 +18,9 @@ import { commandEnvProblems } from './validators/command-env.ts';
 import { requiredChecksProblems } from './validators/required-checks.ts';
 import { PLUGIN_ROOT, exists, paths, resolveFrom } from '../paths.ts';
 import { globProblem, policyProblems } from './validators/policy-check.ts';
-import { CONFIG_SCHEMA_VERSION, FOREMAN_SHIP, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
+import { CONFIG_SCHEMA_VERSION, EFFORTS, FOREMAN_SHIP, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_MODES, reservedGateEntry } from '../job/schema.ts';
 import { secretRefProblems } from './validators/secret-refs.ts';
+import { MAX_ASSISTANTS } from '#api/constants.ts';
 import { instructionsProblems } from './validators/instructions.ts';
 import { isMap, show } from '../shape.ts';
 import type { VerifyEntry } from '../types.ts';
@@ -244,6 +245,69 @@ export function foremanProblems(c: unknown): string[] {
       );
     }
   if (!(FOREMAN_SHIP as readonly unknown[]).includes(f.ship)) problems.push(`foreman.ship must be one of ${FOREMAN_SHIP.join(' | ')} (got ${JSON.stringify(f.ship)})`);
+  problems.push(...foremanOfficeProblems(f));
+  return problems;
+}
+
+/**
+ * The Office's foreman.* keys (model, effort, cadence, assistants, surveyors, mandate), each checked
+ * only when present, so a partial block a user wrote still merges over the defaults.
+ */
+function foremanOfficeProblems(f: Record<string, any>): string[] {
+  const problems: string[] = [];
+  const got = (v: unknown) => `(got ${JSON.stringify(v)})`;
+  const int = (key: string, v: unknown, min: number, max: number) => {
+    if (v !== undefined && !(Number.isInteger(v) && (v as number) >= min && (v as number) <= max)) problems.push(`foreman.${key} must be an integer ${min}-${max} ${got(v)}`);
+  };
+  const model = (key: string, v: unknown) => {
+    if (v !== undefined && !validModel(v)) problems.push(`foreman.${key} must be a model alias or id (letters, digits and . _ : - [ ]) ${got(v)}`);
+  };
+  const effort = (key: string, v: unknown) => {
+    if (v !== undefined && v !== null && !(EFFORTS as readonly unknown[]).includes(v)) problems.push(`foreman.${key} must be one of ${EFFORTS.join(' | ')}, or null ${got(v)}`);
+  };
+  const bool = (key: string, v: unknown) => {
+    if (v !== undefined && typeof v !== 'boolean') problems.push(`foreman.${key} must be true or false ${got(v)}`);
+  };
+  const oneOf = (key: string, v: unknown, allowed: readonly string[]) => {
+    if (v !== undefined && !allowed.includes(v as string)) problems.push(`foreman.${key} must be one of ${allowed.join(' | ')} ${got(v)}`);
+  };
+  /** The sub-map at `key` when it is a map; a problem and null when it is present but not one. */
+  const map = (key: string, v: unknown): Record<string, any> | null => {
+    if (v === undefined) return null;
+    if (isMap(v)) return v;
+    problems.push(`foreman.${key} must be a map ${got(v)}`);
+    return null;
+  };
+  model('model', f.model);
+  effort('effort', f.effort);
+  int('cadence', f.cadence, 1, 1440);
+  for (const role of ['assistants', 'surveyors'] as const) {
+    const m = map(role, f[role]);
+    if (!m) continue;
+    bool(`${role}.enabled`, m.enabled);
+    model(`${role}.model`, m.model);
+    effort(`${role}.effort`, m.effort);
+    if (role === 'assistants') int('assistants.sessions', m.sessions, 1, MAX_ASSISTANTS);
+  }
+  const m = map('mandate', f.mandate);
+  if (!m) return problems;
+  oneOf('mandate.until', m.until, MANDATE_UNTIL);
+  int('mandate.maxJobs', m.maxJobs, 1, 16);
+  oneOf('mandate.order', m.order, MANDATE_ORDERS);
+  if (m.decides !== undefined && (!Array.isArray(m.decides) || m.decides.some((g: unknown) => !(OFFICE_GATES as readonly unknown[]).includes(g))))
+    problems.push(`foreman.mandate.decides must be a list of gate classes (${OFFICE_GATES.join(' | ')}) ${got(m.decides)}`);
+  const budget = map('mandate.budget', m.budget);
+  if (budget) {
+    const usd = budget.usd;
+    if (usd !== undefined && !(typeof usd === 'number' && Number.isFinite(usd) && usd > 0 && usd <= 100000)) problems.push(`foreman.mandate.budget.usd must be a number over 0 and at most 100000 ${got(usd)}`);
+    int('mandate.budget.jobs', budget.jobs, 1, 1000);
+  }
+  const stall = map('mandate.stall', m.stall);
+  if (stall) {
+    int('mandate.stall.cadences', stall.cadences, 1, 100);
+    int('mandate.stall.bounces', stall.bounces, 1, 100);
+  }
+  oneOf('mandate.onUnfinishable', m.onUnfinishable, MANDATE_ON_UNFINISHABLE);
   return problems;
 }
 

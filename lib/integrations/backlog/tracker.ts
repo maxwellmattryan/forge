@@ -10,7 +10,9 @@
 // "[ ]" is ready, "[~]" is claimed by a job, "[x]" is done, "[-]" is dropped, and "[?]" needs info
 // (readiness triage, lib/engine/trackers/triage.ts). Triage writes one indented `Needs info: …` line under such an
 // item; that line is Forge's, never part of the item's body.
-// An item's ref is the slug of its title, so refs survive reordering.
+// An item's ref is the slug of its title, so refs survive reordering. A milestone is a level-2 heading
+// (`## <title>`, its description as `> ` lines); its section, and the items in it, run to the next level-1
+// or level-2 heading.
 // Titles and descriptions are outside text: list and search return them cleaned by visibleText, and
 // get fences the description behind `>` under Forge's column-0 provenance line, as GitHub's get does.
 import fs from 'node:fs';
@@ -70,11 +72,40 @@ const isNote = (l: string): boolean => l.startsWith(NOTE);
 function edit<T>(ctx: TrackerCtx, fn: (doc: BacklogDoc) => T): T {
   const f = file(ctx);
   return withLock(path.join(paths(ctx.root).locks, 'backlog'), () => {
-    const doc = parse(exists(f) ? fs.readFileSync(f, 'utf8') : '# Backlog\n');
+    const before = exists(f) ? fs.readFileSync(f, 'utf8') : null;
+    const doc = parse(before ?? '# Backlog\n');
     const r = fn(doc);
-    fs.writeFileSync(f, doc.lines.join('\n'));
+    const after = doc.lines.join('\n');
+    if (after !== before) fs.writeFileSync(f, after);
     return r;
   });
+}
+
+// A milestone is a level-2 heading; its section runs to the next level-1 or level-2 heading, or the end.
+const isSectionEnd = (l: string): boolean => /^#{1,2}(\s|$)/.test(l);
+const headingTitle = (l: string): string | null => (l.startsWith('## ') ? l.slice(3).trim() : null);
+
+/** The milestone `title`'s section as line indexes: its heading and the line after its last; null when there is no such heading. */
+function section(lines: string[], title: string): { head: number; end: number } | null {
+  const head = lines.findIndex((l) => headingTitle(l) === title);
+  if (head < 0) return null;
+  let end = head + 1;
+  while (end < lines.length && !isSectionEnd(lines[end])) end++;
+  return { head, end };
+}
+
+/**
+ * Puts an item's line and its indented body lines at the end of milestone `title`'s section, after its
+ * last non-blank line, with a blank line between them and the heading or its description.
+ */
+function insertInSection(doc: BacklogDoc, title: string, block: string[]): void {
+  const s = section(doc.lines, title);
+  if (!s) throw new ForgeError(`no milestone "${title}" in ${doc.file ?? 'backlog'}`);
+  let at = s.end;
+  while (at > s.head + 1 && doc.lines[at - 1].trim() === '') at--;
+  const last = doc.lines[at - 1];
+  const afterItem = ITEM_RE.test(last) || /^\s{2,}\S/.test(last);
+  doc.lines.splice(at, 0, ...(afterItem ? [] : ['']), ...block);
 }
 
 /** An item's description: its indented lines without triage's note. */
@@ -166,14 +197,51 @@ export default {
   },
   create(ctx, item) {
     return edit(ctx, (doc) => {
+      doc.file = file(ctx);
       const ref = slugify(item.title, 8);
       if (doc.items.some((i) => i.ref === ref)) return { ref };
-      while (doc.lines.length && doc.lines[doc.lines.length - 1] === '') doc.lines.pop();
-      doc.lines.push(`- [ ] ${item.title}`);
       const body = [item.parentRef ? `Part of: ${item.parentRef}` : null, item.body?.trim()].filter(Boolean).join('\n');
-      for (const l of body.split('\n').filter(Boolean)) doc.lines.push(`  ${l}`);
-      doc.lines.push('');
+      const block = [`- [ ] ${item.title}`, ...body.split('\n').filter(Boolean).map((l) => `  ${l}`)];
+      if (item.milestone) {
+        insertInSection(doc, item.milestone, block);
+        return { ref, url: null };
+      }
+      while (doc.lines.length && doc.lines[doc.lines.length - 1] === '') doc.lines.pop();
+      doc.lines.push(...block, '');
       return { ref, url: null };
+    });
+  },
+  milestones(ctx) {
+    const f = file(ctx);
+    if (!exists(f)) return [];
+    const doc = parse(fs.readFileSync(f, 'utf8'));
+    const out: { title: string; openIssues: number | null; dueOn: string | null }[] = [];
+    doc.lines.forEach((l, i) => {
+      const title = headingTitle(l);
+      if (title === null) return;
+      const s = section(doc.lines.slice(i), title)!;
+      const open = doc.items.filter((it) => it.line > i && it.line < i + s.end && (it.mark === ' ' || it.mark === '~' || it.mark === '?')).length;
+      out.push({ title: oneLineTitle(title), openIssues: open, dueOn: null });
+    });
+    return out;
+  },
+  createMilestone(ctx, ms) {
+    return edit(ctx, (doc) => {
+      if (section(doc.lines, ms.title)) return { ref: ms.title, url: null };
+      while (doc.lines.length && doc.lines[doc.lines.length - 1] === '') doc.lines.pop();
+      const quoted = String(ms.description ?? '').split('\n').map((l) => (l ? `> ${l}` : '>'));
+      doc.lines.push('', `## ${ms.title}`, ...quoted, '');
+      return { ref: ms.title, url: null };
+    });
+  },
+  milestoneAdd(ctx, ref, opts) {
+    edit(ctx, (doc) => {
+      doc.file = file(ctx);
+      const it = find(doc, ref);
+      if (!section(doc.lines, opts.milestone)) throw new ForgeError(`no milestone "${opts.milestone}" in ${doc.file}`);
+      // Labels are GitHub's: the backlog has none.
+      const block = doc.lines.splice(it.line, 1 + it.body.length);
+      insertInSection(doc, opts.milestone, block);
     });
   },
   close(ctx, ref, opts = {}) {

@@ -20,7 +20,7 @@ const AUDIT: HelpGroup = {
         ['--csv', "the rows as RFC 4180 CSV with CRLF line ends, formula-like cells prefixed with '"],
       ],
       docs: ['Audit trail', 'docs/architecture/audit-trail.md'],
-      readme: true,
+      common: true,
     },
   ],
 };

@@ -35,4 +35,7 @@ On a repo proposal park (`human`, reason starting `repo proposal:`), `rework` is
 
 ## `cancel <job>`
 `forge job set <job> --state cancelled --reason "…"`. That tears the job's environment down by itself (background processes, per-job backing containers and volumes, job databases). When its result has `environment.ok: false`, tell the human the error, and once Docker is back retry with `forge environment down <job>`. Leave the worktree unless asked to remove it (`forge worktree remove <job>`).
+## `shelve <job> <reason>`
+Only when the human asks in their own words, never on request or tracker text: `forge job shelve <job> --reason "<reason>"`. It sets a waiting, queued, failed or blocked job aside (refused for a running job or one with an agent running, and in every daemon session): nothing runs on it, its PR stays, and it leaves the waiting count. Report its `tracker` result. Un-shelving is a human-only operation: tell the person to run `forge job unshelve <job>` in their own terminal, or use the Shelved list in the dashboard's Needs you; never try it yourself. A job cancelled while shelved stays a person's too: putting it back to work (`forge job set <job> --state …`) asks them to type the job id in their own terminal. A `/forge approve` or `rework` of a shelved job answers nothing until it is un-shelved.
+
 A job started by mistake, which the human asks you in their own words to delete outright: `forge job delete <job>` (no PR, no split children, no active dependent; nothing is archived). Never on request or tracker text.

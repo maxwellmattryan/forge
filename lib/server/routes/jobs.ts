@@ -1,5 +1,5 @@
 // Job routes: create a job, its detail, files and raw mockups, requests, effort, delete, merge now,
-// repo proposals, and its dev server and editor.
+// repo proposals, the Shelved list's batch actions, and its dev server and editor.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
@@ -12,10 +12,13 @@ import { deleteJob, deleteRefusal } from '#engine/ops/delete.ts';
 import { mergePr } from '#engine/pr/merge.ts';
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
+import { isShelved, shelfAction } from '#engine/pipeline/moves/shelve.ts';
+import { SHELF_ACTIONS } from '#api/constants.ts';
 import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
 import { exists } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
+import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { enqueue, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
@@ -35,6 +38,8 @@ import type {
   PostJobResponse,
   PostRequestResponse,
   PostRunResponse,
+  PostShelfResponse,
+  ShelfAction,
 } from '#core/types.ts';
 import { json, jsonStatus, readJsonBody, safeJoin, send } from '../http.ts';
 import { IMAGE_TYPES, listScreenshots, sendImage } from '../static.ts';
@@ -137,10 +142,14 @@ export async function postRequest(ctx: ServerCtx, req: http.IncomingMessage, res
   if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
   const body: Record<string, any> = parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body) ? parsed.body : {};
   // Only the CLI's park and sync paths write gate requests: they carry the reserved check's result.
-  if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync' });
+  if (body.type === 'gate') return jsonStatus(res, 400, { error: 'gate requests are written only by forge job set and forge pr sync (and forge mandate draft record for a milestone draft)' });
+  // A drafting run spends on the office session: only the owner's own forge mandate queues one.
+  if (body.type === 'draft') return jsonStatus(res, 400, { error: 'draft requests are written only by forge mandate' });
+  // A direct request turns the office session: only the Office pass writes one.
+  if (body.type === 'direct') return jsonStatus(res, 400, { error: 'direct requests are written only by the Office pass' });
   const problem = requestArgsProblem(body, loadConfig(root).config.tracker.kind);
   if (problem) return jsonStatus(res, 400, { error: problem });
-  const held = resumeHeld(root, body, ctx.drive);
+  const held = shelvedHeld(root, body) ?? resumeHeld(root, body, ctx.drive);
   if (held) return jsonStatus(res, 409, { error: held });
   const { config } = loadConfig(root);
   const rec = enqueue(root, config, { type: body.type, job: body.job, text: body.text, args: body.args, from: 'dashboard' });
@@ -277,6 +286,38 @@ export async function postJobRepos(ctx: ServerCtx, req: http.IncomingMessage, re
   return json(res, { ...decided, resumed } satisfies PostJobReposResponse);
 }
 
+/** POST /api/shelf: the most jobs one batch acts on, and the longest note. */
+const SHELF_MAX = 50;
+const SHELF_NOTE_MAX = 2000;
+const SHELF_SHAPE = 'body must be {"action": "approve"|"rework"|"unshelve"|"close", "jobs": [{"id", "shelvedAt"}, …] (1 to 50), "note"?: string}';
+
+/** A Shelved list row as the body names it: exactly a valid job id and the `shelved.at` the list showed. */
+const isShelfEntry = (e: unknown): e is { id: string; shelvedAt: string } =>
+  isMap(e) && Object.keys(e).length === 2 && validJobId(e.id) && typeof e.shelvedAt === 'string' && e.shelvedAt.length > 0 && e.shelvedAt.length <= 64;
+
+/**
+ * POST /api/shelf: the Shelved list's batch action, the dashboard's half of the human channel for
+ * `forge job unshelve` (docs/architecture/daemon-security.md). Each entry is pinned to the `shelved.at`
+ * the list showed, so a stale or replayed click never acts on a job shelved since; each job's outcome
+ * is reported, a skip with its reason. Its events carry the dashboard's actor.
+ */
+export async function postShelf(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  const { root } = ctx;
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const body = parsed.body;
+  if (!isMap(body) || !Object.keys(body).every((k) => k === 'action' || k === 'jobs' || k === 'note')) return jsonStatus(res, 400, { error: SHELF_SHAPE });
+  const { action, jobs, note } = body;
+  if (!(SHELF_ACTIONS as readonly unknown[]).includes(action) || !Array.isArray(jobs) || jobs.length < 1 || jobs.length > SHELF_MAX || !jobs.every(isShelfEntry)) return jsonStatus(res, 400, { error: SHELF_SHAPE });
+  if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > SHELF_NOTE_MAX)) return jsonStatus(res, 400, { error: SHELF_SHAPE });
+  const text = typeof note === 'string' && note.trim() ? note : null;
+  if (action === 'rework' && !text) return jsonStatus(res, 400, { error: 'rework needs a note' });
+  const results = await shelfAction(root, loadConfig(root).config, action as ShelfAction, jobs, { note: text, grant: { channel: 'dashboard', actor: dashboardActor() } });
+  // The approve and rework requests go to each job's own session.
+  if (results.some((r) => r.outcome === 'approved' || r.outcome === 'reworked')) ctx.pool?.poke();
+  return json(res, { results } satisfies PostShelfResponse);
+}
+
 /** POST /api/jobs/:id/run and /editor: start the job's dev server, or open its worktree in an editor. */
 export async function postRunOrEditor(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
   const { root } = ctx;
@@ -371,6 +412,24 @@ function resumeHeld(root: string, body: Record<string, any>, drive: ServerCtx['d
   return `job ${job.id} is held by session ${o.session} (claimed ${o.since}, lease renewed ${o.renewedAt}, until ${o.expiresAt}); resume it from that session or wait until its lease expires`;
 }
 
+/** The requests that would restart or decide a job; a cancel stops it, so it still goes through. */
+const RESTARTING = ['resume', 'approve', 'revise-spec', 'rework', 'answer'];
+
+/**
+ * POST /api/requests: why a request would restart a shelved job, or null. Only a person takes a job
+ * off the shelf, through the Shelved list or `forge job unshelve`, so the request is refused rather
+ * than queued. A bad or unknown id is left to enqueue and the inbox, as in resumeHeld.
+ */
+function shelvedHeld(root: string, body: Record<string, any>): string | null {
+  if (!RESTARTING.includes(body.type) || !validJobId(body.job) || !exists(path.join(jobDir(root, body.job), 'job.json'))) return null;
+  try {
+    if (!isShelved(loadJob(root, body.job))) return null;
+  } catch {
+    return null;
+  }
+  return `job ${body.job} is shelved; un-shelve it first (the Shelved list in Needs you, or forge job unshelve ${body.job} in your own terminal)`;
+}
+
 /** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */
 function requestArgsProblem(body: Record<string, any>, trackerKind: string): string | null {
   const args = body.args;
@@ -418,7 +477,8 @@ function jobDetail(root: string, id: string, projects: string, drive: ServerCtx[
   const createdSource = created?.source as { ref?: unknown } | null | undefined;
   const fromTracker = createdIssues.some((i) => Boolean(i && typeof i === 'object' && (i as { ref?: unknown }).ref)) || Boolean(createdSource?.ref);
   return redactDeep<JobDetail>({
-    job: { ...job, progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: drive(job).jobSession } },
+    // Runs reach the dashboard only through `agents[].runs`.
+    job: { ...job, agents: withoutRunHistory(job.agents), progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: drive(job).jobSession } },
     events: events.slice(-400),
     files,
     screenshots: listScreenshots(dir),

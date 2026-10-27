@@ -113,6 +113,38 @@ test('forge sync continues a deferred merge through mergePr', { skip: process.pl
   }
 });
 
+test("forge sync scores a mandate's merged job whatever scoring.sample says", { skip: process.platform === 'win32' }, async () => {
+  const { repo } = await prRepo('an open PR');
+  const gh = fakeGh({
+    'pr view': JSON.stringify(ghPr({ statusCheckRollup: [{ name: 'test', conclusion: 'SUCCESS' }] })),
+    'api graphql': JSON.stringify({ data: { repository: { pullRequest: {} } } }),
+    'pr diff': 'diff --git a/a.txt b/a.txt\n+a\n',
+  });
+  try {
+    const m = await forgeAsync(repo.dir, ['mandate', 'new', 'm1', '--title', 'M', '--milestones', 'M1']);
+    assert.equal(m.status, 0, m.stderr + m.stdout);
+    const config = loadConfig(repo.dir).config;
+    assert.equal(config.scoring.sample, 0, 'scoring.sample is at its default');
+    const mergedAt = new Date(Date.now() - 60 * 60_000).toISOString();
+    const done = (title: string, mandate: string | null, number: number) => {
+      const id = createJob(repo.dir, config, { title, mandate }).id;
+      setJob(repo.dir, id, { stage: 'done', state: 'done', owned: { pr: { number, url: `https://github.com/o/r/pull/${number}`, state: 'MERGED', mergedAt } } });
+      return id;
+    };
+    const inMandate = done('in the mandate', 'm1', 11);
+    const outside = done('outside it', null, 12);
+    const r = await forgeAsync(repo.dir, ['sync'], gh.env);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    const queued = JSON.parse(r.stdout).scoring?.queued ?? [];
+    assert.ok(queued.includes(inMandate), r.stdout);
+    assert.ok(!queued.includes(outside), r.stdout);
+    assert.equal(loadJob(repo.dir, inMandate).score?.status, 'queued');
+  } finally {
+    fs.rmSync(gh.dir, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
 test('forge sync holds a deferred merge in the pass that queues its pr-feedback gate', { skip: process.platform === 'win32' }, async () => {
   const { repo, id, head } = await prRepo('feedback before the merge', { merge: { auto: true }, foreman: { enabled: true, decides: ['pr-feedback'], reserved: [] } });
   setJob(repo.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review' });

@@ -10,7 +10,9 @@ import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '#en
 import { loadTracker } from '#engine/trackers/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, Effort, JobIssue } from '#core/types.ts';
-import { bodyFrom, list, oneOf, req, str, usageError } from '../args.ts';
+import { readMandate } from '#office/mandates/store.ts';
+import { isReadable } from '#office/mandates/contract.ts';
+import { bodyFrom, list, oneOf, req, requireJob, str, usageError } from '../args.ts';
 import { startFromRef } from '../tracker.ts';
 import { JOB } from './help.ts';
 import { refuseEffortInDaemon } from './state.ts';
@@ -50,11 +52,33 @@ function newJobIssues(root: string, config: Config, flags: Record<string, any>):
   return { issues, noIssue: wantsNone ? { reason: reason ?? null } : null };
 }
 
+/**
+ * The mandate the new job works under: `--mandate` (an existing mandate that isn't closed), or the
+ * split parent's. A child never moves to another mandate. A daemon session may pass it: joining a
+ * mandate only narrows what the Foreman decides. Every check runs before createJob.
+ */
+function newJobMandate(root: string, flags: Record<string, any>): string | null {
+  const given = str(flags.mandate, '--mandate');
+  const parent = flags.parent !== undefined ? requireJob(root, flags.parent) : null;
+  if (given !== undefined) {
+    const m = readMandate(root, given);
+    if (!isReadable(m)) {
+      if (m.problem === 'no such mandate' || m.problem === 'not a mandate id') throw new ForgeError(`no mandate ${JSON.stringify(given).slice(0, 60)}`, 'not_found');
+      throw new ForgeError(`mandate ${given} can't be read (${m.problem})`);
+    }
+    if (m.status === 'closed') throw new ForgeError(`mandate ${given} is closed`);
+  }
+  if (parent && given !== undefined && given !== parent.mandate)
+    throw new ForgeError(`--mandate ${given} differs from parent ${parent.id}'s mandate ${parent.mandate ?? 'none'}: a split child keeps its parent's mandate`);
+  return given ?? parent?.mandate ?? null;
+}
+
 export function newCmd(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   // Read before createJob, so a bare --session fails instead of claiming as session "true".
   const session = str(flags.session, '--session');
   // Every issue check runs before createJob, so a refused flag leaves no job dir.
   const { issues, noIssue } = newJobIssues(root, config, flags);
+  const mandate = newJobMandate(root, flags);
   let effort: Effort | undefined;
   if (flags.effort !== undefined) {
     refuseEffortInDaemon();
@@ -74,6 +98,7 @@ export function newCmd(root: string, config: Config, rest: string[], flags: Reco
     slug: flags.slug,
     services: list(flags.services),
     effort,
+    mandate,
   });
   const waived = noIssue ? markNoIssue(root, job.id, noIssue.reason).noIssue : null;
   const created = { id: job.id, branch: job.branch, dir: path.relative(root, jobDir(root, job.id)), issueLink: issueLinkStatus({ ...job, noIssue: waived }, config) };

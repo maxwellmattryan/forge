@@ -6,6 +6,7 @@
   import PrChip from './PrChip.svelte';
   import StageStepper from './StageStepper.svelte';
   import BudgetCell from './BudgetCell.svelte';
+  import MandateBadge from './MandateBadge.svelte';
   import { ago, num, usd } from '../lib/util.ts';
   import { cardModel, sortByRank } from '../lib/board.ts';
   import { prChipModel } from '../lib/job-state.ts';
@@ -27,7 +28,7 @@
         {@const m = cardModel(j)}
         <tr class="clickable" onclick={() => openDrawer(j.id)}>
           <!-- stopPropagation: the row's own click would load the drawer a second time. -->
-          <td><button class="h card text-left hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button><div class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</div></td>
+          <td><button class="h card text-left hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button><div class="mono muted text-[11px] truncate" title={m.refTitle}>{m.ref}</div><MandateBadge mandate={j.mandate} extra="mt-1" /></td>
           <td><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}{#if m.round}{' · '}{$t('job.round', m.round)}{/if}</span></div></td>
           <td><StateChip job={j} /></td>
           <td class="num">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>

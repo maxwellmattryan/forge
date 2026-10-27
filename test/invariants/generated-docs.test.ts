@@ -11,16 +11,16 @@ import { getPath } from '#core/shape.ts';
 import { KEY_DOCS } from '#core/config/keys/docs.ts';
 import { configDocProblems, renderConfigReference, syncConfigDoc } from '#core/config/keys/reference.ts';
 import { parse } from '#core/format/yaml.ts';
-import { syncCliDoc, syncReadme } from '../../lib/cli/commands/help.ts';
+import { syncCliDoc, syncCommonCommands } from '../../lib/cli/commands/help.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..');
 const read = (file: string): string => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 test('generated docs are what npm run docs writes', () => {
   for (const [file, sync] of [
-    ['README.md', syncReadme],
     ['docs/CONFIG.md', syncConfigDoc],
     ['docs/CLI.md', syncCliDoc],
+    ['docs/CLI.md', syncCommonCommands],
   ] as const) {
     const text = read(file);
     assert.ok(sync(text) === text, `${file} is stale: run npm run docs`);
@@ -56,7 +56,8 @@ test('field schema is an allowlist over documented keys', async () => {
     // scoring.sample and scoring.model pick which merged jobs get a judge run and its model; budgets still hold it.
     // environments.maxRunning only caps running environments: a wrong value stops (never removes) one.
     // pr.maxCiReworks only caps how many CI reworks sync starts before a person decides.
-    assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon|budget)\.|pr\.(integrationReview|maxCiReworks)$|retention\.logMaxBytes$|outcomes\.windowDays$|environments\.maxRunning$|scoring\.(sample|model)$)/, `${f.key} is in an editable section`);
+    // foreman model and effort keys pick a model and how much it thinks, never what it may do.
+    assert.match(f.key, /^((pipeline|review|runtime|tracker|dashboard|daemon|budget)\.|pr\.(integrationReview|maxCiReworks)$|retention\.logMaxBytes$|outcomes\.windowDays$|environments\.maxRunning$|scoring\.(sample|model)$|foreman\.((assistants|surveyors)\.)?(model|effort)$)/, `${f.key} is in an editable section`);
     for (const p of forbidden) assert.ok(!f.key.startsWith(p), `${f.key} must not be editable (${p})`);
   }
   assert.ok(FIELDS.some((f) => f.key === 'runtime.models.builder' && f.editable));

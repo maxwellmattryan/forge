@@ -22,9 +22,9 @@ const BACKING: HelpGroup = {
       args: '<id>',
       summary:
         "bring the job's per-job and the project's shared services up, idempotently: run a missing container, start a stopped one, leave a running one; then give the job its job database on each shared entry with database (cloned from the template database, built in the job's worktree when missing); the result lists each service's action and database, never a password",
-      exits: [[1, 'an invalid job id or no such job, or the inbox or office daemon session ran it'], [5, `${DOCKER_FAILED[1]}; for a job database, also a server not ready in 60 s, a failed migrate, seed or psql call, or no worktree`]],
+      exits: [[1, 'an invalid job id or no such job, or the inbox, office or an assistant foreman daemon session ran it'], [5, `${DOCKER_FAILED[1]}; for a job database, also a server not ready in 60 s, a failed migrate, seed or psql call, or no worktree`]],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'backing down',
@@ -32,18 +32,18 @@ const BACKING: HelpGroup = {
       summary:
         "remove the job's per-job containers and volumes (only those labelled with this checkout and job), drop its job databases and role, and delete backing.json and backing-db.json, for any job, done or cancelled too; --shared removes this checkout's shared containers and keeps their volumes and ports",
       flags: [['--shared', "the project's shared containers instead of a job's"]],
-      exits: [[1, 'an invalid job id, or the inbox or office daemon session ran it'], [5, 'Docker missing, its daemon stopped, a docker or psql command failed, or a shared container is stopped (the records are kept for a retry)']],
+      exits: [[1, 'an invalid job id, or the inbox, office or an assistant foreman daemon session ran it'], [5, 'Docker missing, its daemon stopped, a docker or psql command failed, or a shared container is stopped (the records are kept for a retry)']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'backing stop',
       args: '<id>',
       summary:
         "docker stop the job's per-job containers (only those labelled with this checkout and job), keeping their volumes, records and every shared container; a missing, stopped or foreign container is listed in skipped with the reason; `backing up` starts them again",
-      exits: [[1, 'an invalid job id, or the inbox or office daemon session ran it'], DOCKER_FAILED],
+      exits: [[1, 'an invalid job id, or the inbox, office or an assistant foreman daemon session ran it'], DOCKER_FAILED],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
     {
       command: 'backing status',
@@ -52,7 +52,7 @@ const BACKING: HelpGroup = {
         "with a job: docker (ok, missing or stopped; null when no service is managed) and each service's container, state (unknown when Docker is unreachable), health (healthy, unhealthy or starting while running; null without a healthcheck), ports, job database (name and template) and the FORGE_BACKING_* names its commands see (never values); without: every container labelled with this checkout, with orphan: true for a per-job one whose job is unknown, done or cancelled",
       exits: [[1, 'an invalid job id'], [5, 'Docker missing (code docker_missing) or its daemon stopped (docker_stopped), without a job only']],
       docs: DOCS,
-      readme: true,
+      common: true,
     },
   ],
 };

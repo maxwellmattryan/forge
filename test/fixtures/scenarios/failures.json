@@ -50,8 +50,9 @@
       "Wire the payments webhook"
     ],
     "project": ["@project.empty"],
-    "backlog": ["@backlog.empty"],
+    "issues": ["@issues.empty"],
     "agents": ["@agents.noRunning", "@agents.noSessions"],
+    "foreman": ["@foreman.title", "@foreman.panel.chats", "@statusbar.foreman.offTitle", "@foreman.office.noMandates", "@foreman.office.noDirectives"],
     "analytics": ["@analytics.jobs", "@analytics.lenses"],
     "evals": ["@evals.empty"],
     "drawer": { "job": "failed", "text": ["the worktree could not be created"] }

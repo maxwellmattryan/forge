@@ -27,6 +27,7 @@ const PARKED: Record<string, string> = {
   external: 'build',
   budget: 'build',
   human: 'build',
+  shelved: 'decide',
 };
 
 describe('state builders write through the store', { concurrency: 4 }, () => {

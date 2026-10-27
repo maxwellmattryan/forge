@@ -1,6 +1,7 @@
 // Notifications: a small, fixed-shape message to the team's webhooks and command when a job needs a
-// human, a PR opens or merges, a job fails, the daemon stops, a budget is exceeded or a secret is
-// found. This is the only module that does network I/O or runs notify.command. Triggers call
+// human, a PR opens or merges, a job fails, the daemon stops, a budget is exceeded, a secret is
+// found, the login service restarted with work in flight, or the Office pass stalled, paused at its
+// budget or closed a mandate. This is the only module that does network I/O or runs notify.command. Triggers call
 // queueNotify, which hands delivery to a detached `forge notify send` child, so a slow endpoint
 // never stalls the command that changed state. Delivery is best effort: nothing here throws into
 // a caller or changes job state.
@@ -22,6 +23,9 @@ import { EVENT_SCHEMA_VERSION, NOTIFY_EVENTS, NOTIFY_GATES } from '#core/job/sch
 import type { Config, DoctorCheck, Job, NotifyEvent, NotifyWebhook, TransitionSide } from '#core/types.ts';
 import { loopbackOrigin, machineDashboardFile, readDashboardRecord } from '#engine/ops/dashboard-record.ts';
 import { projectByRoot } from '#engine/project/machine-index.ts';
+import { readUptime } from '#engine/project/login-service.ts';
+import { isMandateId, isReadable } from './mandates/contract.ts';
+import { readMandate } from './mandates/store.ts';
 
 export { notifyProblems, validWebhooks, validCommand, notifyConfigured, webhookHost } from '#core/config/validators/notify.ts';
 
@@ -37,6 +41,7 @@ export const REASONS = {
   'rounds-exhausted': 'Review rounds are exhausted',
   budget: 'The job stopped at its budget',
   human: 'A Forge check stopped the job until a human clears it',
+  'milestone-approval': 'A milestone draft is waiting for approval',
   failed: 'The job failed',
   'pr-opened': 'A pull request was opened',
   'pr-merged': 'The pull request was merged',
@@ -45,8 +50,16 @@ export const REASONS = {
   'failed-turns': 'The daemon stopped after repeated failed turns',
   'failed-starts': 'The daemon stopped after repeated failed starts',
   'daily-cap': 'A daemon session reached its daily spend cap',
+  'service-restarted': 'The machine dashboard restarted and resumed the work in flight',
+  'mandate-stalled': 'A mandate stalled and was left for a human',
+  'mandate-budget': 'A mandate reached its budget and paused',
+  'mandate-closed': 'A mandate finished its scope and closed itself',
+  'mandate-release': "A mandate's release plan is waiting for approval",
   test: 'Test notification from forge notify test',
 } as const;
+
+/** The reasons that name a mandate, and the only ones `forge notify send --mandate` takes. */
+export const MANDATE_REASONS: readonly ReasonCode[] = ['mandate-stalled', 'mandate-budget', 'mandate-closed', 'mandate-release'];
 export type ReasonCode = keyof typeof REASONS;
 
 /** The Slack header label per event. */
@@ -58,6 +71,10 @@ export const LABELS: Record<NotifyEvent, string> = {
   'daemon-stopped': 'Daemon stopped',
   'budget-exceeded': 'Budget exceeded',
   'secret-found': 'Secret found',
+  'service-restarted': 'Forge restarted',
+  'mandate-stalled': 'Mandate stalled',
+  'mandate-budget': 'Mandate budget',
+  'mandate-closed': 'Mandate closed',
 };
 
 export const isNotifyEvent = (e: unknown): e is NotifyEvent => (NOTIFY_EVENTS as readonly unknown[]).includes(e);
@@ -380,9 +397,40 @@ function record(root: string, job: string | null, r: TargetResult): void {
   } catch {}
 }
 
-/** The context `forge notify send` builds: the job's own title, stage and PR url, read here, not passed in. */
-export function contextFor(root: string, job: string | null, reason: ReasonCode): NotifyContext {
-  if (!job) return { job: null, title: null, stage: null, prUrl: null, reason };
+const counted = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/**
+ * A service restart's title: this project's name (from the machine index) and its own counts (from its
+ * entry in uptime.json), never another project's, since two projects on one machine may notify
+ * different teams. A missing or malformed entry gives `<name> resumed`.
+ */
+function restartTitle(root: string, home: string): string {
+  let name = 'Forge';
+  try {
+    name = projectByRoot(home, root)?.name ?? name;
+  } catch {
+    // An unreadable index names no project.
+  }
+  const entry = readUptime(home).restart?.projects.find((p) => p.name === name);
+  if (!entry) return `${name} resumed`;
+  return `${name} resumed: ${counted(entry.jobs, 'running job')}, ${counted(entry.office, 'Office request')}, ${counted(entry.mandates, 'active mandate')}`;
+}
+
+/** A mandate notification's title: `Mandate <id>: <title>`, or `Mandate <id>` when its file can't be read. */
+function mandateTitle(root: string, id: string): string {
+  const m = readMandate(root, id);
+  return isReadable(m) ? `Mandate ${m.id}: ${m.title}` : `Mandate ${m.id}`;
+}
+
+/**
+ * The context `forge notify send` builds: the job's own title, stage and PR url, read here, not passed
+ * in; with no job, a mandate's title for a mandate notification.
+ */
+export function contextFor(root: string, job: string | null, reason: ReasonCode, home: string = forgeHome(), mandate: string | null = null): NotifyContext {
+  if (!job) {
+    const title = reason === 'service-restarted' ? restartTitle(root, home) : mandate !== null && MANDATE_REASONS.includes(reason) ? mandateTitle(root, mandate) : null;
+    return { job: null, title, stage: null, prUrl: null, reason };
+  }
   const j = loadJob(root, job);
   return { job: j.id, title: j.title, stage: j.stage, prUrl: j.pr?.url ?? null, reason };
 }
@@ -401,7 +449,7 @@ export function transitionEvents(before: TransitionSide | null, after: Transitio
 }
 
 /** queueNotify's signature, so the daemon can take a stand-in in tests. */
-export type QueueNotify = (root: string, events: readonly NotifyEvent[], opts: { job?: string | null; reason: ReasonCode }) => boolean;
+export type QueueNotify = (root: string, events: readonly NotifyEvent[], opts: { job?: string | null; reason: ReasonCode; mandate?: string }) => boolean;
 
 /**
  * Hands delivery to a detached `forge notify send` child and returns at once. Does nothing (no
@@ -414,7 +462,17 @@ export const queueNotify: QueueNotify = (root, events, opts) => {
     const { config } = loadConfig(root);
     if (!notifyConfigured(config)) return false;
     if (opts.job && loadJob(root, opts.job).kind === 'eval') return false;
-    const args = [path.join(PLUGIN_ROOT, 'bin', 'forge'), 'notify', 'send', '--events', events.join(','), ...(opts.job ? ['--job', opts.job] : []), '--reason', opts.reason];
+    const args = [
+      path.join(PLUGIN_ROOT, 'bin', 'forge'),
+      'notify',
+      'send',
+      '--events',
+      events.join(','),
+      ...(opts.job ? ['--job', opts.job] : []),
+      ...(opts.mandate && !opts.job && isMandateId(opts.mandate) ? ['--mandate', opts.mandate] : []),
+      '--reason',
+      opts.reason,
+    ];
     const child = spawn(process.execPath, args, { cwd: root, detached: true, stdio: 'ignore', env: { ...process.env, FORGE_ROOT: root } });
     child.on('error', () => {});
     child.unref();

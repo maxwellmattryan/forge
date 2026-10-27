@@ -10,7 +10,7 @@ import { fakeClaude, jobAt, repoTemplate, waitFor } from '../../../test/helpers.
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import { loadJob, readEvents } from '#core/job/store.ts';
-import { meterFile, readMeter } from '#engine/metrics/meter.ts';
+import { METER_VERSION, appendMeter, meterFile, readMeter } from '#engine/metrics/meter.ts';
 import type { SessionCost } from '#integrations/claude/types.ts';
 import { confineDigest } from './confine.ts';
 import { heldByBudget } from './holds.ts';
@@ -52,6 +52,7 @@ function rig(t: any, scope: 'job' | string, opts: { daemon?: Record<string, unkn
     permissionMode: () => null,
     permissionModeRefused: () => {},
     effort: () => ({ level: null, source: 'none' }),
+    model: () => null,
   };
   const claude = fakeClaude();
   const sink: LogSink = { write: () => true, on: () => undefined, once: () => undefined, end: (cb) => cb?.() };
@@ -183,6 +184,84 @@ test('the office and inbox stop at their daily cap', async (t) => {
   inbox.children[0].emit(result(5.5));
   assert.equal(inbox.s.wanted, true, 'no inbox cap');
   assert.deepEqual(inbox.children[0].signals, []);
+});
+
+test('the office and its assistant foremen share one daily cap', async (t) => {
+  const caps = { daemon: { dailyUsd: { office: 1, inbox: null } } };
+  const seed = (root: string, scope: string, usd: number) =>
+    appendMeter(root, { v: METER_VERSION, ts: new Date().toISOString(), scope, sessionId: null, spawnId: 'seed', turn: 1, usd, tokens: 0, models: {}, cum: { usd, models: {} } });
+
+  // $0.40 + $0.70 is past the $1 cap: a third office-family session may not start.
+  const second = rig(t, '_assistant-2', caps);
+  seed(second.root, OFFICE_SCOPE, 0.4);
+  seed(second.root, '_assistant-1', 0.7);
+  assert.equal(second.s.spawn(second.cfg), false);
+  assert.equal(second.children.length, 0, 'no child');
+  assert.match(second.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
+
+  // The result that takes the family past the cap stops the assistant that spent it.
+  const first = rig(t, '_assistant-1', caps);
+  seed(first.root, OFFICE_SCOPE, 0.4);
+  assert.equal(first.s.spawn(first.cfg), true);
+  first.s.writeTurn(['r1']);
+  first.children[0].emit(result(0.7));
+  assert.deepEqual(metered(first.root, '_assistant-1'), [0.7], "metered into the assistant's own file");
+  assert.equal(first.s.wanted, false);
+  assert.deepEqual(first.children[0].signals, ['SIGTERM']);
+  assert.match(first.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
+  await waitFor(() => !first.s.running, { what: 'the capped assistant stopped' });
+
+  // One assistant's meter that can't be read fails the office's check closed.
+  const office = rig(t, OFFICE_SCOPE, caps);
+  oversize(office.root, '_assistant-2');
+  assert.equal(office.s.spawn(office.cfg), false);
+  assert.match(office.s.lastError ?? '', /_assistant-2\.jsonl is over 64 MiB, so the office session's daily cap \(daemon\.dailyUsd\.office\) can't be checked/);
+});
+
+test('chats share one daily cap', async (t) => {
+  const caps = { daemon: { dailyUsd: { office: null, inbox: null, chat: 1 } } };
+  const [a, b, c] = ['_chat-0123456789ab', '_chat-aaaaaaaaaaaa', '_chat-bbbbbbbbbbbb'];
+  const seed = (root: string, scope: string, usd: number) =>
+    appendMeter(root, { v: METER_VERSION, ts: new Date().toISOString(), scope, sessionId: null, spawnId: 'seed', turn: 1, usd, tokens: 0, models: {}, cum: { usd, models: {} } });
+
+  // $0.40 + $0.70 across two chats is past the $1 cap: a third chat may not start.
+  const third = rig(t, c, caps);
+  seed(third.root, a, 0.4);
+  seed(third.root, b, 0.7);
+  seed(third.root, OFFICE_SCOPE, 50);
+  assert.equal(third.s.spawn(third.cfg), false);
+  assert.equal(third.children.length, 0, 'no child');
+  assert.match(third.s.lastError ?? '', /^daemon stopped: the chat sessions spent \$1\.10 of the \$1\.00 daily cap \(daemon\.dailyUsd\.chat\)/);
+
+  // The result that takes the chats past the cap is metered to the chat's own file and stops it.
+  const first = rig(t, a, caps);
+  seed(first.root, b, 0.4);
+  seed(first.root, '_inbox', 50);
+  assert.equal(first.s.spawn(first.cfg), true, 'the inbox and office meters never count toward it');
+  first.s.writeChat('hello');
+  first.children[0].emit(result(0.7));
+  assert.deepEqual(metered(first.root, a), [0.7], "metered into the chat's own file");
+  assert.equal(first.s.wanted, false);
+  assert.deepEqual(first.children[0].signals, ['SIGTERM']);
+  assert.match(first.s.lastError ?? '', /daily cap \(daemon\.dailyUsd\.chat\)/);
+  assert.deepEqual(first.notified.map(([, events, ctx]) => [events, ctx]), [[['daemon-stopped'], { job: null, reason: 'daily-cap' }]]);
+  await waitFor(() => !first.s.running, { what: 'the capped chat stopped' });
+
+  // Another chat's meter that can't be read fails the check closed, and so does a meter dir that is a file.
+  const unread = rig(t, a, caps);
+  oversize(unread.root, b);
+  assert.equal(unread.s.spawn(unread.cfg), false);
+  assert.match(unread.s.lastError ?? '', /_chat-aaaaaaaaaaaa\.jsonl is over 64 MiB, so the chat sessions' daily cap \(daemon\.dailyUsd\.chat\) can't be checked/);
+  const planted = rig(t, a, caps);
+  fs.mkdirSync(path.join(planted.root, '.forge', 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(planted.root, '.forge', 'runtime', 'meter'), '');
+  assert.equal(planted.s.spawn(planted.cfg), false);
+  assert.match(planted.s.lastError ?? '', /is not a directory, so the chat sessions' daily cap \(daemon\.dailyUsd\.chat\) can't be checked/);
+
+  // With no chat cap, chats spend freely.
+  const free = rig(t, a, { daemon: { dailyUsd: { office: null, inbox: null, chat: null } } });
+  seed(free.root, b, 500);
+  assert.equal(free.s.spawn(free.cfg), true);
 });
 
 test("a capped session whose meter can't be read stops: the cap check fails closed", async (t) => {

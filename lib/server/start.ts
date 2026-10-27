@@ -12,13 +12,16 @@ import { createMachineSlots } from '#office/slots.ts';
 import type { ApiError } from '#core/types.ts';
 import { guardPost, guardQueryToken, guardToken, isLoopbackAddress, isLoopbackHost, readGuard, send } from './http.ts';
 import { createEntries } from './machine.ts';
+import { startKeepAwake } from './uptime.ts';
 import { DEV_NOT_BUILT, NOT_BUILT, distDirFor, getAsset, getLogo, getPage } from './static.ts';
 import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironment } from './routes/environment.ts';
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
-import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor } from './routes/jobs.ts';
-import { getProjects, getProjectsEvents, getProjectsStats } from './routes/machine.ts';
+import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
+import { getProjects, getProjectsEvents, getProjectsStats, postProject } from './routes/machine.ts';
+import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
+import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
 import type { Guard, MachineCtx, RequestInfo, Route, RunningServer, ServerCtx, ServerOptions } from './types.ts';
 
@@ -58,10 +61,10 @@ const GUARDS: Record<Guard, (m: MachineCtx, req: http.IncomingMessage, res: http
 };
 
 /**
- * The machine's routes, matched on the full pathname: the page and its assets, /api/about and the
- * registered projects. Rows are a method, an exact path or an anchored RegExp with no flags, the guards
- * a GET runs before its handler, and the handler. Every POST row gets guardPost first, so a POST row
- * names no guards. Anything that matches no row in either table is a 404.
+ * The machine's routes, matched on the full pathname: the page and its assets, /api/about, the
+ * registered projects and the dashboard's Add project. Rows are a method, an exact path or an anchored
+ * RegExp with no flags, the guards a GET runs before its handler, and the handler. Every POST row gets
+ * guardPost first, so a POST row names no guards. Anything that matches no row in either table is a 404.
  */
 export const ROUTES: readonly Route<MachineCtx>[] = [
   { method: 'GET', path: '/', handler: getPage },
@@ -70,6 +73,8 @@ export const ROUTES: readonly Route<MachineCtx>[] = [
   { method: 'GET', path: '/forge.png', handler: getLogo },
   { method: 'GET', path: '/api/about', guards: ['read'], handler: getAbout },
   { method: 'GET', path: '/api/projects', guards: ['read'], handler: getProjects },
+  // Registers a repo; it never approves its trusted files, so its pool waits for a human's Start.
+  { method: 'POST', path: '/api/projects', handler: postProject },
   { method: 'GET', path: '/api/projects/events', guards: ['read'], handler: getProjectsEvents },
   { method: 'GET', path: '/api/projects/stats', guards: ['read'], handler: getProjectsStats },
 ];
@@ -116,7 +121,28 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/jobs\/([^/]+)\/delete$/, handler: postJobDelete },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/merge$/, handler: postJobMerge },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/repos$/, handler: postJobRepos },
+  // The Foreman page's mandates. The list carries titles only; the detail carries the owner's guidance and
+  // goal, so it takes the token like a POST. Writes run while the pool runs: a mandate is runtime state, and
+  // a change wakes the Office pass.
+  { method: 'GET', path: '/mandates', guards: ['read'], handler: getMandates },
+  { method: 'GET', path: /^\/mandates\/([^/]+)$/, guards: ['read', 'token'], handler: getMandate },
+  { method: 'POST', path: '/mandates', handler: postMandate },
+  { method: 'POST', path: /^\/mandates\/([^/]+)\/(edit|pause|resume|close)$/, handler: postMandateAction },
+  { method: 'POST', path: '/shelf', handler: postShelf },
+  { method: 'GET', path: /^\/mandates\/([^/]+)\/draft$/, guards: ['read'], handler: getMandateDraft },
+  // Filing runs in the handler: the tracker methods are synchronous by contract.
+  { method: 'POST', path: /^\/mandates\/([^/]+)\/draft$/, handler: postMandateDraft },
   { method: 'POST', path: '/focus', handler: postFocus },
+  // The owner's chats. Only a 12-hex id matches, so any other id is a 404 here; the detail and the log carry
+  // the owner's words, so they take the token like a POST. The session's own lines are also on /events and
+  // /daemons/log under the read guard, like every session's.
+  { method: 'GET', path: '/chats', guards: ['read'], handler: getChats },
+  { method: 'POST', path: '/chats', handler: postChat },
+  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})$/, guards: ['read', 'token'], handler: getChat },
+  { method: 'GET', path: /^\/chats\/([0-9a-f]{12})\/log$/, guards: ['read', 'token'], handler: getChatLog },
+  { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/rename$/, handler: postChatRename },
+  { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/archive$/, handler: postChatArchive },
+  { method: 'POST', path: /^\/chats\/([0-9a-f]{12})\/messages$/, handler: postChatMessage },
   { method: 'POST', path: /^\/jobs\/([^/]+)\/(run|editor)$/, handler: postRunOrEditor },
 ];
 
@@ -207,7 +233,10 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
     server.listen(opts.port ?? 7400, host, () => {
       // Loaded only once the port is ours, so a dash retrying ports never starts a pool.
       machine.entries.start();
+      // Only a non-dev `forge dash` passes keepAwake, so no test or dev dashboard holds the machine awake.
+      const awake = opts.keepAwake && !opts.dev ? startKeepAwake(machine.entries, machine.home, opts.keepAwake) : null;
       const close = async () => {
+        awake?.close();
         if (machine.ping) clearInterval(machine.ping);
         machine.ping = null;
         await machine.entries.close();
@@ -225,8 +254,12 @@ export function startServer(opts: ServerOptions = {}): Promise<RunningServer> {
         entries: () => machine.entries.list(),
         onProject: (fn) => machine.entries.onProject(fn),
         refresh: () => machine.entries.refresh(true),
+        booted: () => machine.entries.booted(),
         close,
-        killSync: () => machine.entries.killSync(),
+        killSync: () => {
+          awake?.killSync();
+          machine.entries.killSync();
+        },
       });
     });
   });

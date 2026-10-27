@@ -17,7 +17,7 @@ const EXPERIMENT: HelpGroup = {
       flags: [['--dry-run', 'compute every verdict and write nothing']],
       exits: [[1, 'no such job, the job has no worktree, or the ledger is a link or unreadable']],
       docs: ['Settling experiments', 'docs/IMPROVEMENT.md#settling-experiments'],
-      readme: true,
+      common: true,
     },
     {
       command: 'experiment check',
@@ -26,7 +26,7 @@ const EXPERIMENT: HelpGroup = {
         "check the notes layer: new learnings and addenda carry experiment: and review-by:, new ledger entries are open with a stats-path metric, and only evaluate settles one; with <job>, what its branch adds or edits against the merge base, else a full audit of the repo's files",
       exits: [[1, 'a problem was found, no such job, or the job has no worktree']],
       docs: ['Settling experiments', 'docs/IMPROVEMENT.md#settling-experiments'],
-      readme: true,
+      common: true,
     },
   ],
 };

@@ -2,7 +2,7 @@
 
 One module per command group, each with its `HELP` table, and the human-mode renderers.
 
-- A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs` regenerates README's CLI table and docs/CLI.md's command reference. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
+- A command or JSON output change edits its group's module and `HELP` table (`CORE` in `help.ts` for what `main.ts` routes), then `npm run docs` regenerates docs/CLI.md's Common commands table and command reference. New commands return compact JSON; large outputs go to files in the job dir, and the CLI returns their paths.
 - Only this folder and `lib/cli/main.ts` import it (`test/invariants/layers.test.ts`). It is a registry, so it may hold more than 12 entries; so is `render/`.
 - **`job/`** holds `forge job`'s help table (`help.ts`) and one handler function per subcommand, grouped by concern; `job.ts` only routes, through `JOB_HANDLERS`.
 - **CLI output**: string results print raw (e.g. `forge worktree path`), everything else prints compact JSON.
@@ -17,6 +17,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `audit.ts` | `forge audit`: the audit trail across every job and the repo-level log, for a period. |
 | `backing.ts` | `forge backing up\|down\|stop\|status`: a job's backing services on demand (lib/engine/environment/backing.ts, docs/CONFIG.md "Backing services"). |
 | `budget.ts` | `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's acknowledgement that grants one more period. |
+| `chat.ts` | `forge chat list\|show\|brief`: the owner's chats with the Foreman, read-only. |
 | `config.ts` | `forge config show\|get\|set\|validate`: read the effective config, and write one editable key. |
 | `daemon.ts` | `forge daemon status\|log`: the terminal's view of the session pool. |
 | `dash.ts` | `forge dash`: the machine's one dashboard for every registered project, started in the foreground or as a detached, pid-tracked process, registering the repo it runs in. |
@@ -30,6 +31,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `human.ts` | A person at this terminal confirming a human-only operation: the CLI's half of the human channel; the dashboard's routes are the other (docs/architecture/daemon-security.md). |
 | `init.ts` | `forge init write` and `forge migrate`: setting a repo up and keeping its files current. |
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
+| `job/agent-run.ts` | `forge job agent run`: one spawn `forge job step` chose, run as its own headless claude child in the job's worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself and its usage taken from the child's own result line. |
 | `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
 | `job/create.ts` | `forge job new\|from-ref\|link`: creating a job, starting one from a tracker item, and the issues it carries. |
 | `job/decide.ts` | `forge job human\|handoff\|assist`: recording a human's or the foreman's decision at a gate, a Foreman hand-off, and the office's assistant spawn. |
@@ -39,8 +41,11 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/repos.ts` | `forge job repo\|interim`: a job's member repos, their interim strategies, canary publishes and recorded releases. |
 | `job/retention.ts` | `forge job archive\|delete\|prune`: archiving finished jobs, deleting a mistaken one, and pruning old jobs and session logs; never from a daemon session. |
 | `job/review.ts` | `forge job round\|verdicts\|decision\|score`: review rounds, the reviewers' and approver's verdicts, and the post-merge score. |
+| `job/shelf.ts` | `forge job shelve\|unshelve`: a person sets a job aside and takes it off the shelf again. |
 | `job/state.ts` | `forge job set\|effort\|note\|refresh-request\|budget`: a job's stage, state, fields, effort, notes, request and budget limits. |
+| `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show`, `forge mandate draft start\|prepare\|record\|show\|approve\|revise\|reject\|assist` and `forge mandate release assist\|approve`: the owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate, and an `until: released` mandate's release at the `release` gate class (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
+| `office.ts` | `forge office pass\|survey\|board\|start\|resume\|note`: the Office's director loop (lib/office/mandates/pass.ts and director.ts). |
 | `project.ts` | `forge project add\|remove\|list\|settings`: the machine index of registered projects and the machine settings (lib/engine/project/machine-index.ts). |
 | `release.ts` | `forge release plan\|run\|status`: a release a human runs from the CLI, single- or multi-repo (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors. |
@@ -60,6 +65,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `requests.ts` | `forge requests`: the dashboard inbox. |
 | `run.ts` | `forge run <job> <command> [--repo R] [--tail N] [-- <args…>]` and `forge run <job> <command> --background`. |
 | `secrets.ts` | `forge secrets scan`: what the secret scanner (lib/engine/guard/secrets.ts) finds in a job's branch and PR text, or in the main checkout's tracked files. |
+| `service.ts` | `forge service install\|uninstall\|status`: the per-user login service that starts the machine dashboard at login (lib/engine/project/login-service.ts). |
 | `status.ts` | Human-readable summaries: `forge status` and the text form of `forge stats`. |
 | `tracker.ts` | Tracker commands, starting jobs from tracker refs, and `forge sync` (PRs + trackers for every job). |
 | `update.ts` | `forge update [--check] [--keep-dash]`: routed before mainRoot(), so it needs no repo or .forge/. |

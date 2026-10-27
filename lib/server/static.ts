@@ -14,7 +14,7 @@ const MAX_IMAGE = 10 * 1024 * 1024;
 const MAX_SCREENSHOTS = 200;
 const DIST_DIR = path.join(PLUGIN_ROOT, 'dashboard', 'dist');
 export const NOT_BUILT = `dashboard is not built: run ${BUILD_DASHBOARD}`;
-export const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev is still building it; reload in a moment';
+export const DEV_NOT_BUILT = 'dashboard dev build is not ready: npm run dev in the Forge checkout builds it (about 10 s after it starts); reload once it has. forge dash --dev alone builds nothing';
 const DIST_ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const DIST_TYPES: Record<string, string> = { js: 'text/javascript; charset=utf-8', css: 'text/css; charset=utf-8', woff2: 'font/woff2' };
 

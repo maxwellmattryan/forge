@@ -1,7 +1,7 @@
 // `forge job …`: every write to a job's state goes through here.
-import { OFFICE_REFUSAL } from '#office/owner.ts';
+import { ASSISTANT_REFUSAL, OFFICE_REFUSAL } from '#office/owner.ts';
 import { OFFICE_JOB_COMMANDS } from '#office/foreman.ts';
-import { inOffice } from '#core/job/requests.ts';
+import { inAssistant, inOffice } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config } from '#core/types.ts';
 import type { JobHandler } from '../types.ts';
@@ -16,6 +16,7 @@ import { interim, repo } from './job/repos.ts';
 import { agent } from './job/agent.ts';
 import { decision, round, score, verdicts } from './job/review.ts';
 import { archive, deleteCmd, pruneCmd } from './job/retention.ts';
+import { shelve, unshelve } from './job/shelf.ts';
 
 /** Each `forge job <sub>` word to its handler, in the help table's order; `advance` is routed by lib/cli/main.ts. Exported for its test. */
 export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
@@ -39,6 +40,8 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   agent,
   round,
   budget,
+  shelve,
+  unshelve,
   audit,
   archive,
   delete: deleteCmd,
@@ -56,10 +59,19 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   step: stepCmd,
 };
 
+/**
+ * The office and the assistant foremen read, decide gates and note, nothing else: an allowlist, so a new
+ * subcommand starts out refused there. lib/cli/main.ts asks it before routing `forge job advance` too.
+ */
+export function refuseForemanJobCommand(sub: string | undefined): void {
+  if (OFFICE_JOB_COMMANDS.includes(String(sub))) return;
+  if (inOffice()) throw new ForgeError(`${OFFICE_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in the office session`, 1);
+  if (inAssistant()) throw new ForgeError(`${ASSISTANT_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in an assistant foreman session (only ${OFFICE_JOB_COMMANDS.join(', ')})`, 1);
+}
+
 /** The result is printed as JSON. */
 export async function jobCmd(root: string, config: Config, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<unknown> {
-  // The office decides gates and does nothing else: an allowlist, so a new subcommand starts out refused there.
-  if (inOffice() && !OFFICE_JOB_COMMANDS.includes(String(sub))) throw new ForgeError(`${OFFICE_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in the office session`, 1);
+  refuseForemanJobCommand(sub);
   // Own keys only, so `constructor`, `__proto__` and their kind get the usage error, as the old switch's default did.
   const handler = sub !== undefined && Object.hasOwn(JOB_HANDLERS, sub) ? JOB_HANDLERS[sub] : undefined;
   if (!handler) throw usageError(JOB);

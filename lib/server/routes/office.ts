@@ -1,5 +1,5 @@
 // Session pool routes: the per-session event stream, the session log, start and stop, permission
-// answers and permission modes.
+// answers and permission modes. Each takes a chat's `_chat-<id>` scope too, though only a message starts one.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
@@ -11,7 +11,8 @@ import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '#core/job/
 import type { PoolState } from '#office/pool.ts';
 import { jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, validScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, chatIdOf, sharedScope, validScope } from '#core/job/requests.ts';
+import { readChat } from '#office/chat/store.ts';
 import { openConfinedLog } from '#engine/environment/status.ts';
 import { approveTrust } from '#engine/project/trust-approval.ts';
 import type { DaemonLogPage, DaemonSessionState, PermissionDecision, PostDaemonModeResponse } from '#core/types.ts';
@@ -21,6 +22,8 @@ import { MAX_SSE_CLIENTS, SSE_MAX_AGE_MS, lineFrame, sseHead, startPing, stateFr
 import type { RouteMatch, ServerCtx } from '../types.ts';
 
 const PERMISSION_DECISIONS: readonly PermissionDecision[] = ['allow', 'session', 'deny'];
+const SESSION_400 = 'session must be "_inbox", "_office", "_assistant-<n>", "_chat-<id>" or a job id';
+const SCOPE_400 = 'scope must be "_inbox", "_office", "_assistant-<n>", "_chat-<id>" or a job id';
 
 /**
  * Server-sent events for one session: its state, then its buffered log lines, then live ones,
@@ -33,7 +36,7 @@ export function getEvents(ctx: ServerCtx, req: http.IncomingMessage, res: http.S
   const { root, clients } = ctx;
   const scope = match.url.searchParams.get('session');
   // Syntax only, so the logs of deleted jobs stay viewable.
-  if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
+  if (!validScope(scope)) return jsonStatus(res, 400, { error: SESSION_400 });
   if (clients.size >= MAX_SSE_CLIENTS) return send(res, 503, 'text/plain', 'too many event streams');
   // Before the headers: an unreadable config then fails the request instead of a half-open stream.
   const known = scopeKnownValues(root, scope, loadConfig(root).config);
@@ -62,7 +65,7 @@ export function getEvents(ctx: ServerCtx, req: http.IncomingMessage, res: http.S
 export function getSessionLog(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
   const { root } = ctx;
   const scope = match.url.searchParams.get('session');
-  if (!validScope(scope)) return jsonStatus(res, 400, { error: 'session must be "_inbox", "_office" or a job id' });
+  if (!validScope(scope)) return jsonStatus(res, 400, { error: SESSION_400 });
   const rawBefore = match.url.searchParams.get('before');
   const before = rawBefore === null || rawBefore === '' ? null : Number(rawBefore);
   if (before !== null && !(Number.isSafeInteger(before) && before >= 0)) return jsonStatus(res, 400, { error: 'before must be a log offset' });
@@ -111,7 +114,7 @@ export async function postPermission(ctx: ServerCtx, req: http.IncomingMessage, 
     return jsonStatus(res, 400, { error: 'body is not JSON' });
   }
   const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
-  if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
+  if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: SCOPE_400 });
   if (typeof obj.id !== 'string' || !UUID.test(obj.id)) return jsonStatus(res, 400, { error: 'id must be a permission prompt id' });
   if (!PERMISSION_DECISIONS.includes(obj.decision)) return jsonStatus(res, 400, { error: `decision must be one of ${PERMISSION_DECISIONS.join(', ')}` });
   // Only the decision travels on: what the session gets back is built from claude's own request.
@@ -130,8 +133,10 @@ export async function postDaemonMode(ctx: ServerCtx, req: http.IncomingMessage, 
   }
   const obj = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
   const jobs = obj.scope === JOBS_SCOPE;
-  if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_jobs" or a job id' });
-  if (!jobs && obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+  if (!jobs && !validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office", "_assistant-<n>", "_chat-<id>", "_jobs" or a job id' });
+  if (!jobs && !sharedScope(obj.scope) && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+  const chat = jobs ? null : chatIdOf(obj.scope);
+  if (chat !== null && !readChat(root, chat)) return jsonStatus(res, 404, { error: `no chat ${chat}` });
   if (!PERMISSION_MODES.includes(obj.mode)) return jsonStatus(res, 400, { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` });
   // Only a value from that fixed list travels on, to the supervisor's memory and the session's stdin.
   const r = (jobs ? ctx.pool?.setJobPermissionMode(obj.mode, dashboardActor()) : ctx.pool?.setPermissionMode(obj.scope, obj.mode, dashboardActor())) ?? { error: 'the daemon pool is not ready' };
@@ -153,13 +158,17 @@ export async function postDaemon(ctx: ServerCtx, req: http.IncomingMessage, res:
   if (action !== 'start' && action !== 'stop') return jsonStatus(res, 400, { error: 'action must be "start" or "stop"' });
   if (obj.scope !== undefined) {
     // Checked before anything is built from it.
-    if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: 'scope must be "_inbox", "_office" or a job id' });
-    if (obj.scope !== INBOX_SCOPE && obj.scope !== OFFICE_SCOPE && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+    if (!validScope(obj.scope)) return jsonStatus(res, 400, { error: SCOPE_400 });
+    if (!sharedScope(obj.scope) && !exists(path.join(jobDir(root, obj.scope), 'job.json'))) return jsonStatus(res, 404, { error: `no job ${obj.scope}` });
+    const chat = chatIdOf(obj.scope);
+    if (chat !== null && !readChat(root, chat)) return jsonStatus(res, 404, { error: `no chat ${chat}` });
     if (action === 'stop') {
       await ctx.pool?.stopSession(obj.scope);
       return json(res, ctx.poolState());
     }
-    if (ctx.pool?.startSession(obj.scope).error) return jsonStatus(res, 409, { error: 'start the daemon first' });
+    // A chat's own refusal (only a message starts it) is passed through; any other is the pool's not being started.
+    const started = ctx.pool?.startSession(obj.scope);
+    if (started?.error) return jsonStatus(res, 409, { error: chat !== null ? started.error : 'start the daemon first' });
     return json(res, ctx.poolState());
   }
   if (action === 'stop') {
@@ -196,6 +205,7 @@ export function idlePoolState(root: string): PoolState {
     inbox: offSessionState(root, INBOX_SCOPE),
     office: offSessionState(root, OFFICE_SCOPE),
     foreman: false,
+    assistants: {},
     jobs: {},
     permissionMode: 'default',
     permissionModes: {},

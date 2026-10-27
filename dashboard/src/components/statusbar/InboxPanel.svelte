@@ -1,0 +1,17 @@
+<!-- The Inbox popover's body: the inbox session, which handles requests that belong to no job. On: the session's log
+     (controls included) and nothing else. Off: a line saying the session runs inside the daemon, started from Workers.
+     Session output is untrusted and renders through SessionLog's own rules. -->
+<script lang="ts">
+  import SessionLog from '../SessionLog.svelte';
+  import type { PoolModel } from '../../lib/daemon.ts';
+  import { INBOX_SCOPE } from '../../lib/types.ts';
+  import { t } from '../../lib/locale.ts';
+
+  let { model }: { model: PoolModel | null } = $props();
+</script>
+
+{#if model}
+  <SessionLog scope={INBOX_SCOPE} compact />
+{:else}
+  <p class="text-sm text-muted">{$t('statusbar.inbox.off')}</p>
+{/if}

@@ -199,47 +199,82 @@ function myLogin(ctx: TrackerCtx): string {
   return gh(ctx.root, ['api', 'user', '-q', '.login']).stdout.trim();
 }
 
+/**
+ * Creates each milestone wave label once, without --force, so an existing label's colour and description
+ * are never overwritten. Wave labels carry no tracker.github.labels.prefix: list() reads a prefixed label as
+ * a Forge claim and would hide the issue from triage.
+ */
+function ensureLabels(ctx: TrackerCtx, slug: string, labels: string[]): void {
+  for (const l of labels) gh(ctx.root, ['label', 'create', l, '-R', slug, '--color', '0E8A16', '--description', 'Forge: milestone wave'], { allowFail: true });
+}
+
 function activeLocalJob(ctx: TrackerCtx, ref: string): LoadedJob | null {
   const slug = localRepoSlug(ctx.root, ctx.config);
   return listJobs(ctx.root).find((j) => isActive(j) && j.issues.some((i) => nativeRef(i, 'github', slug) === String(ref))) ?? null;
 }
 
+/**
+ * `gh issue list` with `extra` flags, as items: project status and priority merged in when a project is
+ * in use (its failure thrown only when `strict`), then needsInfo and claimedBy marked. list and scope share it.
+ */
+function listIssues(ctx: TrackerCtx, extra: string[], limit: number, strict: boolean): TrackerItem[] {
+  const slug = repoSlug(ctx.root, ctx.config);
+  const ready = gcfg(ctx).ready;
+  const args = ['issue', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url,labels,assignees', '--limit', String(limit), ...extra];
+  const items: TrackerItem[] = ghJson(ctx.root, args).map(toItem);
+  const useProject = projectCoords(ctx) && (ready.projectStatus || ['project', 'both'].includes(gcfg(ctx).statusSync));
+  if (useProject) {
+    try {
+      const statuses = projectStatuses(ctx);
+      // gh issue list always returns url (it is in --json).
+      for (const it of items) Object.assign(it, statuses.get(it.url!) ?? {});
+    } catch (e) {
+      if (strict) throw e;
+    }
+  }
+  const prefix = gcfg(ctx).labels.prefix;
+  const needs = needsLabel(ctx);
+  for (const it of items) {
+    it.needsInfo = (it.labels ?? []).includes(needs);
+    const job = activeLocalJob(ctx, it.ref);
+    if (job) it.claimedBy = job.id;
+    else if ((it.labels ?? []).some((l: string) => l.startsWith(prefix) && l !== `${prefix}queued` && l !== needs)) it.claimedBy = 'forge (label)';
+  }
+  return items;
+}
+
+/** A milestone or label as a gh flag's value: a non-empty string that can never read as a flag itself. */
+function scopeValue(kind: 'milestone' | 'label', v: unknown): string {
+  if (typeof v !== 'string' || !v || v.startsWith('-') || /[\x00-\x1f\x7f]/.test(v))
+    throw new ForgeError(`a mandate's ${kind} must be a non-empty string that does not start with "-" (got ${JSON.stringify(String(v)).slice(0, 60)})`);
+  return v;
+}
+
 export default {
   name: 'github',
   list(ctx, opts = {}) {
-    const slug = repoSlug(ctx.root, ctx.config);
     const ready = gcfg(ctx).ready;
-    const args = ['issue', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url,labels,assignees', '--limit', String(opts.limit ?? 100)];
+    const extra: string[] = [];
     if (opts.ready) {
-      for (const l of ready.labels ?? []) args.push('--label', l);
-      if (ready.assignee) args.push('--assignee', ready.assignee);
-      if (ready.milestone) args.push('--milestone', ready.milestone);
+      for (const l of ready.labels ?? []) extra.push('--label', l);
+      if (ready.assignee) extra.push('--assignee', ready.assignee);
+      if (ready.milestone) extra.push('--milestone', ready.milestone);
     }
-    let items: TrackerItem[] = ghJson(ctx.root, args).map(toItem);
-    const useProject = projectCoords(ctx) && (ready.projectStatus || ['project', 'both'].includes(gcfg(ctx).statusSync));
-    if (useProject) {
-      try {
-        const statuses = projectStatuses(ctx);
-        // gh issue list always returns url (it is in --json).
-        for (const it of items) Object.assign(it, statuses.get(it.url!) ?? {});
-      } catch (e) {
-        if (ready.projectStatus && opts.ready) throw e;
-      }
-    }
-    const prefix = gcfg(ctx).labels.prefix;
-    const needs = needsLabel(ctx);
-    for (const it of items) {
-      it.needsInfo = (it.labels ?? []).includes(needs);
-      const job = activeLocalJob(ctx, it.ref);
-      if (job) it.claimedBy = job.id;
-      else if ((it.labels ?? []).some((l: string) => l.startsWith(prefix) && l !== `${prefix}queued` && l !== needs)) it.claimedBy = 'forge (label)';
-    }
+    let items = listIssues(ctx, extra, opts.limit ?? 100, Boolean(ready.projectStatus && opts.ready));
     if (opts.ready) {
       const exclude = new Set(ready.excludeLabels ?? []);
       items = items.filter((it) => !it.claimedBy && !it.needsInfo && !(it.labels ?? []).some((l: string) => exclude.has(l)));
       if (ready.projectStatus) items = items.filter((it) => it.status === ready.projectStatus);
     }
     return items;
+  },
+  scope(ctx, q) {
+    // Checked before gh runs: the contract already refuses these, and gh would read a leading `-` as a flag.
+    const extra: string[] = [];
+    if (q.milestone !== null) extra.push('--milestone', scopeValue('milestone', q.milestone));
+    for (const l of q.labels) extra.push('--label', scopeValue('label', l));
+    const limit = Number.isSafeInteger(q.limit) && q.limit > 0 ? q.limit : 100;
+    return listIssues(ctx, extra, limit, false);
   },
   search(ctx, query, opts) {
     const slug = repoSlug(ctx.root, ctx.config);
@@ -354,8 +389,47 @@ export default {
     const body = attributionForbidden(ctx.config) ? stripAttribution(raw) : raw;
     const args = ['issue', 'create', '-R', slug, '--title', item.title, '--body-file', '-'];
     for (const l of item.labels ?? []) args.push('--label', l);
+    if (item.milestone) {
+      ensureLabels(ctx, slug, item.labels ?? []);
+      // `=`-joined, so a title can never be read as an option.
+      args.push(`--milestone=${item.milestone}`);
+    }
     const url = gh(ctx.root, args, { input: body || ' ' }).stdout.trim().split('\n').pop() ?? '';
     return { ref: url.match(/\/issues\/(\d+)/)?.[1] ?? url, url };
+  },
+  createMilestone(ctx, ms) {
+    // The paths are built from repoSlug's checked slug only; the title and description go in -f key=value arguments.
+    const slug = repoSlug(ctx.root, ctx.config);
+    const open = ghJson(ctx.root, ['api', `repos/${slug}/milestones?state=open&per_page=100`]);
+    const same = Array.isArray(open) ? open.find((m: any) => m && m.title === ms.title) : undefined;
+    if (same) return { ref: String(same.number), url: typeof same.html_url === 'string' ? same.html_url : null };
+    const description = attributionForbidden(ctx.config) ? stripAttribution(ms.description) : ms.description;
+    const made = ghJson(ctx.root, ['api', '-X', 'POST', `repos/${slug}/milestones`, '-f', `title=${ms.title}`, '-f', `description=${description}`]);
+    if (!Number.isSafeInteger(made?.number)) throw new ForgeError(`gh api repos/${slug}/milestones returned no milestone number`, 'external');
+    return { ref: String(made.number), url: typeof made.html_url === 'string' ? made.html_url : null };
+  },
+  milestoneAdd(ctx, ref, opts) {
+    const repo = slugOnce(ctx);
+    const n = issueNumber(ref, repo);
+    const slug = repo();
+    ensureLabels(ctx, slug, opts.labels);
+    const args = ['issue', 'edit', '-R', slug, `--milestone=${opts.milestone}`];
+    for (const l of opts.labels) args.push('--add-label', l);
+    args.push('--', n);
+    gh(ctx.root, args);
+  },
+  milestones(ctx) {
+    // The path is built from repoSlug's checked slug only, so nothing outside reaches gh's argv.
+    const slug = repoSlug(ctx.root, ctx.config);
+    const raw = ghJson(ctx.root, ['api', `repos/${slug}/milestones?state=open&per_page=100`]);
+    if (!Array.isArray(raw)) throw new ForgeError(`gh api repos/${slug}/milestones printed no list`, 'external');
+    return raw
+      .filter((m: any) => m && typeof m === 'object')
+      .map((m: any) => ({
+        title: oneLineTitle(m.title),
+        openIssues: Number.isSafeInteger(m.open_issues) && m.open_issues >= 0 ? (m.open_issues as number) : null,
+        dueOn: typeof m.due_on === 'string' ? oneLineTitle(m.due_on).slice(0, 40) : null,
+      }));
   },
   setNeedsInfo(ctx, ref, note) {
     // The note is the local backlog's; on GitHub the label is the mark and triage's comment the text.

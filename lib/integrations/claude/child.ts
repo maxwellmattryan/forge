@@ -48,6 +48,8 @@ export function claudeAdapter(deps: { spawn?: typeof nodeSpawn; killTree?: (pid:
         },
         closed,
         writeTurn: stream.writeTurn,
+        writeMessage: stream.writeMessage,
+        writeBrief: stream.writeBrief,
         answerPermission: stream.answerPermission,
         setPermissionMode: stream.setPermissionMode,
         endInput() {

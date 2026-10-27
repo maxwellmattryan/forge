@@ -1,7 +1,7 @@
 ---
 name: forge
 description: Run Forge, a software factory. Turns features, bugs and backlog items into reviewed pull requests via a team of agents, each job in its own git worktree, with PR/tracker sync, a live dashboard, evals and self-improving retros. Use for "/forge <feature>", "/forge next", approving/reworking Forge jobs, Forge status, or setting Forge up in a repo.
-argument-hint: "<feature> | next [n] | triage [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | status | sync | dash | init | retro | eval … | requests | doctor | update"
+argument-hint: "<feature> | next [n] | triage [n] | issue <ref> | continue <job|#pr> | approve <job> [<ref>|new|none] [note] | revise|answer|rework|cancel <job> [note] | shelve <job> <reason> | status | sync | dash | init | retro | eval … | requests | doctor | update"
 ---
 
 # Forge: orchestrator
@@ -17,11 +17,12 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 1. **The CLI is the only writer of state and the only decider of the next step.** Never hand-edit `job.json`, `events.jsonl`, the backlog or tracker labels, or pick a stage yourself: ask `forge job step <id>`.
 2. **Context economy.** Read CLI JSON and agents' one-line replies, not code, diffs, reviews, logs or specs. Give agents the `brief` step returns, never file contents.
 3. **Worktree isolation.** Builders and integrators work only in the job's worktree; only the CLI touches the main checkout (`.forge/`).
-4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests. A gate answered with `forge job human` moves at the next step; from another session hand it back with `forge requests add resume --job <id>`.
+4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests. A gate answered with `forge job human` moves at the next step; from another session hand it back with `forge requests add resume --job <id>`. In an assistant foreman's daemon turn, deciding `gate` requests through `reference/foreman.md` is the work, not guessing past a gate.
 5. **No AI attribution** in commits, PRs, issues or comments: no co-author trailers, "Generated with" footers or session links.
 6. **Be honest in the record.** `forge job note` anything that failed or was skipped.
 
 ## Every invocation (except `update`) starts with
+`requests` runs `forge requests scope` before anything else: with `daemon: true` this is a daemon turn, and `reference/requests.md` › **Daemon turns** decides the rest by its scope.
 ```bash
 forge doctor   # once per session, and after a failure
 forge sync     # PRs and trackers; cleans merged worktrees
@@ -38,7 +39,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
-| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | record the decision (`reference/commands.md`); step moves the job; then **Run a job** |
+| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]`, `shelve <job> <reason>` | record the decision (`reference/commands.md`); step moves the job; then **Run a job** |
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL |
 | `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |

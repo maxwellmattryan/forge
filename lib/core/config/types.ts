@@ -1,10 +1,10 @@
 // The effective config and its sections' shapes, type-only: re-exported by lib/core/types.ts; unions with a runtime list derive from it.
-import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
+import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
 import type { LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './sinks.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
 import type { Severity } from '../job/types.ts';
-import type { Complexity, ComponentKind, DaemonJobBudget, DependencyType, Effort, GateClass, InterimStrategy, PipelineConfig, RepoBudgetMode } from '#api/types.ts';
+import type { Complexity, ComponentKind, DaemonJobBudget, DependencyType, Effort, GateClass, InterimStrategy, MandateOnUnfinishable, MandateOrder, MandateUntil, PipelineConfig, RepoBudgetMode } from '#api/types.ts';
 
 /** A role with its own runtime.efforts entry: EFFORT_ROLES in lib/core/job/schema.ts. */
 export type EffortRole = (typeof EFFORT_ROLES)[number];
@@ -57,6 +57,8 @@ export interface ReleaseStrategy {
   mechanism?: ReleaseMechanism | null;
   /** The release command a human runs; only read with `mechanism: tag`. */
   command?: string | null;
+  /** The repo-relative release script `forge release plan|run` drives through the script protocol; only read with `mechanism: script`. */
+  script?: string | null;
   registry?: ReleaseRegistry | null;
   cadence?: ReleaseCadence | null;
   /** `allow` lets `forge release run` run this repo's publish steps without asking; null or `confirm` asks on a terminal. */
@@ -297,8 +299,10 @@ export interface Config {
     turnTimeoutMinutes: number | null;
     auth: DaemonAuth;
     jobBudget: DaemonJobBudget;
-    /** Dollars per UTC day the inbox and office sessions may spend (metered); a null key, or null, has no cap. */
-    dailyUsd: { inbox: number | null; office: number | null } | null;
+    /** Dollars per UTC day the inbox, office and chat sessions may spend (metered); a null key, or null, has no cap. */
+    dailyUsd: { inbox: number | null; office: number | null; chat: number | null } | null;
+    /** auto: an active mandate or a running job at an agent stage holds the machine dashboard's sleep assertion; never: it doesn't. */
+    keepAwake: KeepAwakeMode;
   };
   /** The office session's authority: docs/CONFIG.md "Foreman". */
   foreman: {
@@ -306,6 +310,16 @@ export interface Config {
     decides: GateClass[];
     reserved: string[];
     ship: ForemanShip;
+    /** The office session's model and effort when it directs mandates (lib/office/slots.ts), and the Office pass's pace. */
+    model: string;
+    effort: Effort | null;
+    /** Minutes between the director's passes (1–1440). */
+    cadence: number;
+    /** forge:assistant's model and effort (forge job assist); enabled and sessions are read by assistant routing (#537). */
+    assistants: ForemanSubRole & { sessions: number };
+    surveyors: ForemanSubRole;
+    /** What `forge mandate new` fills a term it isn't given with. */
+    mandate: MandateDefaults;
   };
   /** Paths the CLI refuses to write or escalates to a human: docs/CONFIG.md "Protected paths". */
   policy: { protectedPaths: ProtectedRule[] };
@@ -315,7 +329,7 @@ export interface Config {
   environments: { maxRunning: number | null };
   /** How long after a merge `forge sync` watches a job's outcome: docs/CONFIG.md "Outcomes". */
   outcomes: { windowDays: number };
-  /** The share of merged jobs that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
+  /** The share of merged jobs, outside mandates that score all or off, that get one post-merge judge run, and its model: docs/CONFIG.md "Scoring". */
   scoring: { sample: number; model: string | null };
   /** Where Forge pushes gate, PR, failure and budget notifications: docs/CONFIG.md "Notifications". */
   notify: { webhooks: NotifyWebhook[]; command: string | null };
@@ -344,8 +358,29 @@ export interface NotifyWebhook {
 /** foreman.ship: FOREMAN_SHIP in lib/core/job/schema.ts. */
 export type ForemanShip = (typeof FOREMAN_SHIP)[number];
 
+/** foreman.assistants and foreman.surveyors: whether the Office runs them, and on which model and effort. */
+export interface ForemanSubRole {
+  enabled: boolean;
+  model: string;
+  effort: Effort | null;
+}
+
+/** foreman.mandate: the contract terms a new mandate takes when `forge mandate new` isn't given them. */
+export interface MandateDefaults {
+  until: MandateUntil;
+  maxJobs: number;
+  order: MandateOrder;
+  decides: GateClass[];
+  budget: { usd: number; jobs: number };
+  stall: { cadences: number; bounces: number };
+  onUnfinishable: MandateOnUnfinishable;
+}
+
 /** Which credential a daemon session runs on: the Claude login (subscription) or an API key from the environment. */
 export type DaemonAuth = (typeof DAEMON_AUTH)[number];
+
+/** daemon.keepAwake: KEEP_AWAKE_MODES in lib/core/job/schema.ts. */
+export type KeepAwakeMode = (typeof KEEP_AWAKE_MODES)[number];
 
 /** What loadConfig in lib/core/config/load.ts returns. */
 export interface LoadedConfig {

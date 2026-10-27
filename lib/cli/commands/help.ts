@@ -1,6 +1,6 @@
 // `forge help`, `--help` and the CLI's error contract (docs/CLI.md). The help tables live beside
 // their command modules as `HELP`; CORE holds the commands lib/cli/main.ts routes itself. The same tables
-// build `usage:` errors, the README command table and the `--json` error hint.
+// build `usage:` errors, docs/CLI.md's command tables and the `--json` error hint.
 import path from 'node:path';
 import { forgeVersion } from '#engine/evals/run.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
@@ -12,6 +12,7 @@ import { colorEnabled, renderError } from './render.ts';
 import { HELP as AUDIT } from './audit.ts';
 import { HELP as BACKING } from './backing.ts';
 import { HELP as BUDGET } from './budget.ts';
+import { HELP as CHAT } from './chat.ts';
 import { HELP as ENVIRONMENT } from './environment.ts';
 import { HELP as CONFIG } from './config.ts';
 import { HELP as DAEMON } from './daemon.ts';
@@ -23,11 +24,14 @@ import { HELP as FOCUS } from './focus.ts';
 import { HELP as GIT } from './git.ts';
 import { HELP as INIT } from './init.ts';
 import { HELP as JOB } from './job/help.ts';
+import { HELP as MANDATE } from './mandate.ts';
 import { HELP as NOTIFY } from './notify.ts';
+import { HELP as OFFICE } from './office.ts';
 import { HELP as PROJECT } from './project.ts';
 import { HELP as RELEASE } from './release.ts';
 import { HELP as REQUESTS } from './requests.ts';
 import { HELP as SECRETS } from './secrets.ts';
+import { HELP as SERVICE } from './service.ts';
 import { HELP as STATUS } from './status.ts';
 import { HELP as TRACKER } from './tracker.ts';
 import { HELP as UPDATE } from './update.ts';
@@ -49,7 +53,7 @@ export const CORE: HelpGroup[] = [
         args: '<id>',
         summary:
           "create the job's worktree and branch (stacked on its one unmerged dependency, if any) bring its backing services up (a failed one skips setup and fails the result, listed as backing), and run worktrees.setup there; with worktrees.seed and matching key files it clones the seed and runs seed.setup instead of worktrees.setup, listed as seed; then each missing member repo worktree (forge job repo add) on the job's branch, or detached at its base for a verify-only repo; with members, the result lists them as repos",
-        exits: [[1, 'no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it'], GIT_FAILED],
+        exits: [[1, 'no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox, office or an assistant foreman daemon session ran it'], GIT_FAILED],
       },
       {
         command: 'worktree remove',
@@ -162,7 +166,7 @@ export const CORE: HelpGroup[] = [
         exits: [
           [
             1,
-            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
+            "the merge was refused or failed (the result says why), a dependency PR is not merged yet, the dependsOn edges form a cycle, or a consumer's release gate is held or bump-due (reason order|cycle|release), merge.auto off, a rework, a new round, a stage change, a rework, revise-spec or cancel request still queued, a gate request waiting on the Foreman or a review on GitHub requesting changes on any open PR of the job after the approver's decision, no eligible decision for the PR head, an escalate-floor path (reason auto-off|superseded|decision|floor), the job has no PR, --repo names no PR member, --repo and --root together, --root given a value, a daemon session passing --now, another job's id or a broken scope, the office or an assistant foreman daemon session ran it, or a protected path at the PR head that no human approved at that content (code protected_path; --now overrides), --now not confirmed, or --now with no person at a terminal (code human_only: an agent, a script or a configured command)",
           ],
           GH_FAILED,
         ],
@@ -217,7 +221,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...CHAT, ...OFFICE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 
@@ -253,12 +257,21 @@ const columns = (rows: [string, string][], max: number, indent = '  '): string =
 
 export type HelpTarget = { group?: undefined; command?: undefined } | { group: HelpGroup; command?: CommandHelp };
 
+/** The group's command named by the longest prefix of `words` after the group's own (`job agent run`, then `job agent`). */
+function commandOf(group: HelpGroup, words: readonly string[]): CommandHelp | undefined {
+  const named = (n: number) => (words.length > n ? group.commands.find((c) => c.command === [group.name, ...words.slice(1, n + 1)].join(' ')) : undefined);
+  return named(2) ?? named(1);
+}
+
+/** The commands nested under `c` (`job agent run` under `job agent`), which its help lists after its own. */
+const nestedUnder = (g: HelpGroup, c: CommandHelp): CommandHelp[] => g.commands.filter((x) => x.command.startsWith(`${c.command} `));
+
 /** What `forge help <words>` shows: the overview, a group or one command; null for an unknown command. */
 export function findHelp(words: readonly string[]): HelpTarget | null {
   if (!words.length) return {};
   const group = GROUPS.find((g) => g.name === words[0]);
   if (!group) return null;
-  const command = words[1] === undefined ? undefined : group.commands.find((c) => c.command === `${group.name} ${words[1]}`);
+  const command = commandOf(group, words);
   if (command) return { group, command };
   return single(group) ? { group, command: group.commands[0] } : { group };
 }
@@ -293,7 +306,7 @@ function renderGroup(g: HelpGroup): string {
   ].join('\n');
 }
 
-export function renderCommand(c: CommandHelp): string {
+export function renderCommand(c: CommandHelp, nested: readonly CommandHelp[] = []): string {
   const exits = new Map<number, string>([[0, 'ok'], [2, `usage: ${USAGE_EXIT}`]]);
   for (const [code, when] of c.exits ?? []) exits.set(code, when);
   const lines = [
@@ -309,15 +322,16 @@ export function renderCommand(c: CommandHelp): string {
     ...[...exits].sort(([a], [b]) => a - b).map(([code, when]) => `  ${code}  ${when}`),
   ];
   if (c.docs) lines.push('', `See: ${c.docs[0]} (${c.docs[1]})`);
+  if (nested.length) lines.push('', 'Subcommands:', columns(nested.map((n) => [usageLine(n), n.summary]), 48), '', `Run forge help ${c.command} <subcommand> for its flags and exit codes.`);
   return lines.join('\n');
 }
 
 /**
- * A command as `forge help --json` prints it. `readme` only picks README rows, so it stays out of
- * the JSON, where docs/CLI.md "Stability" would make it a field scripts may rely on.
+ * A command as `forge help --json` prints it. `common` only picks docs/CLI.md's Common commands
+ * rows, so it stays out of the JSON, where docs/CLI.md "Stability" would make it a field scripts may rely on.
  */
-function publicCommand(c: CommandHelp): Omit<CommandHelp, 'readme'> {
-  const { readme: _readme, ...rest } = c;
+function publicCommand(c: CommandHelp): Omit<CommandHelp, 'common'> {
+  const { common: _common, ...rest } = c;
   return rest;
 }
 const publicGroup = (g: HelpGroup) => ({ ...g, commands: g.commands.map(publicCommand) });
@@ -327,26 +341,26 @@ export function helpCmd(words: readonly string[], flags: Record<string, any>): v
   const h = findHelp(words);
   if (!h) throw new ForgeError(`unknown command "${words[0]}"; run \`forge help\` to list commands`, 'unknown_command', 'forge help');
   if (flags.json) return out(h.command ? publicCommand(h.command) : h.group ? publicGroup(h.group) : { version: forgeVersion(), groups: GROUPS.map(publicGroup) }, flags);
-  out(h.command ? renderCommand(h.command) : h.group ? renderGroup(h.group) : renderOverview(), flags);
+  out(h.command ? renderCommand(h.command, nestedUnder(h.group, h.command)) : h.group ? renderGroup(h.group) : renderOverview(), flags);
 }
 
-export const README_START = '<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->';
-export const README_END = '<!-- forge:commands:end -->';
+export const COMMON_START = '<!-- forge:commands:start (generated from lib/cli/commands/*.ts by npm run docs:commands; edit those tables) -->';
+export const COMMON_END = '<!-- forge:commands:end -->';
 
-/** README's CLI table: the `readme: true` rows, in overview order. */
-export function readmeTable(): string {
+/** docs/CLI.md's "Common commands" table: the `common: true` rows, in overview order. */
+export function commonTable(): string {
   const cell = (text: string) => text.replace(/\|/g, '\\|');
-  const rows = GROUPS.flatMap((g) => g.commands.filter((c) => c.readme));
+  const rows = GROUPS.flatMap((g) => g.commands.filter((c) => c.common));
   return [
     '| Command | What it does |',
     '|---|---|',
-    ...rows.map((c) => `| ${cell(`\`${usageLine(c)}\``)} | ${cell(c.summary)}${c.docs ? ` (see [${c.docs[0]}](${c.docs[1]}))` : ''} |`),
+    ...rows.map((c) => `| ${cell(`\`${usageLine(c)}\``)} | ${cell(c.summary)}${c.docs ? ` (see [${c.docs[0]}](${docsHref(c.docs[1])}))` : ''} |`),
   ].join('\n');
 }
 
-/** README.md's text with the lines between the markers replaced by readmeTable(). */
-export function syncReadme(readme: string): string {
-  return replaceRegion(readme, README_START, README_END, readmeTable(), 'README.md');
+/** docs/CLI.md's text with the lines between the commands markers replaced by commonTable(). */
+export function syncCommonCommands(doc: string): string {
+  return replaceRegion(doc, COMMON_START, COMMON_END, commonTable(), 'docs/CLI.md');
 }
 
 export const CLI_START = '<!-- forge:cli:start (generated from lib/cli/commands/*.ts by npm run docs:cli; edit those tables) -->';
@@ -408,10 +422,10 @@ export function usage(name: string, sub?: string): ForgeError {
 
 /** The help for the longest known prefix of the call's words: `forge help job claim`. */
 function usageHint(argv: readonly string[]): string {
-  const [cmd, sub] = parseArgs([...argv]).pos;
-  const g = GROUPS.find((x) => x.name === cmd);
+  const pos = parseArgs([...argv]).pos;
+  const g = GROUPS.find((x) => x.name === pos[0]);
   if (!g) return 'forge help';
-  const c = g.commands.find((x) => x.command === `${g.name} ${sub}`);
+  const c = commandOf(g, pos);
   return `forge help ${c ? c.command : g.name}`;
 }
 
