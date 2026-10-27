@@ -43,9 +43,11 @@ export function prefixSources(root: string, config: Pick<Config, 'project'>, rol
     if (!out.some((s) => s.rel === rel)) out.push({ rel, abs, kind });
   };
   // instructionsFor refuses absolute and `..` entries, so normalising can only drop `.` and doubled slashes.
+  // `abs` is the raw entry joined to the root, as trustDigest and the deny rules read it, so every source is
+  // a file they cover: `\` separates only where path.sep is `\`; on POSIX it is part of a literal file name.
   for (const f of instructionsFor(config, role)) {
-    const rel = path.posix.normalize(f.replaceAll('\\', '/'));
-    add(rel, path.join(root, rel), 'instructions');
+    const rel = path.posix.normalize(path.sep === '\\' ? f.replaceAll('\\', '/') : f);
+    add(rel, path.join(root, f), 'instructions');
   }
   add('.forge/notes/learnings.md', path.join(notes, 'learnings.md'), 'learnings');
   const base = role.split(':')[0];

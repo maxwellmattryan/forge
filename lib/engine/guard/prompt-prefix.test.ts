@@ -278,4 +278,25 @@ test('every prefix source is under the trust digest', (t) => {
     assert.notEqual(next, digest, rel);
     digest = next;
   }
+
+  // On POSIX a `\` entry names a literal file, not docs/GUIDE.md: the prefix reads the file the digest hashes.
+  if (path.sep !== '/') return;
+  const b = scratch(t);
+  fs.writeFileSync(path.join(b.root, '.forge', 'config.yml'), `project:\n  instructions:\n    - ${JSON.stringify('docs\\GUIDE.md')}\n`);
+  const config = loadConfig(b.root).config;
+  const guide = path.join(b.root, 'docs', 'GUIDE.md');
+  // Only docs/GUIDE.md exists, so the entry names a missing file and nothing of docs/GUIDE.md reaches the prefix.
+  const before = bytesOf(buildPrefix(b.root, config, 'builder', []));
+  assert.deepEqual(headers(before), ['.forge/notes/learnings.md']);
+  assert.ok(!before.toString('utf8').includes('Guide text'));
+  fs.appendFileSync(guide, 'changed\n');
+  assert.ok(bytesOf(buildPrefix(b.root, config, 'builder', [])).equals(before), 'docs/GUIDE.md is outside the prefix, as it is outside the digest');
+  // With the literal file there, it is the source, and the digest covers it.
+  b.write('docs\\GUIDE.md', 'Literal text\n');
+  const literal = buildPrefix(b.root, config, 'builder', []);
+  assert.deepEqual((literal as { sources: string[] }).sources, ['docs\\GUIDE.md', '.forge/notes/learnings.md']);
+  assert.ok(bytesOf(literal).toString('utf8').includes('Literal text'));
+  const base = trustDigest(b.root);
+  fs.appendFileSync(path.join(b.root, 'docs\\GUIDE.md'), 'changed\n');
+  assert.notEqual(trustDigest(b.root), base, 'the literal file is under the trust digest');
 });
