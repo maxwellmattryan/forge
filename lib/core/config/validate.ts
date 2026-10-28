@@ -175,6 +175,10 @@ export function validateConfig(c: unknown, root: string): string[] {
     problems.push(`pipeline.maxTotalRounds must be null or a positive integer (got ${JSON.stringify(total)})`);
   const ci = c.pr.maxCiReworks;
   if (ci !== undefined && !(Number.isInteger(ci) && ci >= 0)) problems.push(`pr.maxCiReworks must be an integer >= 0 (got ${JSON.stringify(ci)})`);
+  // The label reaches gh's argv: a plain name, never an option, a control character or an empty word.
+  const label = c.pr.needsHumanLabel;
+  if (label !== undefined && label !== null && !(typeof label === 'string' && /^[A-Za-z0-9][A-Za-z0-9 :._/-]{0,49}$/.test(label)))
+    problems.push(`pr.needsHumanLabel must be null or a label name of at most 50 letters, digits, spaces and : . _ / - not starting with - (got ${JSON.stringify(label).slice(0, 80)})`);
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
     if (v === null) continue;
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) problems.push(`pipeline.budget.${k} must be null or a non-negative number (got ${JSON.stringify(v)})`);
@@ -202,7 +206,10 @@ export function validateConfig(c: unknown, root: string): string[] {
   return problems;
 }
 
-/** improve.experiments and evals.recall: the settlement thresholds and the recall gate's paths. */
+/** The most agent runs a retro's digests may read in depth: each batch of 3 is one sequential digest on the retro's budget. */
+const MAX_DEEP_READS = 50;
+
+/** improve.experiments, improve.transcripts and evals.recall: the settlement thresholds, the deep-read cap and the recall gate's paths. */
 function improveProblems(c: unknown): string[] {
   const cfg: Record<string, any> = isMap(c) ? c : {};
   const problems: string[] = [];
@@ -216,6 +223,10 @@ function improveProblems(c: unknown): string[] {
   if (!exp || typeof exp !== 'object' || Array.isArray(exp)) problems.push(`improve.experiments must be a map with minJobs and maxJobs (got ${JSON.stringify(exp)})`);
   else if (positive('minJobs') && positive('maxJobs') && exp.maxJobs < exp.minJobs)
     problems.push(`improve.experiments.maxJobs (${exp.maxJobs}) must be at least minJobs (${exp.minJobs})`);
+  const tr = cfg.improve?.transcripts;
+  if (!isMap(tr)) problems.push(`improve.transcripts must be a map with max (got ${JSON.stringify(tr)?.slice(0, 80)})`);
+  else if (!Number.isInteger(tr.max) || tr.max < 0 || tr.max > MAX_DEEP_READS)
+    problems.push(`improve.transcripts.max must be an integer from 0 to ${MAX_DEEP_READS} (got ${JSON.stringify(tr.max)?.slice(0, 80)})`);
   const paths = cfg.evals?.recall?.paths;
   if (!Array.isArray(paths) || paths.some((p: unknown) => typeof p !== 'string' || !p.trim()))
     problems.push(`evals.recall.paths must be a list of non-empty strings (got ${JSON.stringify(paths)?.slice(0, 80)})`);

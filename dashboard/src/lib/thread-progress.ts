@@ -19,6 +19,8 @@ export type Progress =
   | { kind: 'pr-opened'; number: number }
   | { kind: 'pr-merged'; number: number }
   | { kind: 'conflicts'; count: number }
+  | { kind: 'ci-rerun'; checks: string[] }
+  | { kind: 'ci-rerun-failed'; reran: boolean; checks: string[] }
   | { kind: 'note'; text: string };
 
 export interface ProgressItem {
@@ -36,6 +38,13 @@ const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object'
 const int = (v: unknown, min: number): number | null => (typeof v === 'number' && Number.isInteger(v) && v >= min ? v : null);
 const stageOf = (v: unknown): Stage | null => (typeof v === 'string' && Object.hasOwn(STAGE_LABEL, v) ? (v as Stage) : null);
 const waitOf = (v: unknown): WaitingOn | null => (typeof v === 'string' && Object.hasOwn(WAIT_LABEL, v) ? (v as WaitingOn) : null);
+/** Check names an event lists (the PR's own workflows chose them): plain, at most 60 characters each, at most 5. */
+const checkNames = (v: unknown): string[] =>
+  (Array.isArray(v) ? v : [])
+    .map(plainLine)
+    .filter((n): n is string => n !== null)
+    .map((n) => n.slice(0, 60))
+    .slice(0, 5);
 
 /** Agent or engine text on one line: control characters become spaces, at most 2,000 chars; null when nothing is left. */
 export function plainLine(v: unknown): string | null {
@@ -89,6 +98,10 @@ export function progressOf(e: JobEvent): Progress | null {
       const count = Array.isArray(x.conflicts) ? x.conflicts.length : 0;
       return count > 0 ? { kind: 'conflicts', count } : null;
     }
+    case 'ci-rerun':
+      return { kind: 'ci-rerun', checks: checkNames(x.checks) };
+    case 'ci-rerun-failed':
+      return x.cause === 'still-failing' || x.cause === 'not-rerun' ? { kind: 'ci-rerun-failed', reran: x.cause === 'still-failing', checks: checkNames(x.checks) } : null;
     case 'note': {
       const text = plainLine(e.text);
       return text === null ? null : { kind: 'note', text };

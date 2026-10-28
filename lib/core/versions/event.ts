@@ -46,7 +46,21 @@ export const EVENT_STEPS: readonly Step[] = [
   // v13 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
   // project it loads); an older Forge reads it as `unknown`.
   { id: 'actor-source-launch', up: (e) => e },
-  // v14 adds the `permission-timed-out` event ({tool}): the supervisor denied a job session's permission prompt nobody
+  // v14 adds `ci-rerun` {head, runs, jobs, checks} and `ci-rerun-failed` {head, cause, checks}; an older Forge reads them as
+  // generic events.
+  { id: 'ci-rerun-events', up: (e) => e },
+  // v15 adds the `push-held` event ({ kind, reason, head, paths? }): `forge pr open` held the push (CI config,
+  // a security review that isn't PASS, reported secrets) and step's PR13 parks on its reason. An older Forge
+  // reads it as a generic event.
+  { id: 'push-held-event', up: (e) => e },
+  // v16 adds the `pr-gate` event ({ action: set | clear | none, rule, waitingOn, reason, number, label, labeled, body,
+  // error? }): `forge pr gate` synced the PR's gate section and label; step's PR14 and PR18 read it. An older Forge
+  // reads it as a generic event.
+  { id: 'pr-gate-event', up: (e) => e },
+  // v17 lets `ci-rerun` carry an `actor`: a person's Re-run failed checks (`forge pr rerun` or the dashboard), which
+  // sync treats as that head's re-run. One without an actor is sync's own; an older Forge reads it as sync's.
+  { id: 'person-ci-rerun', up: (e) => e },
+  // v18 adds the `permission-timed-out` event ({tool}): the supervisor denied a job session's permission prompt nobody
   // answered within daemon.permissionTimeoutMinutes. An older Forge reads it as a generic event.
   { id: 'permission-timed-out-event', up: (e) => e },
 ];

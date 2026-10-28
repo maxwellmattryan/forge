@@ -143,12 +143,7 @@ const CONFIG_ROWS: Row[] = [
     note: "the assistant's model and effort move under foreman.assistants",
   },
   { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
-  {
-    step: 'mandate-notify',
-    input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } },
-    fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] },
-    note: ONLY_VERSION,
-  },
+  { step: 'mandate-notify', input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } }, fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] }, note: ONLY_VERSION },
   { step: 'daemon-daily-usd-chat', input: { daemon: { enabled: true, dailyUsd: { inbox: 25, office: 60 } } }, fields: { 'daemon.dailyUsd': { inbox: 25, office: 60 } }, removed: ['daemon.dailyUsd.chat'], note: ONLY_VERSION },
   {
     step: 'release-script',
@@ -163,6 +158,8 @@ const CONFIG_ROWS: Row[] = [
   { step: 'daemon-fresh-after-tokens', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.freshAfterTokens'], note: ONLY_VERSION },
   { step: 'component-paths', input: { components: [...SINKS, { name: 'web', path: '.', kind: 'app', paths: ['web/**'] }] }, fields: { 'components.0': SINKS[0], 'components.1.paths': ['web/**'] }, note: ONLY_VERSION },
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
+  { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
+  { step: 'improve-transcripts', input: { improve: { retroEvery: 5 } }, fields: { improve: { retroEvery: 5 } }, removed: ['improve.transcripts'], note: ONLY_VERSION },
   { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
 ];
 
@@ -242,6 +239,7 @@ const JOB_ROWS: Row[] = [
   },
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
+  { step: 'pr-wait-reasons', input: { id: 'x', pr: { number: 7, state: 'OPEN', checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } } }, fields: { 'pr.number': 7, 'pr.checks.state': 'failing' }, removed: ['pr.failingChecks', 'pr.feedbackSinceRound'], note: 'an older PR record has neither until its next sync' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -285,12 +283,7 @@ const EVENT_ROWS: Row[] = [
     removed: ['metered', 'unmeasured'],
     note: 'an agent-end from before metering reads unchanged: reported usage no meter covers',
   },
-  {
-    step: 'actor-source-chat',
-    input: { ts: 't', type: 'human', action: 'rework', actor: { login: 'al', source: 'chat' } },
-    fields: { type: 'human', ts: 't', action: 'rework', actor: { login: 'al', source: 'chat' } },
-    note: 'an actor recorded by a chat session keeps source chat',
-  },
+  { step: 'actor-source-chat', input: { ts: 't', type: 'human', action: 'rework', actor: { login: 'al', source: 'chat' } }, fields: { type: 'human', ts: 't', action: 'rework', actor: { login: 'al', source: 'chat' } }, note: 'an actor recorded by a chat session keeps source chat' },
   {
     step: 'shelve-events',
     input: { ts: 't', type: 'shelved', reason: 'later', from: { stage: 'decide', state: 'waiting', waitingOn: 'escalation' }, actor: { login: 'al', source: 'gh' } },
@@ -301,6 +294,15 @@ const EVENT_ROWS: Row[] = [
   { step: 'senior-pass', input: { ts: 't', type: 'senior-pass', gate: 'escalation', first: 'escalate', actor: FOREMAN }, fields: { type: 'senior-pass', ts: 't', gate: 'escalation', first: 'escalate', actor: FOREMAN }, note: 'a senior-pass marker reads as written' },
   { step: 'retro-scope-event', input: { ts: 't', type: 'retro-scope', mandate: 'm1' }, fields: { type: 'retro-scope', ts: 't', mandate: 'm1' }, note: "a mandate retro's scope reads as written" },
   { step: 'actor-source-launch', input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } }, fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } }, note: 'the launch flag\'s daemon-mode event keeps source launch' },
+  { step: 'ci-rerun-events', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, fields: { type: 'ci-rerun', ts: 't', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, note: 'a CI re-run reads as written; ci-rerun-failed {head, cause, checks} is the same identity step' },
+  {
+    step: 'push-held-event',
+    input: { ts: 't', type: 'push-held', kind: 'ci', reason: 'push held: CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]', head: 'a'.repeat(40), paths: ['.github/workflows/ci.yml'] },
+    fields: { type: 'push-held', ts: 't', kind: 'ci', head: 'a'.repeat(40), paths: ['.github/workflows/ci.yml'] },
+    note: 'a held push reads as written',
+  },
+  { step: 'pr-gate-event', input: { ts: 't', type: 'pr-gate', action: 'set', rule: 'PR15', waitingOn: 'escalation', reason: 'r', number: 7, label: 'forge:needs-human', labeled: true, body: true }, fields: { type: 'pr-gate', action: 'set', rule: 'PR15', labeled: true }, note: 'a gate sync reads as written' },
+  { step: 'person-ci-rerun', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, fields: { type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, note: "a person's re-run keeps its actor" },
   { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
 ];
 

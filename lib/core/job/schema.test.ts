@@ -1,5 +1,5 @@
-// normalizeJob on a current-version job: the fields it reads one by one, so a partial or planted value
-// never reads as something it isn't. Migrations from older versions are test/schema.test.ts's tables.
+// normalizeJob on a current-version job: fields it reads one by one, so a partial or planted value
+// never reads as something it is not. Migrations (older versions) are test/schema.test.ts's.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { JOB_SCHEMA_VERSION, normalizeJob } from './schema.ts';

@@ -6,12 +6,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { jobAt, tempRepo } from '../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { ackRequest, listRequests } from '#core/job/requests.ts';
-import { loadJob, readEvents } from '#core/job/store.ts';
+import { ackRequest, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
+import { loadJob, readEvents, updateJob } from '#core/job/store.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { jobFiles, paths } from '#core/paths.ts';
 import { appendMeter } from '#engine/metrics/meter.ts';
-import { MAX_RESUMES_PER_STAGE, progressMark, reconcile } from './reconcile.ts';
+import { MAX_RESUMES_PER_STAGE, RESUME_ACTED_ON, RESUME_NO_JOB, progressMark, reconcile, resumeFinished } from './reconcile.ts';
 
 const config = defaults();
 const AT = Date.parse('2026-10-24T12:00:00.000Z');
@@ -105,6 +105,52 @@ test('a job is resumed at most three times per stage', async () => {
   } finally {
     repo.cleanup();
   }
+});
+
+test('a pass closes the resumes a session acted on or no job can act on', async (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const dir = repo.dir;
+  const LATER = '2099-01-01T00:00:00.000Z';
+  const AFTER = '2099-01-01T00:00:01.000Z';
+  const resume = (job: string) => enqueue(dir, config, { type: 'resume', job, from: 'dashboard' }).id;
+  const running = (title: string) => jobAt(dir, 'build', { title }).id;
+  // [name, the request, its status after the pass, its result]
+  const rows: [string, string, string, string | undefined][] = [];
+  const row = (name: string, job: string, status: string, result?: string, id = resume(job)) => void rows.push([name, id, status, result]);
+  const actedOn = running('claimed and moved');
+  row('claimed after it, then moved', actedOn, 'done', RESUME_ACTED_ON);
+  append(dir, actedOn, 'claimed', LATER, { session: 's', epoch: 1 });
+  append(dir, actedOn, 'transition', AFTER, { from: 'build', to: 'verify' });
+  const before = running('claimed before it');
+  row('a claim only before it', before, 'pending');
+  append(dir, before, 'claimed', '2000-01-01T00:00:00.000Z', { session: 's', epoch: 1 });
+  append(dir, before, 'transition', AFTER, { from: 'build', to: 'verify' });
+  const stuck = running('claimed, never moved');
+  row('a claim after it, no progress since', stuck, 'pending');
+  append(dir, stuck, 'claimed', LATER, { session: 's', epoch: 1 });
+  row('a failed job', jobAt(dir, 'build', { state: 'failed' }).id, 'pending');
+  const scoring = jobAt(dir, 'done', { title: 'score run queued' }).id;
+  updateJob(dir, scoring, (j) => void (j.score = { status: 'queued', queuedAt: LATER, value: null, outOf: 5, recordedAt: null, judgeModel: null, builderModel: null }));
+  row('a done job with a queued score run', scoring, 'pending');
+  row('a cancelled job', jobAt(dir, 'build', { state: 'cancelled' }).id, 'rejected', resumeFinished('cancelled'));
+  row('a done job', jobAt(dir, 'done').id, 'rejected', resumeFinished('done'));
+  const gone = jobAt(dir, 'backlog', { title: 'removed', state: 'queued' }).id;
+  row('a job that no longer exists', gone, 'rejected', RESUME_NO_JOB);
+  const held = enqueue(dir, config, { type: 'resume', job: gone, from: 'dashboard' }).id;
+  claimRequest(dir, held, 'session-b');
+  row('an in-progress resume', gone, 'in-progress', undefined, held);
+  row('an approve on a missing job', gone, 'pending', undefined, enqueue(dir, config, { type: 'approve', job: gone }).id);
+  fs.rmSync(path.join(paths(dir).jobs, gone), { recursive: true, force: true });
+
+  const out = await reconcile(dir, config, { at: AT });
+  const after = new Map(listRequests(dir).map((r) => [r.id, r]));
+  for (const [name, id, status, result] of rows) assert.deepEqual([after.get(id)?.status, after.get(id)?.result], [status, result], name);
+  assert.deepEqual(out.closed.sort(), rows.filter((r) => r[2] !== 'pending' && r[2] !== 'in-progress').map((r) => r[1]).sort());
+  assert.deepEqual(out.resumed, [actedOn], 'its only routed request closed: undriven in the same pass');
+  const notes = (id: string) => readEvents(dir, id).filter((e) => e.type === 'note').map((e) => e.text);
+  assert.deepEqual(notes(actedOn), [`request ${rows[0][1]} (resume) closed: ${RESUME_ACTED_ON}`]);
+  assert.deepEqual(notes(stuck), []);
 });
 
 test('a record without a valid resumes count stands for one resume', async () => {

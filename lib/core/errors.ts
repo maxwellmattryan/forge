@@ -5,7 +5,7 @@
  * The CLI's error codes and the exit each one fixes (docs/CLI.md "Error codes"). Scripts branch on
  * these, so renaming or removing one is a breaking change.
  */
-export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, interim_stale: 1, release_gate: 1, human_only: 1, stale_step: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5, docker_missing: 5, docker_stopped: 5 } as const;
+export const ERROR_CODES = { failed: 1, not_found: 1, internal: 1, secret_found: 1, protected_path: 1, push_held: 1, interim_stale: 1, release_gate: 1, human_only: 1, stale_step: 1, usage: 2, unknown_command: 2, not_initialized: 2, not_a_repo: 2, config_invalid: 2, owned: 3, stale_epoch: 3, blocked: 4, external: 5, docker_missing: 5, docker_stopped: 5 } as const;
 export type ErrorCode = keyof typeof ERROR_CODES;
 export type ExitCode = (typeof ERROR_CODES)[ErrorCode];
 /** What each code means, as docs/CLI.md "Error codes" shows it (markdown; npm run docs:cli escapes `|`). */
@@ -15,7 +15,9 @@ export const ERROR_CODE_DOCS: Record<ErrorCode, string> = {
   internal: 'not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack)',
   secret_found: 'the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint',
   protected_path:
-    'a path the `policy.protectedPaths` policy refuses is in what `forge git add|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths")',
+    'a path the `policy.protectedPaths` policy refuses is in what `forge git add|commit` would stage or commit, `forge pr open` found a refused path or an escalate CI path no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths")',
+  push_held:
+    '`forge pr open` holds the push until a person approves it: the push would change CI config, the latest security review is not PASS, or the secret scan of any job repo reported possible secrets under `verifySecrets: warn` (or could not finish); nothing was pushed in any repo, and a `push-held` event names the reason a person approves at (docs/CONFIG.md "The held push"). When git cannot compute the CI changes, or a repo\'s base could not be re-read from the push remote, it fails with this code too and no event',
   interim_stale:
     "`forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md \"Interim strategies\")",
   release_gate:

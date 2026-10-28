@@ -93,6 +93,32 @@ test('relatedTests problems', () => {
   assert.equal(problems((r) => Object.assign(r, { tests: null, map: ['{x}'], full: [''] })).length, 3);
 });
 
+test('improve.transcripts problems', () => {
+  const problems = (edit: (c: any) => void): string[] => {
+    const c: any = defaults();
+    edit(c);
+    return validateConfig(c, os.tmpdir()).filter((p) => p.startsWith('improve.transcripts'));
+  };
+  assert.equal(defaults().improve.transcripts.max, 12);
+  const range = /^improve\.transcripts\.max must be an integer from 0 to 50 \(got /;
+  const rows: [string, (c: any) => void, RegExp | null][] = [
+    ['the default', () => {}, null],
+    ['0', (c) => (c.improve.transcripts.max = 0), null],
+    ['50', (c) => (c.improve.transcripts.max = 50), null],
+    ['51', (c) => (c.improve.transcripts.max = 51), range],
+    ['negative', (c) => (c.improve.transcripts.max = -1), range],
+    ['a fraction', (c) => (c.improve.transcripts.max = 1.5), range],
+    ['a string', (c) => (c.improve.transcripts.max = '12'), range],
+    ['not a map', (c) => (c.improve.transcripts = 12), /^improve\.transcripts must be a map/],
+    ['a list', (c) => (c.improve.transcripts = [12]), /^improve\.transcripts must be a map/],
+  ];
+  for (const [name, edit, want] of rows) {
+    const got = problems(edit);
+    if (want === null) assert.deepEqual(got, [], name);
+    else assert.ok(got.length === 1 && want.test(got[0]), `${name}: ${JSON.stringify(got)}`);
+  }
+});
+
 test('foreman problems', () => {
   const problems = (edit: (f: any) => void): string[] => {
     const c: any = defaults();
@@ -161,6 +187,9 @@ test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {
   assert.deepEqual(problems((c) => (c.pr.maxCiReworks = 0), 'pr.maxCiReworks'), []);
   assert.equal(problems((c) => (c.pr.maxCiReworks = -1), 'pr.maxCiReworks').length, 1);
   assert.equal(problems((c) => (c.pr.maxCiReworks = 1.5), 'pr.maxCiReworks').length, 1);
+  assert.equal(defaults().pr.needsHumanLabel, 'forge:needs-human');
+  for (const ok of ['forge:needs-human', null, 'needs a person', 'x'.repeat(50)]) assert.deepEqual(problems((c) => (c.pr.needsHumanLabel = ok), 'pr.needsHumanLabel'), [], String(ok));
+  for (const bad of [3, '', '-x', '--add-label', 'a\nb', 'a\u0007', 'x'.repeat(51), ['l']]) assert.equal(problems((c) => (c.pr.needsHumanLabel = bad), 'pr.needsHumanLabel').length, 1, JSON.stringify(bad));
   assert.deepEqual(problems((c) => (c.daemon.jobBudget = null), 'daemon.jobBudget'), []);
   assert.deepEqual(problems((c) => (c.daemon.jobBudget = { tokens: null, usd: 20, minutes: 90 }), 'daemon.jobBudget'), []);
   assert.equal(problems((c) => (c.daemon.jobBudget = { usd: -1 }), 'daemon.jobBudget').length, 1);

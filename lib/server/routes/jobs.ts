@@ -1,5 +1,5 @@
 // Job routes: create a job, its detail, files and raw mockups, requests, effort, delete, merge now,
-// repo proposals, the Shelved list's batch actions, and its dev server and editor.
+// a person's CI re-run and Fix CI, repo proposals, the Shelved list's batch actions, and its dev server and editor.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
@@ -10,6 +10,7 @@ import { containedWorktree, editorArgv, openEditor } from '#engine/workspace/edi
 import { createJob, isActive, leaseStatus, listJobs, loadJob, progress, readEvents, jobDir, requestBody, setJob, setJobEffort } from '#core/job/store.ts';
 import { deleteJob, deleteRefusal } from '#engine/ops/delete.ts';
 import { mergePr } from '#engine/pr/merge.ts';
+import { fixFailingChecks, rerunFailedChecks } from '#engine/pr/ci.ts';
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
 import { isShelved, shelfAction } from '#engine/pipeline/moves/shelve.ts';
@@ -32,6 +33,8 @@ import type {
   LoadedJob,
   PostEditorResponse,
   PostJobBudgetResponse,
+  PostJobCiBody,
+  PostJobCiResponse,
   PostJobEffortResponse,
   PostJobMergeResponse,
   PostJobReposResponse,
@@ -250,6 +253,35 @@ export async function postJobMerge(ctx: ServerCtx, req: http.IncomingMessage, re
   }
   if (r.action === 'merged') ctx.pool?.poke();
   return json(res, r satisfies PostJobMergeResponse);
+}
+
+const CI_BODY = 'body must be {"action": "rerun"|"fix-ci", "head": "<the PR head sha>"}';
+
+/**
+ * POST /api/jobs/:id/ci: the Needs you PR row's Re-run failed checks (`rerun`: rerunFailedChecks, through
+ * the server's GitHub) or Fix CI (`fix-ci`: fixFailingChecks, a person's rework), as the dashboard. The
+ * body pins the head the row showed, so a stale or replayed click never acts on a newer head.
+ */
+export async function postJobCi(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const { root } = ctx;
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const id = match.params[0];
+  if (!validJobId(id) || !exists(path.join(jobDir(root, id), 'job.json'))) return jsonStatus(res, 404, { error: validJobId(id) ? `no job ${id}` : 'no such job' });
+  const body = parsed.body;
+  if (!isMap(body) || Object.keys(body).length !== 2 || (body.action !== 'rerun' && body.action !== 'fix-ci') || typeof body.head !== 'string' || !/^[0-9a-f]{40}$/.test(body.head))
+    return jsonStatus(res, 400, { error: CI_BODY });
+  const { action, head } = body as unknown as PostJobCiBody;
+  const config = loadConfig(root).config;
+  let r: PostJobCiResponse;
+  try {
+    r = action === 'rerun' ? rerunFailedChecks(root, config, ctx.github, id, { actor: dashboardActor(), head }) : await fixFailingChecks(root, config, id, { actor: dashboardActor(), head });
+  } catch (e) {
+    if (e instanceof ForgeError) return jsonStatus(res, 409, { error: e.message });
+    throw e;
+  }
+  if (r.action === 'fix-ci') ctx.pool?.poke();
+  return json(res, r satisfies PostJobCiResponse);
 }
 
 /** POST /api/jobs/:id/repos: approve or reject the job's repo proposals. */

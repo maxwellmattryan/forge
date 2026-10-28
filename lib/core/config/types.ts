@@ -256,6 +256,8 @@ export interface Config {
     integrationReview: 'always' | 'code-only';
     /** Consecutive CI reworks forge sync starts before a red head waits for a person. */
     maxCiReworks: number;
+    /** The label on a PR whose merge waits on a person's decision (a merge gate); null: none. */
+    needsHumanLabel: string | null;
   };
   merge: {
     auto: boolean;
@@ -289,7 +291,7 @@ export interface Config {
     pricing: Record<string, unknown>;
   };
   /** experiments: how many after-jobs `forge experiment evaluate` needs to decide an entry (minJobs) and when it closes one undecided (maxJobs). */
-  improve: { retroEvery: number; maxLearnings: number; experiments: { minJobs: number; maxJobs: number } };
+  improve: { retroEvery: number; maxLearnings: number; experiments: { minJobs: number; maxJobs: number }; transcripts: { max: number } };
   /** recall.paths: committed paths (inSpec tokens) that make the decide gate ask for a recall eval. */
   evals: { testPattern: string | null; recall: { paths: string[] } };
   dashboard: { port: number };

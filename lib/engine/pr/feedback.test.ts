@@ -1,8 +1,9 @@
 // renderFeedback: only Forge writes column-0 lines in pr-feedback.md, every person's body is quoted,
 // a thread path stays on its heading as JSON, and tracker.github.comments decides whose text shows.
+// feedbackSince counts only what people with write access wrote after a boundary.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { renderFeedback } from './feedback.ts';
+import { feedbackSince, renderFeedback } from './feedback.ts';
 import type { FeedbackComment, FeedbackReview, PrFeedback } from '#integrations/github/types.ts';
 
 const AT = '2026-10-01T00:00:00Z';
@@ -56,6 +57,22 @@ const ROWS: { name: string; fb: PrFeedback; mode: 'collaborators' | 'all'; check
     },
   },
 ];
+
+test('feedbackSince counts people with write access after the boundary', () => {
+  const BEFORE = '2026-09-30T00:00:00Z';
+  const AFTER = '2026-10-02T00:00:00Z';
+  const when = <T extends FeedbackComment | FeedbackReview>(x: T, at: string | null): T => ('submittedAt' in x ? { ...x, submittedAt: at } : { ...x, createdAt: at });
+  const rows: [string, Pick<PrFeedback, 'reviews' | 'comments'>, string | null, number][] = [
+    ['a trusted review and comment after the boundary', { reviews: [when(review('maint', true, 'COMMENTED', 'x'), AFTER)], comments: [when(comment('maint', true, 'y'), AFTER)] }, AT, 2],
+    ['trusted ones before or at the boundary', { reviews: [when(review('maint', true, 'CHANGES_REQUESTED', ''), BEFORE)], comments: [comment('maint', true, 'y')] }, AT, 0],
+    ["a stranger's after the boundary", { reviews: [when(review('stranger', false, 'COMMENTED', 'x'), AFTER)], comments: [when(comment('stranger', false, 'y'), AFTER)] }, AT, 0],
+    ['no boundary: every trusted one', { reviews: [when(review('maint', true, 'COMMENTED', 'x'), BEFORE)], comments: [comment('maint', true, 'y'), comment('stranger', false, 'z')] }, null, 2],
+    ['an unparseable time with a boundary', { reviews: [when(review('maint', true, 'COMMENTED', 'x'), null)], comments: [when(comment('maint', true, 'y'), 'not a time')] }, AT, 0],
+    ['an unparseable time with no boundary', { reviews: [when(review('maint', true, 'COMMENTED', 'x'), null)], comments: [when(comment('maint', true, 'y'), 'not a time')] }, null, 2],
+    ['nothing', { reviews: [], comments: [] }, null, 0],
+  ];
+  for (const [name, fb, since, want] of rows) assert.equal(feedbackSince(fb, since), want, name);
+});
 
 test("renderFeedback quotes people's text and encodes paths", () => {
   for (const row of ROWS) {

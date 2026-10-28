@@ -16,12 +16,15 @@ import { loadJob } from '#core/job/store.ts';
 import { trustedMemberWorktree } from '#engine/project/job-repos.ts';
 import { mainRoot } from '#core/paths.ts';
 import { findPr } from '#engine/pr/adopt.ts';
-import { openPr } from '#engine/pr/open.ts';
+import { openPr, syncPrGate } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
-import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
+import { integrate, integrateContinue } from '#engine/pr/branch.ts';
 import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
+import { rerunFailedChecks } from '#engine/pr/ci.ts';
+import { currentActor } from '#integrations/github/actor.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
+import { maskCredentials } from '#engine/guard/redact.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -232,6 +235,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       if (sub === 'find') return ok(findPr(root, config, ghGitHub, id));
       if (sub === 'open') return ok(openPr(root, config, ghGitHub, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));
       if (sub === 'sync') return ok(await syncPr(root, config, ghGitHub, id, { narrow: (j) => mandateRefusal(root, config, j, 'pr-feedback') }));
+      if (sub === 'gate') return ok(syncPrGate(root, config, ghGitHub, id));
       if (sub === 'merge') {
         // Strictly `true`: `--now <id>` would make parseArgs swallow the id as the flag's value,
         // and that mistake must not silently bypass CI.
@@ -242,6 +246,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
       if (sub === 'ready') return ok(readyPr(root, config, ghGitHub, id, mergeTarget(flags, 'ready')));
+      if (sub === 'rerun') return ok(rerunFailedChecks(root, config, ghGitHub, id, { actor: currentActor(root) }));
       throw usage('pr');
     }
     case 'release':
@@ -272,7 +277,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'retro': {
       needInit();
       if (sub === 'due') return ok(retroDue(root, config));
-      if (sub === 'prepare') return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since, mandate: retroMandateFlag(root, flags) }));
+      if (sub === 'prepare') {
+        const mask = (text: string): string => maskCredentials(text, config);
+        return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since, mandate: retroMandateFlag(root, flags), mask }));
+      }
       throw usage('retro');
     }
     case 'eval':

@@ -196,6 +196,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'pr.maxCiReworks': {
     doc: 'the CI rework cap: CI reworks forge sync starts in a row before a red head waits for a person (0: always a person; see "Open PRs")',
   },
+  'pr.needsHumanLabel': {
+    doc: 'the label forge pr gate puts on a PR whose merge waits on a person, created when the repo lacks it; null: no label (see "Merge")',
+  },
 
   merge: { doc: 'whether and how Forge merges approved PRs' },
   'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },
@@ -279,6 +282,8 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'improve.experiments': { doc: 'forge experiment evaluate (docs/IMPROVEMENT.md "Settling experiments")' },
   'improve.experiments.minJobs': { doc: 'after-jobs with a value needed before an entry is decided; fewer is pending' },
   'improve.experiments.maxJobs': { doc: 'after this many finished jobs an undecided entry is closed as inconclusive; at least minJobs' },
+  'improve.transcripts': { doc: 'the transcript pass of forge retro prepare (docs/IMPROVEMENT.md "Agent transcripts")' },
+  'improve.transcripts.max': { doc: 'agent runs digest agents read in depth per retro, worst first, 3 per digest; 0 writes transcripts.json only' },
 
   evals: { doc: 'a run\'s variant is an overlay, never an edit here (see "Eval overlays" below)' },
   'evals.testPattern': { doc: "regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)" },

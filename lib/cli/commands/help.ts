@@ -151,7 +151,20 @@ export const CORE: HelpGroup[] = [
           ['--draft', 'open it as a draft'],
           ['--force', 'publish a HEAD that forge verify has not passed'],
         ],
-        exits: [[1, 'no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an interim pin that cannot be written, or one that is not the dependency\'s checked HEAD (code interim_stale)'], GH_FAILED],
+        exits: [
+          [
+            1,
+            "no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an escalate CI path no human approved (code protected_path), a held push: a CI config change, a security review that isn't PASS or secrets the scan only reported, until a person approves it (code push_held; --force doesn't bypass it), an interim pin that cannot be written, or one that is not the dependency's checked HEAD (code interim_stale)",
+          ],
+          GH_FAILED,
+        ],
+      },
+      {
+        command: 'pr gate',
+        args: '<id>',
+        summary:
+          "say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit",
+        exits: [[1, 'no such job, or a likely secret in the gate section (code secret_found; nothing is edited)']],
       },
       {
         command: 'pr sync',
@@ -190,6 +203,13 @@ export const CORE: HelpGroup[] = [
         ],
         exits: [[1, "no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held or bump-due, or its manifests at HEAD don't name the recorded release (code release_gate; nothing is called)"], GH_FAILED],
       },
+      {
+        command: 'pr rerun',
+        args: '<id>',
+        summary:
+          "re-run the failed GitHub Actions checks on the job's PR head as a person (at most 5 runs, each on that head and finished) and log ci-rerun; the job must wait on pr-review at the head the last sync recorded",
+        exits: [[1, "no such job or PR, not waiting on pr-review, the PR head moved since the last sync, no failing checks, none of them a GitHub Actions job in the PR's repo, or GitHub re-ran none"], GH_FAILED],
+      },
     ],
   },
   {
@@ -205,7 +225,8 @@ export const CORE: HelpGroup[] = [
       {
         command: 'retro prepare',
         args: '<job> [--since DATE | --mandate ID]',
-        summary: "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by",
+        summary:
+          "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by, and agent runs' transcript stats into transcripts.json; returns the `digests` to spawn (forge:digest) over the worst runs",
         flags: [
           ['--since DATE', 'only jobs since DATE (default: since the last retro)'],
           ['--mandate ID', "only the mandate's jobs, live and archived, with no date window; recorded on the retro job, so a later prepare keeps it (not with --since)"],
