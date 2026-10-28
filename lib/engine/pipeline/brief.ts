@@ -141,6 +141,21 @@ function uiProofLine(acs: readonly string[]): string {
     : 'UI proof: none · no AC needs a rendered UI, so do not use browser tools';
 }
 
+/** The review lenses that look at the rendered UI; `design` too, since its checklist asks to see the real thing. */
+const BROWSER_LENSES = ['ui', 'ux', 'accessibility', 'design'];
+
+/**
+ * Whether a spawn gets Forge's browser (lib/integrations/claude/browser.ts): the builder, the designer or a
+ * reviewer of a BROWSER_LENSES lens (plain, or a member repo's), and only while the spec has a UI AC.
+ */
+export function needsBrowser(spawn: { role: string; lens?: string }, uiAcs: readonly string[]): boolean {
+  if (!uiAcs.length) return false;
+  if (spawn.role === 'builder' || spawn.role === 'designer') return true;
+  if (spawn.role !== 'reviewer' && !spawn.role.startsWith('reviewer:')) return false;
+  const name = splitLens(spawn.lens ?? spawn.role.slice('reviewer:'.length))?.name;
+  return name !== undefined && BROWSER_LENSES.includes(name);
+}
+
 const STANDARDS_SHOWN = 20;
 
 /**

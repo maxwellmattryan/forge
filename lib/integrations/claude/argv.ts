@@ -10,6 +10,7 @@ import { validModel } from '#core/config/models.ts';
 import { UUID } from '#core/job/session-files.ts';
 import { SESSION_PINS, pinEnv } from '../git/runner.ts';
 import { splitWords } from '#core/text.ts';
+import { BROWSER_RULE } from './browser.ts';
 import type { DaemonAuth, DaemonBilling, DaemonPermissionMode, Effort } from '#core/types.ts';
 
 /**
@@ -239,7 +240,10 @@ export function scopedTools(allowedTools: readonly string[], writeRoots: readonl
  * has. `appendSystemPrompt`, when a string, follows as `--append-system-prompt <text>`: only a chat
  * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). `agent`, when set,
  * appends `--agent forge:assistant`, the one agent a gate run (lib/office/foreman/attempt.ts) starts as; it is a
- * fixed value, never config text. DENY_TOOLS, then `deny`, and PROMPT_TOOL always follow the template.
+ * fixed value, never config text. `mcpConfig`, when a string, follows as `--mcp-config <json>`: only a job
+ * session's spawn passes it, and only browserMcpConfig's (lib/integrations/claude/browser.ts); the template
+ * itself may never pass the flag (lib/core/config/trust.ts). DENY_TOOLS, then `deny`, and PROMPT_TOOL always
+ * follow the template, so a flag follows claude's variadic --mcp-config value.
  */
 export function buildArgv(
   template: string,
@@ -255,6 +259,7 @@ export function buildArgv(
     maxBudgetUsd?: number | null;
     appendSystemPrompt?: string | null;
     agent?: 'forge:assistant' | null;
+    mcpConfig?: string | null;
   },
 ): string[] {
   const tools = scopedTools(vars.allowedTools ?? [], vars.writeRoots ?? []);
@@ -272,7 +277,14 @@ export function buildArgv(
   if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
   if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
   if (vars.agent === 'forge:assistant') argv.push('--agent', 'forge:assistant');
+  if (typeof vars.mcpConfig === 'string') argv.push('--mcp-config', mcpJson(vars.mcpConfig));
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
+}
+
+/** An --mcp-config value, which must be a JSON object: never a word claude could read as a flag or a file path. */
+function mcpJson(value: string): string {
+  if (!value.startsWith('{')) throw new ForgeError(`an --mcp-config value must be a JSON object (got ${JSON.stringify(value.slice(0, 80))})`);
+  return value;
 }
 
 /** A plugin agent a role child may run: `forge:` and a role's base name. */
@@ -299,7 +311,9 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * becomes `--tools`: it must be non-empty and every name must match BUILTIN_TOOL, or this throws.
  * `appendSystemPromptFile`, when a string, follows the effort words as `--append-system-prompt-file <path>`:
  * the trusted prefix (lib/engine/guard/prompt-prefix.ts), an absolute path with no NUL, CR or LF, or this throws.
- * claude reads `--tools` variadically, so a flag always follows it.
+ * `mcpConfig`, when a string, is browserMcpConfig's JSON (lib/integrations/claude/browser.ts): it follows as
+ * `--mcp-config <json>`, and `--allowedTools` gains BROWSER_RULE, since a role child has no one to ask.
+ * claude reads `--tools` and `--mcp-config` variadically, so a flag always follows each.
  */
 export function roleArgv(vars: {
   executable: string;
@@ -314,6 +328,7 @@ export function roleArgv(vars: {
   deny: readonly string[];
   session: { id: string; resume: boolean };
   appendSystemPromptFile?: string | null;
+  mcpConfig?: string | null;
 }): string[] {
   if (typeof vars.agent !== 'string' || !ROLE_AGENT.test(vars.agent)) throw new ForgeError(`a role child's agent must match ${ROLE_AGENT.source} (got ${JSON.stringify(String(vars.agent).slice(0, 80))})`);
   const tools = Array.isArray(vars.tools) ? vars.tools : [];
@@ -328,6 +343,7 @@ export function roleArgv(vars: {
   if (relative !== undefined) throw new ForgeError(`a role child's deny rules must be absolute Edit(//…) rules: ${JSON.stringify(String(relative).slice(0, 200))} would anchor at the worktree`);
   const model = validModel(vars.model);
   const effort = vars.effort && (EFFORTS as readonly unknown[]).includes(vars.effort) ? vars.effort : null;
+  const mcp = typeof vars.mcpConfig === 'string' ? mcpJson(vars.mcpConfig) : null;
   return [
     vars.executable,
     '-p',
@@ -349,10 +365,11 @@ export function roleArgv(vars: {
     ...(model && model !== 'inherit' ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
     ...(typeof prompt === 'string' ? ['--append-system-prompt-file', prompt] : []),
+    ...(mcp !== null ? ['--mcp-config', mcp] : []),
     '--permission-mode',
     vars.permissionMode,
     '--allowedTools',
-    scopedTools(vars.allowedTools, vars.writeRoots),
+    [scopedTools(vars.allowedTools, vars.writeRoots), ...(mcp !== null ? [BROWSER_RULE] : [])].filter(Boolean).join(','),
     vars.session.resume ? '--resume' : '--session-id',
     vars.session.id,
     '--disallowedTools',

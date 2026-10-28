@@ -191,7 +191,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     try {
       confined = spawnConfinement(root, c);
       const { roots, deny } = confined;
-      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, model, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap, appendSystemPrompt: chatPrompt(scope) };
+      const vars = { allowedTools: c.daemon.allowedTools, permissionMode: launchMode, effort: effort.level, model, writeRoots: [roots.jobs, ...roots.worktrees], deny, maxBudgetUsd: cap, appendSystemPrompt: chatPrompt(scope), mcpConfig: ctx.browser(scope) };
       argv = buildArgv(c.daemon.command, { pluginRoot: PLUGIN_ROOT, session: { id: info.sessionId, resume }, ...vars });
     } catch (e) {
       ctx.fatal(`cannot start daemon: ${(e as Error).message}`);

@@ -161,6 +161,30 @@ test('agent run runs a scripted role end to end', async (t) => {
   assert.deepEqual([lines[0].type, lines[0].message.content[0].text], ['user', withPrefixLine(step.brief)]);
 });
 
+test('agent run gives the browser only to a UI role of a spec with a UI AC', async (t) => {
+  const s = scratch(t);
+  const { id, dir } = await s.job({ stage: 'build' });
+  fs.writeFileSync(path.join(dir, 'spec.md'), '# Spec\n\n## Acceptance criteria\n- [ ] AC1 — the list renders · Proven by: screenshots/ac1-list-375.png\n- [ ] AC2 — the API answers · Proven by: a test\n');
+  updateJob(s.root, id, (j) => {
+    j.port = 7412;
+  });
+  assert.equal((await forgeInProcess(s.root, ['job', 'round', id])).status, 0);
+  const step = await s.stepOf(id);
+  assert.deepEqual([step.action, step.role], ['spawn', 'builder'], JSON.stringify(step));
+  const r = await forgeInProcess(s.root, ['job', 'agent', 'run', id, '--session', S], { env: s.env({ FAKE_CLAUDE_WRITE: `${path.join(dir, 'build.md')}=## Round 1\n` }) });
+  assert.equal(r.status, 0, JSON.stringify(r.error ?? r.data));
+  const [started] = starts(s.records());
+  const argv: string[] = started.argv;
+  assert.equal(argv[argv.indexOf('--tools') + 1], 'Read,Grep,Glob,Bash,Edit,Write', 'the browser is not a built-in tool');
+  const config = JSON.parse(argv[argv.indexOf('--mcp-config') + 1]);
+  assert.deepEqual(Object.keys(config.mcpServers), ['forge-browser']);
+  const args: string[] = config.mcpServers['forge-browser'].args;
+  assert.equal(args[args.indexOf('--allowed-origins') + 1], 'http://localhost:7412;http://127.0.0.1:7412');
+  assert.equal(args[args.indexOf('--output-dir') + 1], path.join(s.root, '.forge', 'jobs', id, 'screenshots'));
+  assert.ok(argv.indexOf('--mcp-config') < argv.indexOf('--permission-mode'), 'before the mode');
+  assert.ok(argv[argv.indexOf('--allowedTools') + 1].endsWith(',mcp__forge-browser'), 'allowed without a prompt nobody could answer');
+});
+
 test('agent run starts without the prefix when a source is refused', async (t) => {
   const s = scratch(t);
   const { id, dir } = await s.job();
