@@ -4,11 +4,16 @@
 // Serial: the daemon rows set process.env through forgeInProcess.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BIN, forgeAsync, forgeInProcess, parkedAt, repoTemplate } from '../../helpers.ts';
+import { loadConfig, worktreeRoot } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
+import { logEvent, updateJob } from '#core/job/store.ts';
+import { projectSlug } from '#integrations/claude/transcripts.ts';
 
 const scratch = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
@@ -284,7 +289,37 @@ test('forge retro prepare --mandate scopes the retro to the mandate', async () =
     assert.deepEqual([both.status, both.error?.code], [2, 'usage'], JSON.stringify(both.error));
     const out = await ok(r.dir, ['retro', 'prepare', retro, '--mandate', 'm1']);
     assert.deepEqual([out.mandate, out.since, out.jobsInWindow], ['m1', null, 1]);
+    assert.deepEqual([path.basename(out.transcripts), out.transcriptRuns, out.digests], ['transcripts.json', { runs: 0, read: 0, skipped: 0 }, []]);
   } finally {
+    r.cleanup();
+  }
+});
+
+test('forge retro prepare masks a credential in a digest input', async () => {
+  const r = scratch();
+  const claude = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-claude-'));
+  try {
+    const id = (await ok(r.dir, ['job', 'new', '--title', 'a'])).id as string;
+    const retro = (await ok(r.dir, ['job', 'new', '--title', 'Forge retro', '--kind', 'retro'])).id as string;
+    const wt = path.join(worktreeRoot(r.dir, loadConfig(r.dir).config), id);
+    updateJob(r.dir, id, (j) => void (j.worktree = wt));
+    const agentId = '0000000a-0000-4000-8000-000000000000';
+    logEvent(r.dir, id, 'agent-start', { role: 'builder' });
+    logEvent(r.dir, id, 'agent-end', { role: 'builder', agentId });
+    // Built at run time: no secret-like literal in this file.
+    const token = `ghp_${crypto.randomBytes(18).toString('hex')}`;
+    const call = { type: 'tool_use', id: 't1', name: 'Bash', input: { command: `GH_TOKEN=${token} gh pr list` } };
+    const lines = [{ type: 'assistant', message: { id: 'm1', content: [call] } }, { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: `Exit code 1\nbad token ${token}` }] } }];
+    const dir = path.join(claude, 'projects', projectSlug(wt));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${agentId}.jsonl`), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+
+    const out = await ok(r.dir, ['retro', 'prepare', retro, '--since', '1970-01-01'], { CLAUDE_CONFIG_DIR: claude });
+    assert.deepEqual([out.transcriptRuns, out.digests.length], [{ runs: 1, read: 1, skipped: 0 }, 1]);
+    const md = fs.readFileSync(out.digests[0].input, 'utf8');
+    assert.ok(md.includes('[redacted]') && !md.includes(token.slice(0, 8)), md);
+  } finally {
+    fs.rmSync(claude, { recursive: true, force: true });
     r.cleanup();
   }
 });

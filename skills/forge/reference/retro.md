@@ -8,12 +8,20 @@ You get here from `/forge retro`, from a `retro` request in the inbox (the dashb
 ```bash
 forge retro due                                  # how many jobs since the last retro
 forge job new --title "Forge retro <YYYY-MM-DD>" --kind retro --session ${CLAUDE_SESSION_ID}
-forge retro prepare <id>                         # writes stats.json + signals.md (experiment verdicts, per-lens recall, recurring findings across jobs, learnings past review-by) into the job dir
+forge retro prepare <id>                         # writes stats.json + signals.md (experiment verdicts, per-lens recall, recurring findings across jobs, learnings past review-by) and transcripts.json into the job dir; returns `digests`
 forge worktree create <id>
 ```
 For a `retro` request with `args.mandate`, run the lines in **A mandate's retro** below in place of the first three.
 When `forge job step` sent you here for an existing retro job, skip the `forge job new` line; if its retro agent already ended without a `spec.md`, go straight to the cancel below.
-Spawn **retro** (`forge:retro`), wrapped like any spawn: `forge job agent <id> start --role retro --model <runtime.models.retro> --output <job dir>/spec.md`, then `forge job agent <id> end --role retro …` when it completes. Its brief: the stats and signals paths, `.forge/notes/` (learnings, addenda, experiments.md), `.forge/reviewers/`, `.forge/config.yml`, the configured `improve.maxLearnings`, and `forge eval runs` output if any. It writes `retro.md` and `spec.md`.
+
+**Digest transcripts.** Skip this step when prepare's `digests` is `[]`. Otherwise, for each entry, in order, one at a time, in the foreground:
+1. `forge job agent <id> start --role digest --model <model> --output <output>`
+2. spawn the entry's `subagent` with its `brief` verbatim, its `model` unless `inherit`, and its `effort` unless null
+3. `forge job agent <id> end --role digest --agent-id <agentId> --import --summary "<first line of its reply>"`
+
+Their usage lands on the retro job and counts toward its budget. A digest that fails or writes no file: report it and go on without it.
+
+Spawn **retro** (`forge:retro`), wrapped like any spawn: `forge job agent <id> start --role retro --model <runtime.models.retro> --output <job dir>/spec.md`, then `forge job agent <id> end --role retro …` when it completes. Its brief: the stats, signals and transcripts.json paths, the `output` of each digest whose file exists, `.forge/notes/` (learnings, addenda, experiments.md), `.forge/reviewers/`, `.forge/config.yml`, the configured `improve.maxLearnings`, and `forge eval runs` output if any. Never name a transcript, `digest/runs.json` or a `digest/batch-*.md` file in it. It writes `retro.md` and `spec.md`.
 
 If it proposes nothing (too little data, no `spec.md`), report that and cancel the job.
 
@@ -25,7 +33,7 @@ A `retro` request with `args.mandate` is a closed mandate's retro, over only tha
 forge job new --title "Forge retro: mandate <args.mandate>" --kind retro --session ${CLAUDE_SESSION_ID}
 forge retro prepare <id> --mandate <args.mandate>
 ```
-Then hand the job off like any retro, from `forge worktree create <id>` on. The scope is recorded on the job, so a later `forge retro prepare <id>` with no `--mandate` keeps it, and a mandate retro never counts as the last retro for `forge retro due`.
+Then hand the job off like any retro, from `forge worktree create <id>` on, digests included. The scope is recorded on the job, so a later `forge retro prepare <id>` with no `--mandate` keeps it, and a mandate retro never counts as the last retro for `forge retro due`.
 
 ## Measure
 If eval tasks exist, suggest running the same eval subset on the base branch (baseline) and on the retro branch's config before merging, then `forge eval compare`. Otherwise `forge experiment evaluate` settles each entry from the jobs created after it.

@@ -1,6 +1,6 @@
 // The shapes of a headless Claude Code child as the office sees it: the domain events its stream-json
 // output means (ClaudeEvent), the handle that is the only way to write to it (ClaudeChild), and the
-// adapter that starts one (ClaudeAdapter).
+// adapter that starts one (ClaudeAdapter); and the friction counted from a run's transcript (RunCounts).
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 /** One model's share of a result line's `modelUsage`: dollars and the four token counts, each finite and >= 0. */
@@ -119,6 +119,29 @@ export interface ClaudeChild {
   signal(sig: NodeJS.Signals): void;
   pause(): void;
   resume(): void;
+}
+
+/**
+ * One agent run's friction, counted from its transcript (lib/integrations/claude/friction.ts runFriction).
+ * Only counts, hashes and charset-limited keys: never transcript text. Each list holds at most 10 entries,
+ * highest count first.
+ */
+export interface RunCounts {
+  /** Distinct assistant messages. */
+  turns: number;
+  /** Distinct tool_use blocks. */
+  toolCalls: number;
+  /** Errored tool results, by tool name (`other` when unnamed or unusual) and by error key. */
+  toolErrors: { total: number; byTool: Record<string, number>; byPrefix: Record<string, number> };
+  /** Errored Bash calls that failed 2 or more times with the same command hash, with their first and last turn. */
+  repeatedFailures: { key: string; hash: string; count: number; turns: [number, number] }[];
+  permissionDenials: { total: number; byTool: Record<string, number> };
+  /** Files whose same range was read 3 or more times; `reads` is the highest count. */
+  rereads: { file: string; reads: number }[];
+  /** Non-zero exits of `forge` commands, by command key and exit code. */
+  forgeExits: { key: string; code: number; count: number }[];
+  /** The byte cap stopped the read before the end of the file. */
+  truncated: boolean;
 }
 
 /** Starts claude children: the real one (lib/integrations/claude/child.ts claudeAdapter) or a test's fake. */

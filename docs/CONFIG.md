@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 46            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 47            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -270,6 +270,8 @@ improve:                     # retros and the experiment ledger (docs/IMPROVEMEN
   experiments:               # forge experiment evaluate (docs/IMPROVEMENT.md "Settling experiments")
     minJobs: 5               # after-jobs with a value needed before an entry is decided; fewer is pending
     maxJobs: 10              # after this many finished jobs an undecided entry is closed as inconclusive; at least minJobs
+  transcripts:               # the transcript pass of forge retro prepare (docs/IMPROVEMENT.md "Agent transcripts")
+    max: 12                  # agent runs digest agents read in depth per retro, worst first, 3 per digest; 0 writes transcripts.json only
 
 evals:                       # a run's variant is an overlay, never an edit here (see "Eval overlays" below)
   testPattern: null          # regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)

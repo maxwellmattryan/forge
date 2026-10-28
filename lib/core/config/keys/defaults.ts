@@ -228,6 +228,8 @@ export function defaults(): Config {
       maxLearnings: 30,
       // minJobs 5 and maxJobs 10 match retroEvery: each retro settles what the one before it opened.
       experiments: { minJobs: 5, maxJobs: 10 },
+      // 12 runs is 4 sequential digests of 3 on the retro's budget.
+      transcripts: { max: 12 },
     },
     evals: {
       testPattern: null,
