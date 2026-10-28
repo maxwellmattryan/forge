@@ -1,4 +1,5 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
+     the collapsed Timed out list (TimedOutPrompts: prompts denied because nobody answered in time, not counted),
      then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review (each
      row's actions follow why it waits, prActions: Re-run failed checks and Fix CI post to /api/jobs/:id/ci at the head the
      row shows, Address the PR feedback queues the fixed-text rework, and a PR with neither offers only Open PR), jobs
@@ -17,6 +18,7 @@
   import PrChip from '../PrChip.svelte';
   import RepoBudgetSection from '../RepoBudgetSection.svelte';
   import ShelfSection from './ShelfSection.svelte';
+  import TimedOutPrompts from './TimedOutPrompts.svelte';
   import { showRepoSection } from '../../lib/repo-budget.ts';
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
@@ -26,7 +28,7 @@
   import { cardRef } from '../../lib/board.ts';
   import { inboxGroups, requestSubject } from '../../lib/inbox.ts';
   import MilestoneDraftCard from '../MilestoneDraftCard.svelte';
-  import { pendingPrompts } from '../../lib/permissions.ts';
+  import { pendingPrompts, timedOutPrompts } from '../../lib/permissions.ts';
   import { S, openDrawer, refresh, req } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
   import { keepFocus } from '../../lib/popover.svelte.ts';
@@ -39,9 +41,12 @@
   const drafts = $derived(data.drafts ?? []);
   // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
+  // Likewise TimedOutPrompts: a record of denied calls, shown even with nothing pending and never counted in the badge.
+  const timedOut = $derived(timedOutPrompts(S.data?.daemons ?? null).length);
   // An answered prompt, a decided milestone draft, the last shelved job or a PR row leaving unmounts with its buttons: focus back on the popover, not the body.
   $effect(() => {
     void prompts;
+    void timedOut;
     void drafts.length;
     void groups.shelved.length;
     void groups.prs.length;
@@ -101,6 +106,7 @@
 <!-- plain: the popover's own surface, so the panel keeps its text off the grain wherever it renders. -->
 <div class="plain flex flex-col gap-5">
   {#if prompts}<PermissionPrompts />{/if}
+  {#if timedOut}<TimedOutPrompts />{/if}
   {#if showRepoSection(data.budget)}<RepoBudgetSection {data} />{/if}
   <section class="flex flex-col gap-3" aria-labelledby="needs-urgent">
     <h3 id="needs-urgent" class="label">{$t('needs.urgent')}</h3>
