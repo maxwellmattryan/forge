@@ -1,11 +1,12 @@
-// Decide: the approver (or, for an eval, the judge and the grade) and the gates its decision opens.
+// Decide: the approver (or, for an eval, the judge and the grade), then on to integrate and pr. The
+// gates its decision opens (an ESCALATE, a before-merge runbook, protected paths, a missing recall
+// eval) hold the merge, not the push: the pr table checks them once the PR is open (PR15–PR17, PP1b).
 import { autoMerge } from '#core/config/load.ts';
 import { pastTotalCeiling } from '../../moves/foreman-gates.ts';
 import type { JobAgent, WaitingOn } from '#core/types.ts';
 import { park, procedure, run, spawn, toStage } from '../actions.ts';
-import { recallEvents, recallReason, recallRecorded, recallWaived } from '../recall.ts';
+import { recallEvents, recallRecorded } from '../recall.ts';
 import { REVIEWED_HEAD_NOTE, after, afterIdx, agent, ended, gateApprovals, isPrRework, lastEvent, lastIdx, stageOf, startedIn, waitedSince } from '../facts.ts';
-import { PP1 } from '../gates.ts';
 import { missingOutputRows } from '../generic.ts';
 import { inStage } from '../rules.ts';
 import type { Ctx, Table } from '../rules.ts';
@@ -17,8 +18,8 @@ interface DecideCtx extends Ctx {
   exhausted: boolean;
   /**
    * A human approve given at this gate after the approver ended cleared it, so a job sent back here
-   * (an integrate-stage escalation) isn't parked again on the same stale ESCALATE or runbook. Only an
-   * approve at that gate counts: acknowledging a budget stop clears neither.
+   * (an integrate-stage escalation) isn't parked again on the same missing decision line. Only an
+   * approve at that gate counts: acknowledging a budget stop doesn't.
    */
   cleared: (on: WaitingOn) => boolean;
 }
@@ -51,14 +52,13 @@ export const DECIDE: Table<DecideCtx> = {
     // the decision PR4 merges on is recorded for the new head.
     { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x) && !autoMerge(c.x.config), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },
     // The diff changes reviewer prompts: a recall eval for exactly these prompts comes before the
-    // approver. Two starts with no record park on a human, who runs it again or waives it; so do
-    // fixtures that do not load, since no start could ever be logged.
+    // approver, at most twice. With still no record (or fixtures that do not load, so no start could
+    // ever be logged), the approver runs anyway and PR17 holds the merge on a human.
     {
       id: 'RC1',
       when: (c) => recallOpen(c) && c.x.recall!.pluginHash !== null && !c.x.recall!.invalidFixtures && recallEvents(c.x, 'start').length < 2,
       then: ({ x }) => procedure(x, 'RC1', 'recall.md', 'the diff changes reviewer prompts: run the recall eval on them before the approver'),
     },
-    { id: 'RC2', when: (c) => recallOpen(c) && !recallWaived(c.x), then: ({ x }) => park(x, 'RC2', 'human', recallReason(x.recall!.pluginHash)) },
     { id: 'DC1', when: ({ x, ap, exhausted }) => !exhausted && (!startedIn(ap, x.job.round) || !ended(ap)), then: ({ x }) => spawn(x, 'DC1', 'approver') },
     missingOutputRows<DecideCtx>((c) => (c.exhausted ? null : 'approver')),
     {
@@ -79,10 +79,8 @@ export const DECIDE: Table<DecideCtx> = {
     { id: 'DC5', when: (c) => evalJob(c) && !lastEvent(c.x, (e) => e.type === 'eval-graded'), then: ({ x }) => run(x, 'DC5', ['eval', 'grade', x.job.id], 'grade the eval task') },
     { id: 'DC6', when: evalJob, then: ({ x }) => toStage(x, 'DC6', 'done', 'the eval task is graded') },
     { id: 'DC3', when: ({ x, cleared }) => !x.decision.decision && !cleared('escalation'), then: ({ x }) => park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line') },
-    { id: 'DC7', when: ({ x, cleared }) => x.decision.decision === 'ESCALATE' && !cleared('escalation'), then: ({ x }) => park(x, 'DC7', 'escalation', 'approver escalated: see decision.md') },
-    { id: 'DC8', when: ({ x, cleared }) => x.runbookBeforeMerge && !cleared('infra'), then: ({ x }) => park(x, 'DC8', 'infra', 'runbook: steps before merge') },
-    // An APPROVE, or a cleared escalation, still waits for a human on protected paths.
-    PP1,
+    // An ESCALATE, a before-merge runbook and protected paths go on too: the PR opens, then the pr
+    // table holds the merge on them (PR15, PR16, PP1b).
     // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
     // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
     // decision or approval now counts there.

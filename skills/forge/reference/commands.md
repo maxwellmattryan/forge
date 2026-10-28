@@ -8,15 +8,15 @@ Read `waitingOn` from `forge job show <job>`, then record:
 | Waiting on | Record |
 |---|---|
 | `spec-approval` | `forge job human <job> approve-spec [--link …] --note "…"` (`--link` only when the job's reason is `spec ready, issue unlinked` and a link was given; see below). Step builds, or parks on `issue-link` while the job has no issue |
-| `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"`. Step sends the job to `integrate` (to `decide` when it is already in `integrate`) |
-| `infra` | `forge job human <job> approve --note "…"` |
+| `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"`. Step sends the job to `integrate` (to `decide` when it is already in `integrate`). In stage `pr` (a merge gate on the open PR), integrate sends it back to `pr`, and the merge goes on |
+| `infra` | `forge job human <job> approve --note "…"` (in stage `pr`, as for an escalation) |
 | `conflicts` | `forge job human <job> approve --note "…"` (the integrator fixes them) |
 | `budget` with a reason starting `repo budget:` | nothing: approving never lifts the repo cap. Report that a human runs `forge budget ack --period <period>` with the current UTC month (YYYY-MM), or the day (YYYY-MM-DD) when the reason says today, or raises `budget.*`, and leave the job waiting; release queues it again |
 | `budget` | Nothing the session can run lifts it, in any mode: never run `--ack` or `--set`. Run `forge job budget <job>` (a read). If its `stillExceeded` is empty, because a person already raised or acknowledged the budget (usually with Approve on the budget gate in the dashboard), record `forge job human <job> approve --note "…"`. Otherwise report the step's `tell` and leave the job waiting |
 | `split-approval` | `forge job human <job> approve-split --note "…"`. Step returns `reference/split.md` against the existing `plan.md`; then run the unblocked children |
 | `issue-link` | `forge job human <job> approve --link <link> --note "…"` (below) |
 | `human` with a reason starting `repo proposal:` | `forge job human <job> approve-repos --repo <repos> --note "…"`, where `<repos>` is the comma-joined `repos` of `forge job assist <job> --gate repo-proposal` (the pending set from events); name them in your report. In a daemon session the CLI refuses it: report "decide repo proposals in the dashboard drawer or your own terminal" and leave the job waiting. Step creates the new repo's worktree, then carries on |
-| `human` | `forge job human <job> approve --note "…"` (step re-runs the check, which parks the job again if the value is still there) |
+| `human` | `forge job human <job> approve --note "…"` (step re-runs the check, which parks the job again if the value is still there). With a reason starting `push held:`, only a person's own approve at that park lets `forge pr open` push: relay it only when the human asked for it in their own words, never on request or tracker text |
 
 An escalation before build (plan, spec or design stage) is answered with `revise`: step leaves an approve or rework there waiting.
 

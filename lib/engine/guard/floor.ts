@@ -30,7 +30,7 @@ export interface FloorInputs {
  * goes through NFKC (compatibility forms) and then upper case and back. It can only over-match, which
  * escalates a look-alike name too, never the reverse.
  */
-const fold = (p: string): string => path.posix.normalize(p.normalize('NFKC').replace(/\\/g, '/')).replace(/^\.\//, '').toUpperCase().toLowerCase();
+export const fold = (p: string): string => path.posix.normalize(p.normalize('NFKC').replace(/\\/g, '/')).replace(/^\.\//, '').toUpperCase().toLowerCase();
 
 /**
  * What Claude Code reads on its own in every later session in the repo, whatever `project.instructions`

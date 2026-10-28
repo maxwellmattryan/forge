@@ -111,7 +111,8 @@ Every error carries one of these codes, and the code fixes the exit.
 | `not_found` | 1 | no such job, request, mandate or registered project |
 | `internal` | 1 | not a Forge error: a bug or an unexpected Node error (rerun with `FORGE_DEBUG=1` for the stack) |
 | `secret_found` | 1 | the secret scanner found a likely credential in what Forge was about to commit or send (a commit, the PR title or body, a tracker write); the message shows it masked, with its fingerprint |
-| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or escalate paths no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths") |
+| `protected_path` | 1 | a path the `policy.protectedPaths` policy refuses is in what `forge git add\|commit` would stage or commit, `forge pr open` found a refused path or an escalate CI path no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths") |
+| `push_held` | 1 | `forge pr open` holds the push until a person approves it: the push would change CI config, the latest security review is not PASS, or the secret scan of any job repo reported possible secrets under `verifySecrets: warn` (or could not finish); nothing was pushed in any repo, and a `push-held` event names the reason a person approves at (docs/CONFIG.md "The held push"). When git cannot compute the CI changes, or a repo's base could not be re-read from the push remote, it fails with this code too and no event |
 | `interim_stale` | 1 | `forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md "Interim strategies") |
 | `release_gate` | 1 | `forge pr ready` targeted a consumer PR whose local or sequential dependency's release is not recorded (a human runs `forge job interim release <id> <name>\|--root <version>`), or whose manifests don't name a recorded release yet (gate `bump-due`, or a HEAD that doesn't carry it: run `forge verify <id>`, then `forge pr open <id>`); nothing was called (docs/CONFIG.md "Interim strategies") |
 | `human_only` | 1 | a human-only operation (`forge pr merge --now`, `forge job budget --set\|--ack`, `forge budget ack`, `forge job unshelve`) needs a person who confirms it at a terminal by typing the job id or period, or, for `pr merge --now`, the dashboard's Merge now, for `job budget`, its Approve & continue on the budget gate, for `budget ack`, its Acknowledge in Needs you and, for `job unshelve`, Un-shelve in its Shelved list; a daemon session, an agent, a script or a configured command can't run it, and nothing was changed. A write that moves a shelved job any other way than un-shelving, finishing or cancelling it is refused the same way (docs/architecture/daemon-security.md "Human-only operations") |
@@ -1742,6 +1743,12 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
+**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
+
+| Exit | When |
+|---|---|
+| 1 | no such job, or a likely secret in the gate section (code secret_found; nothing is edited) |
+
 **`forge pr merge <id> [--repo NAME | --root] [--now]`**: merge once merge.auto is on, the approver's recorded APPROVE still stands and covers the PR head, no escalate-floor path changed and CI passed at a settled head; or queue auto-merge, or defer; a multi-repo job's PRs merge in the components' dependsOn order, never a PR before its dependencies; --now is a human's override
 
 | Flag | Meaning |
@@ -1765,7 +1772,7 @@ A job's pull request.
 
 | Exit | When |
 |---|---|
-| 1 | no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an interim pin that cannot be written, or one that is not the dependency's checked HEAD (code interim_stale) |
+| 1 | no such job or worktree, an unverified HEAD (of any job repo), nothing to push (in any job repo), no GitHub slug for a member repo, a likely secret in a PR title or body or the commits it would push (code secret_found), an escalate CI path no human approved (code protected_path), a held push: a CI config change, a security review that isn't PASS or secrets the scan only reported, until a person approves it (code push_held; --force doesn't bypass it), an interim pin that cannot be written, or one that is not the dependency's checked HEAD (code interim_stale) |
 | 5 | gh or git failed |
 
 **`forge pr ready <id> [--repo NAME | --root]`**: mark the job's open draft PRs ready for review, in merge order (result: ready and skipped); a consumer held by a local or sequential interim edge stays a draft until a human records its dependency's release (forge job interim release), and a consumer with a recorded release until verify bumped its manifests to it

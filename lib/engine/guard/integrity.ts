@@ -261,13 +261,15 @@ function packageOverrides(file: string, beforeText: string | null, afterText: st
   return out;
 }
 
+/** CI runner files, the one list isConfigPath and the held push (push-hold.ts) share; `fold` matches any case, as a case-insensitive checkout reads the name. */
+export const isCiPath = ((re: RegExp[]) => (p: string, fold = false): boolean => re[fold ? 1 : 0].test(p))(['', 'iu'].map((flags) => new RegExp('^(?:(?:\\.github/workflows|\\.circleci|\\.buildkite|\\.forge/ci)/|(?:\\.gitlab-ci\\.yml|azure-pipelines\\.yml|Jenkinsfile)$)', flags)));
 /** Paths that are test, build or CI config whatever their content; `fold` reads the name as a case-insensitive checkout does (the escalate floor, floor.ts). */
 export function isConfigPath(p: string, fold = false): boolean {
   const f = (s: string): string => (fold ? s.toLowerCase() : s);
   const q = f(p);
   const base = path.posix.basename(q);
   if (['Makefile', 'makefile', 'GNUmakefile', 'justfile', 'Justfile'].some((n) => f(n) === base) || base.endsWith('.mk')) return true;
-  if (/^(\.github\/workflows|\.circleci|\.buildkite|\.forge\/ci)\//.test(q) || ['.gitlab-ci.yml', 'azure-pipelines.yml', 'Jenkinsfile', '.forge/config.yml', '.forge/secrets-allow.txt'].some((n) => f(n) === q)) return true;
+  if (isCiPath(p, fold) || ['.forge/config.yml', '.forge/secrets-allow.txt'].some((n) => f(n) === q)) return true;
   if (/^(jest\.config|vitest\.config|vitest\.workspace|playwright\.config|karma\.conf)\./.test(base) || /^\.(mocharc|nycrc)/.test(base)) return true;
   // Attributes can mark test files `-diff`/`binary`, which would hide their changed lines.
   return base === 'pytest.ini' || base === 'tox.ini' || base === '.gitattributes';
