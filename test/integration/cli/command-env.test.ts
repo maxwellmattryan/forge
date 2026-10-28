@@ -13,7 +13,7 @@ import { BIN, evalTaskYml, forgeAsync, repoTemplate, waitFor } from '../../helpe
 import { base64Of, token } from '../../secret-fixtures.ts';
 import { TRUST_ENV, trustDigest } from '#core/config/trust.ts';
 import { findOnPath } from '#core/os/process.ts';
-import { sanitizePath } from '#engine/guard/command-path.ts';
+import { sanitizePath } from '#engine/guard/command-env.ts';
 import * as yaml from '#core/format/yaml.ts';
 
 // Writes the child's whole environment to $CMDENV_OUT, read in node so no shell expansion is involved.

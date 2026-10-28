@@ -26,8 +26,10 @@ const START_HEAD_BYTES = 512 * 1024;
 const START_CHUNK_BYTES = 64 * 1024;
 const ACTIVITY_CHARS = 160;
 const CACHE_MAX = 64;
-const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'];
-const PATH_KEYS = new Set(['file_path', 'notebook_path', 'path']);
+/** The tool input keys that name what a call acts on, in the order a target is picked from them. */
+export const TARGET_KEYS = ['file_path', 'notebook_path', 'path', 'pattern', 'command', 'url', 'query', 'description', 'skill'] as const;
+/** The TARGET_KEYS that hold a path. */
+export const PATH_KEYS: ReadonlySet<string> = new Set(['file_path', 'notebook_path', 'path']);
 
 type JobRefs = Pick<Job, 'id' | 'lease' | 'runs' | 'agents' | 'worktree'>;
 
@@ -236,11 +238,18 @@ function realOrSelf(p: string): string {
 }
 
 /** A path shown relative to the worktree or root it sits under. */
-function relativeTo(p: string, bases: string[]): string {
+export function relativeTo(p: string, bases: string[]): string {
   for (const b of bases) if (b && p.startsWith(b + path.sep)) return p.slice(b.length + 1);
   return p;
 }
 
+/** The bases a transcript's paths are shown relative to: the worktree and root, each as given and resolved (sessions log resolved paths, /private/tmp on macOS). */
+export function transcriptBases(opts: { worktree?: string | null; root?: string | null }): string[] {
+  const given = [opts.worktree, opts.root].filter((b): b is string => typeof b === 'string' && b.length > 0);
+  return [...new Set(given.flatMap((b) => [b, realOrSelf(b)]))];
+}
+
+/** What a tool call acts on: the first line of its command, a path relative to `bases`, or its pattern, url, query, description or skill. */
 function toolTarget(input: unknown, bases: string[]): string {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return '';
   const i = input as Record<string, unknown>;
@@ -266,9 +275,7 @@ export function lastActivity(fd: number, size: number, opts: { worktree?: string
   const lines = buf.subarray(0, read).toString('utf8').split('\n');
   // A tail that starts mid-file starts mid-line.
   if (size > len) lines.shift();
-  // Sessions log resolved paths (/private/tmp on macOS), so each base is tried as given and resolved.
-  const given = [opts.worktree, opts.root].filter((b): b is string => typeof b === 'string' && b.length > 0);
-  const bases = [...new Set(given.flatMap((b) => [b, realOrSelf(b)]))];
+  const bases = transcriptBases(opts);
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i];
     if (!line.trim()) continue;

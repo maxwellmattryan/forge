@@ -171,13 +171,18 @@ export const SECURITY_UNCLEAR = '(security review: not PASS)';
 
 /** The verdict of the security lens in the latest round that has one, or null. */
 export function latestSecurityVerdict(job: Pick<Job, 'verdicts'>): string | null {
+  return latestSecurity(job)?.verdict ?? null;
+}
+
+/** latestSecurityVerdict with the round it came from: the held push names the round. */
+export function latestSecurity(job: Pick<Job, 'verdicts'>): { verdict: string; round: number } | null {
   const rounds = Object.keys(job.verdicts ?? {})
     .map(Number)
     .filter((n) => Number.isInteger(n))
     .sort((a, b) => b - a);
   for (const n of rounds) {
     const v = (job.verdicts as Record<string, Record<string, unknown>>)[String(n)]?.security;
-    if (typeof v === 'string') return v;
+    if (typeof v === 'string') return { verdict: v, round: n };
   }
   return null;
 }

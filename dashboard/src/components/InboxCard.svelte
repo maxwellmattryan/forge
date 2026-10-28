@@ -1,9 +1,11 @@
 <!-- A "Needs you" card: the job, why it waits, who acted last, who owns the gate (with the foreman on) or that the Foreman
      left it for a human, what Approve does on a secret park (and whether the last one left it blocked), the protected paths
-     it changes, its doc link, a note and the request buttons. The title takes the width (grows from 16rem), so the chips
+     it changes, its doc link, what its buttons do to the PR (a merge gate on an open PR, a held push), a note and the
+     request buttons. The title takes the width (grows from 16rem), so the chips
      drop to the next line before it would wrap word by word. -->
 <script lang="ts">
   import JobActions from './JobActions.svelte';
+  import GatePrNote from './GatePrNote.svelte';
   import StateChip from './StateChip.svelte';
   import BudgetPanel from './BudgetPanel.svelte';
   import Chip from './Chip.svelte';
@@ -46,5 +48,6 @@
   {#if kind === 'budget'}<BudgetPanel job={j} compact />{/if}
   {#if kind === 'repo-budget'}<div class="text-[13px]">{$t('budget.cardPointer')}</div>{/if}
   {#if doc}<button class="text-gleam underline underline-offset-2 text-[13px] self-start" onclick={() => openDrawer(j.id, doc, 'files')}>{$t('inbox.read', { doc })}</button>{/if}
+  <GatePrNote job={j} />
   <JobActions job={j} noteId="note-{j.id}" />
 </div>

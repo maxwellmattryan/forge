@@ -1,9 +1,11 @@
 // Redaction for the support bundle (lib/engine/ops/bundle.ts): what a user can attach to a public bug report.
 // Pattern-based and best-effort, so it errs towards replacing too much: secrets, then paths, then
 // emails, then logins. Every replacement token is free of `"` and `\`, so JSON stays parseable.
+// maskCredentials is the scanner's patterns alone, as `[redacted]`: the forge retro prepare digest inputs use it.
 import fs from 'node:fs';
 import os from 'node:os';
 import { worktreeRoot } from '#core/config/load.ts';
+import { REDACTED } from '#core/text.ts';
 import { git } from '#integrations/git/runner.ts';
 import { MIN_SECRET, allKnownValues } from './known-secrets.ts';
 import { secretSpans } from './secrets.ts';
@@ -163,6 +165,13 @@ export function redactText(text: string, ctx: RedactContext): { text: string; co
   s = m.text;
   counts.logins += m.n;
   return { text: s, counts };
+}
+
+/** `text` with each likely credential the secret scanner finds replaced by `[redacted]`: for text an agent reads, which may not carry one. */
+export function maskCredentials(text: string, config: Pick<Config, 'worktrees'> | null): string {
+  let out = text;
+  for (const s of secretSpans(text, config).sort((a, b) => b.start - a.start)) out = out.slice(0, s.start) + REDACTED + out.slice(s.end);
+  return out;
 }
 
 /** Adds b's counts into a. */

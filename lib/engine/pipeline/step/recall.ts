@@ -1,11 +1,12 @@
-// The decide gate's recall facts (RC1, RC2) and the approver's `Reviewer recall:` line read them
-// too, so they live apart from the decide table and the brief: pure functions of the StepInput.
+// The recall eval's facts: decide runs it before the approver (RC1), the pr table holds the merge
+// without a record (PR17), and the approver's `Reviewer recall:` line reads them too, so they live
+// apart from both tables and the brief: pure functions of the StepInput.
 import { isForemanActor } from '#core/job/store.ts';
 import { LENS_NAME } from '#core/job/lens.ts';
 import type { JobEvent } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 
-/** RC2's park reason: it names the prompts' hash, so a waiver never carries over to later prompt edits. */
+/** PR17's park reason: it names the prompts' hash, so a waiver never carries over to later prompt edits. */
 export const recallReason = (hash: string | null): string => `recall eval: no recorded run for prompts ${hash ?? 'unknown'}`;
 
 /** `recall` events of `phase` for exactly the worktree's current prompts; none for a null hash. */
@@ -17,7 +18,7 @@ export function recallEvents(x: Pick<StepInput, 'recall' | 'events'>, phase: 'st
 export const recallRecorded = (x: Pick<StepInput, 'recall' | 'events'>): boolean => recallEvents(x, 'record').length > 0;
 
 /**
- * A person's approve (never the foreman's) given at an RC2 park for these prompts: the park's
+ * A person's approve (never the foreman's) given at a PR17 (or, before it moved, RC2) park for these prompts: the park's
  * matching as protectedApproved reads it, with the reason naming this hash.
  */
 export function recallWaived(x: Pick<StepInput, 'recall' | 'events'>): boolean {

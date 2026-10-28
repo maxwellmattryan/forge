@@ -172,6 +172,9 @@ export interface GitHub {
   editBase(cwd: string, slug: string, number: number, base: string): void;
   editBody(cwd: string, slug: string, number: number, bodyFile: string): void;
   ready(cwd: string, slug: string, number: number): void;
+  /** Adds and removes labels on PR `number`; an unknown label fails (gh says `not found`). Names are validated config. */
+  editLabels(cwd: string, slug: string, number: number, change: { add: readonly string[]; remove: readonly string[] }): void;
+  createLabel(cwd: string, slug: string, name: string, description: string): void;
   merge(cwd: string, slug: string, number: number, opts: { method: string; auto: boolean; matchHead: string | null }): MergeOutcome;
   /** `base`'s required checks and review count in `slug`. Never throws: a read that fails is in the answer. */
   branchRules(cwd: string, slug: string, base: string): BranchRules;

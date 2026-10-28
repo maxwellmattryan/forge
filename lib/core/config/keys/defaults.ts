@@ -194,6 +194,8 @@ export function defaults(): Config {
       integrationReview: 'code-only',
       // Consecutive CI reworks forge sync starts before a red head waits for a person.
       maxCiReworks: 3,
+      // The label `forge pr gate` puts on a PR whose merge waits on a person; null: no label.
+      needsHumanLabel: 'forge:needs-human',
     },
     merge: {
       auto: false,
@@ -226,6 +228,8 @@ export function defaults(): Config {
       maxLearnings: 30,
       // minJobs 5 and maxJobs 10 match retroEvery: each retro settles what the one before it opened.
       experiments: { minJobs: 5, maxJobs: 10 },
+      // 12 runs is 4 sequential digests of 3 on the retro's budget.
+      transcripts: { max: 12 },
     },
     evals: {
       testPattern: null,

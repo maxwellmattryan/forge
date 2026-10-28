@@ -28,7 +28,7 @@ import {
   writeDashboardLogin,
   type DashboardRecord,
 } from '#engine/ops/dashboard-record.ts';
-import { adoptCommandPath } from '#engine/guard/command-path.ts';
+import { adoptCommandPath } from '#engine/guard/command-env.ts';
 import { spawnSleepHelper } from '#integrations/os-service/sleep.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { out, outputMode } from './args.ts';

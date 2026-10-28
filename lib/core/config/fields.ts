@@ -150,6 +150,7 @@ export const FIELDS: ConfigField[] = [
   field('review.onRework', 'review', 'On rework', 'Rounds 2 and later: narrow re-runs the always lenses, the ones that asked for changes and the ones whose paths the fix touched; full re-runs every lens.', { type: 'enum', options: ['narrow', 'full'] }),
   field('pr.integrationReview', 'review', 'Integration review', 'After a conflict fix: always review, or skip when only docs or generated files conflicted.', { type: 'enum', options: ['always', 'code-only'] }),
   field('pr.maxCiReworks', 'review', 'CI rework cap', 'CI reworks forge sync starts in a row on a red PR before the next red head waits for a person. 0 sends every red head to a person.', { type: 'integer', min: 0, max: 20 }),
+  field('pr.needsHumanLabel', 'review', 'Needs-a-person label', 'The label on a PR whose merge waits on your decision in Forge, created in the repo when missing. Empty: no label.', { type: 'string', nullable: true, locked: 'a label Forge creates on GitHub' }),
   field('review.panel', 'review', 'Panel', 'The review lenses: built-in names or .forge/reviewers/<name>.md.', { type: 'object', locked: 'lenses name checklist files and models' }),
 
   ...Object.keys(base.runtime.models).map((role) =>
