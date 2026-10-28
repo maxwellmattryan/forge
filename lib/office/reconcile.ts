@@ -4,7 +4,8 @@
 // one record per job it resumed, lives on disk, so a restarted dashboard keeps its count. A job it
 // finds undriven gets one resume; undriven again with no progress since, or after MAX_RESUMES_PER_STAGE
 // resumes at one stage, it is parked on escalation for the foreman or a person. Only pipeline moves, agent
-// ends with usage and turns the supervisor metered (the job's meter file) count as progress.
+// ends with usage and turns the supervisor metered (the job's meter file) count as progress. Before it judges,
+// it closes the pending resume requests no session will act on (closeStaleResumes), so a stale one never counts as driving.
 // docs/architecture/daemon.md "Reconciler".
 import path from 'node:path';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
@@ -12,8 +13,8 @@ import { hasUsage } from '#engine/metrics/spend.ts';
 import { lastMeterAt, readMeter } from '#engine/metrics/meter.ts';
 import { whoDrives } from './driver.ts';
 import { listJobs, loadJob, logEvent, readEvents, requeueOrphanedRequests } from '#core/job/store.ts';
-import { paths } from '#core/paths.ts';
-import { enqueue, listRequests, requestScope, validJobId } from '#core/job/requests.ts';
+import { exists, paths } from '#core/paths.ts';
+import { closeIfOpen, enqueue, listRequests, requestScope, validJobId } from '#core/job/requests.ts';
 import { readJson, writeJsonAtomic } from '#core/os/fs.ts';
 import { lockHeld, withLockAsync } from '#core/os/lock.ts';
 import type { Config, ForgeRequest, Job, JobEvent, LoadedJob } from '#core/types.ts';
@@ -127,10 +128,61 @@ export interface ReconcileResult {
   resumed: string[];
   escalated: string[];
   requeued: string[];
+  /** Ids of the stale `resume` requests the pass closed (closeStaleResumes). */
+  closed: string[];
+}
+
+/** A stale resume's result when its job has no job.json (deleted, or archived by retention). */
+export const RESUME_NO_JOB = 'its job no longer exists';
+/** A stale resume's result when a session claimed its job after it was queued and then moved the job. */
+export const RESUME_ACTED_ON = 'a session claimed the job and moved it after this request was queued';
+/** A stale resume's result when its job is finished and no score run waits on it. */
+export const resumeFinished = (state: string): string => `its job is ${state}`;
+
+/**
+ * Closes the `pending` resume requests no session will act on, in order: rejected when the job has no job.json;
+ * done when a `claimed` event later than the request's createdAt is followed by progress (progressMark, events
+ * only); rejected when the job is cancelled, or done with no queued score run. Every other resume is left: one
+ * waiting for a slot or a budget, a claim that failed before it moved anything, a failed job (Retry sends a resume),
+ * a done job whose score run is queued. Each close is checked again under the requests lock, and noted on a job
+ * that still exists. `in-progress` requests stay requeueOrphans' business. Returns the closed ids.
+ */
+export function closeStaleResumes(root: string): string[] {
+  const closed: string[] = [];
+  const stale = listRequests(root, { status: 'pending' }).filter((r) => r.type === 'resume' && validJobId(r.job));
+  const seen = new Map<string, { job: LoadedJob; events: JobEvent[] } | null>();
+  const facts = (id: string) => {
+    if (!seen.has(id)) {
+      try {
+        seen.set(id, { job: loadJob(root, id), events: readEvents(root, id) });
+      } catch {
+        seen.set(id, null);
+      }
+    }
+    return seen.get(id)!;
+  };
+  for (const r of stale) {
+    const id = r.job as string;
+    let update: { status: 'done' | 'rejected'; result: string } | null = null;
+    if (!exists(path.join(paths(root).jobs, id, 'job.json'))) update = { status: 'rejected', result: RESUME_NO_JOB };
+    else {
+      const f = facts(id);
+      if (!f) continue;
+      const queued = Date.parse(r.createdAt);
+      const claim = f.events.findLast((e) => e.type === 'claimed' && Date.parse(e.ts) > queued)?.ts;
+      const mark = progressMark(f.events);
+      if (claim && mark !== null && Date.parse(mark) > Date.parse(claim)) update = { status: 'done', result: RESUME_ACTED_ON };
+      else if (f.job.state === 'cancelled' || (f.job.state === 'done' && f.job.score?.status !== 'queued')) update = { status: 'rejected', result: resumeFinished(f.job.state) };
+    }
+    if (!update || !closeIfOpen(root, r.id, (x) => x.status === 'pending', update)) continue;
+    closed.push(r.id);
+    if (update.result !== RESUME_NO_JOB) logEvent(root, id, 'note', { text: `request ${r.id} (resume) closed: ${update.result}` });
+  }
+  return closed;
 }
 
 /**
- * One pass: requeue orphaned requests, then judge every running job (or only `only`). An undriven
+ * One pass: requeue orphaned requests, close stale resumes (closeStaleResumes), then judge every running job (or only `only`). An undriven
  * job is resumed the first time and whenever it made progress since the last resume, and escalated
  * when it is undriven again at the same mark with nothing routed to it, or once it has been resumed
  * MAX_RESUMES_PER_STAGE times at the stage it is still at. Jobs in any other state
@@ -140,8 +192,10 @@ export interface ReconcileResult {
  */
 export async function reconcile(root: string, config: Config, opts: { at?: number; facts?: Map<string, SessionFacts>; only?: string; busy?: readonly string[] } = {}): Promise<ReconcileResult> {
   const at = opts.at ?? Date.now();
-  const out: ReconcileResult = { resumed: [], escalated: [], requeued: [] };
+  const out: ReconcileResult = { resumed: [], escalated: [], requeued: [], closed: [] };
   out.requeued = requeueOrphanedRequests(root, { at, busy: opts.busy }).requeued.map((r) => r.id);
+  // Before `open` is read below, so a job whose only routed request was a stale resume is judged undriven this pass.
+  out.closed = closeStaleResumes(root);
   // Async so the escalation's move, mirror included, stays inside the memory lock.
   await withLockAsync(memoryLock(root), async () => {
     const mem = readMemory(root);

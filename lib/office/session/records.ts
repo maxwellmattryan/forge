@@ -27,6 +27,7 @@ export function offState(root: string, scope: string): DaemonSessionState {
     waiting: false,
     lastError: null,
     permissions: [],
+    timedOut: [],
     permissionMode: null,
     kept: null,
     effort: null,

@@ -229,7 +229,7 @@ test('every guarded route refuses before its handler runs', async () => {
         '/chats',
         '/shelf',
         ...['rename', 'archive', 'messages'].map((x) => `${chat}/${x}`),
-        ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor'].map((x) => `/jobs/j-1/${x}`),
+        ...['effort', 'budget', 'delete', 'merge', 'repos', 'environment', 'run', 'editor', 'ci'].map((x) => `/jobs/j-1/${x}`),
       ].map((p) => `${P}${p}`),
       // The machine's own POST: no project prefix.
       '/api/projects',

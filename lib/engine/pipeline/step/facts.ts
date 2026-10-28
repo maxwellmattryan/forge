@@ -1,5 +1,7 @@
-// What step reads off a StepInput: agent records, events and the facts derived from them.
+// What step reads off a StepInput: agent records, events and the facts derived from them, and the park reason
+// NP1b writes for a prompt nobody answered in time, with its parser (brief.ts reads it without the step rows).
 import path from 'node:path';
+import { SAFE_TOOL } from '#core/text.ts';
 import type { JobAgent, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { lastRun } from '../../verify/record.ts';
@@ -18,6 +20,23 @@ export const p = (x: StepInput, key: string) => String(x.paths[key]);
 export const ref = (x: StepInput, name: string) => path.join(x.pluginRoot, 'skills', 'forge', 'reference', name);
 
 export const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
+
+/** The roles a timed-out prompt may park the job for: the ones that write the job's plan, spec or code. */
+export const PROMPT_TIMEOUT_ROLES: readonly string[] = ['planner', 'spec-writer', 'builder', 'integrator'];
+const PROMPT_TIMEOUT_REASON = /^prompt timed out: ([a-z-]+) needed (.+), nobody answered it in time$/;
+
+/**
+ * The park reason NP1b writes. It says "prompt", never "permission": the default foreman.reserved holds
+ * every gate whose reason names `permission`, which would keep these parks from the Foreman.
+ */
+export const promptTimeoutReason = (role: string, tool: string): string => `prompt timed out: ${role} needed ${tool}, nobody answered it in time`;
+
+/** The role and tool of a reason promptTimeoutReason wrote; null for any other reason, an unknown role or an unsafe tool. */
+export function parsePromptTimeoutReason(reason: unknown): { role: string; tool: string } | null {
+  const m = typeof reason === 'string' ? PROMPT_TIMEOUT_REASON.exec(reason) : null;
+  if (!m || !PROMPT_TIMEOUT_ROLES.includes(m[1]) || !SAFE_TOOL.test(m[2])) return null;
+  return { role: m[1], tool: m[2] };
+}
 
 type Side = { stage?: string; state?: string; waitingOn?: string | null };
 export const stageOf = (side: unknown) => (side as Side | null) ?? {};

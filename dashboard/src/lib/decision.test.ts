@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { decisionInFlight, pruneSent, sentResolved, type SentDecision } from './decision.ts';
-import type { ForgeRequest } from './types.ts';
+import type { ForgeRequest, Job } from './types.ts';
 
 const request = (over: Partial<ForgeRequest> = {}): ForgeRequest => ({
   id: 'r1',
@@ -18,25 +18,58 @@ const request = (over: Partial<ForgeRequest> = {}): ForgeRequest => ({
 
 const sent = (over: Partial<SentDecision> = {}): SentDecision => ({ label: 'Approve spec', id: 'r1', at: '2026-10-25T10:00:00.000Z', ...over });
 
+const job = (over: Partial<Job> = {}): Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'issues' | 'noIssue'> => ({
+  id: 'job-a',
+  state: 'waiting',
+  waitingOn: 'spec-approval',
+  reason: 'spec ready',
+  issues: [],
+  noIssue: null,
+  ...over,
+});
+
 test('a click shows as sending until the POST answers', () => {
-  assert.deepEqual(decisionInFlight('job-a', sent({ id: null, at: null }), []), { label: 'Approve spec', type: null, phase: 'sending' });
+  assert.deepEqual(decisionInFlight(job(), sent({ id: null, at: null }), []), { label: 'Approve spec', type: null, phase: 'sending', from: null, at: null });
 });
 
 test('a queued request shows queued, then applying once a session claims it', () => {
-  assert.equal(decisionInFlight('job-a', sent(), [request()])?.phase, 'queued');
-  assert.equal(decisionInFlight('job-a', sent(), [request({ status: 'in-progress' })])?.phase, 'applying');
+  assert.equal(decisionInFlight(job(), sent(), [request()])?.phase, 'queued');
+  assert.equal(decisionInFlight(job(), sent(), [request({ status: 'in-progress' })])?.phase, 'applying');
   // Not listed yet: no state has been served since the POST.
-  assert.equal(decisionInFlight('job-a', sent(), [])?.phase, 'queued');
+  assert.equal(decisionInFlight(job(), sent(), [])?.phase, 'queued');
 });
 
 test("another tab's or the CLI's open decision shows without a label", () => {
-  assert.deepEqual(decisionInFlight('job-a', null, [request({ type: 'rework', from: 'cli' })]), { label: null, type: 'rework', phase: 'queued' });
-  assert.equal(decisionInFlight('job-b', null, [request()]), null);
-  assert.equal(decisionInFlight('job-a', null, [request({ status: 'done' })]), null);
+  assert.deepEqual(decisionInFlight(job(), null, [request({ type: 'rework', from: 'cli' })]), { label: null, type: 'rework', phase: 'queued', from: 'cli', at: '2026-10-25T10:00:00.000Z' });
+  assert.equal(decisionInFlight(job({ id: 'job-b' }), null, [request()]), null);
+  assert.equal(decisionInFlight(job(), null, [request({ status: 'done' })]), null);
+});
+
+test('a resume shows only on a gate whose buttons send one', () => {
+  const link: Partial<Job> = { waitingOn: 'issue-link', reason: 'no issue linked' };
+  const rows: { name: string; job: Partial<Job>; reqs: ForgeRequest[]; type: string | null }[] = [
+    { name: 'issue-link pending resume', job: link, reqs: [request({ type: 'resume', from: 'cli' })], type: null },
+    { name: 'issue-link in-progress resume', job: link, reqs: [request({ type: 'resume', status: 'in-progress' })], type: null },
+    { name: 'spec-approval resume', job: { issues: [{ tracker: 'github', ref: '#1', url: null }] }, reqs: [request({ type: 'resume' })], type: null },
+    { name: 'unlinked spec-approval resume', job: { reason: 'spec ready, issue unlinked' }, reqs: [request({ type: 'resume' })], type: null },
+    { name: 'infra resume', job: { waitingOn: 'infra' }, reqs: [request({ type: 'resume', from: 'cli' })], type: 'resume' },
+    { name: 'failed resume', job: { state: 'failed', waitingOn: null }, reqs: [request({ type: 'resume', status: 'in-progress' })], type: 'resume' },
+    { name: 'issue-link approve from cli', job: link, reqs: [request({ type: 'approve', from: 'cli' })], type: 'approve' },
+    { name: 'older approve beats a skipped newer resume', job: link, reqs: [request({ id: 'r2', type: 'resume', createdAt: '2026-10-25T10:05:00.000Z' }), request()], type: 'approve' },
+  ];
+  for (const row of rows) assert.equal(decisionInFlight(job(row.job), null, row.reqs)?.type ?? null, row.type, row.name);
+  assert.deepEqual(decisionInFlight(job({ waitingOn: 'infra' }), null, [request({ type: 'resume', from: 'cli' })]), {
+    label: null,
+    type: 'resume',
+    phase: 'queued',
+    from: 'cli',
+    at: '2026-10-25T10:00:00.000Z',
+  });
+  assert.equal(decisionInFlight(job({ state: 'failed', waitingOn: null }), null, [request({ type: 'resume', status: 'in-progress' })])?.phase, 'applying');
 });
 
 test('the newest open decision wins', () => {
-  const r = decisionInFlight('job-a', null, [request({ id: 'r2', createdAt: '2026-10-25T10:05:00.000Z', status: 'in-progress' }), request()]);
+  const r = decisionInFlight(job(), null, [request({ id: 'r2', createdAt: '2026-10-25T10:05:00.000Z', status: 'in-progress' }), request()]);
   assert.equal(r?.phase, 'applying');
 });
 

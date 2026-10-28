@@ -270,7 +270,7 @@ When the root PR's base has neither `merge.requiredChecks` nor protection with a
 
 `forge requests` (list) first returns to `pending` any `in-progress` request whose session is gone (its job's lease, held by that session, expired; or, for a request no lease covers, its claim is over 30 minutes old), adding `requeues`; one orphaned a second time is `rejected` with `its session ended twice while handling it`.
 
-`forge sync` ends with the reconciler's pass (docs/architecture/daemon.md › Reconciler) and reports it as `reconcile`: `{ resumed, escalated, requeued }` (job ids resumed or parked on `escalation` for having nothing to drive them, and request ids returned to pending), or the string `"skipped (forge dash owns it)"` while a live `forge dash` holds the daemon lock and reconciles on its own (sync reads the lock, never takes it), or `{ error }` when the pass failed; the rest of the sync has run either way.
+`forge sync` ends with the reconciler's pass (docs/architecture/daemon.md › Reconciler) and reports it as `reconcile`: `{ resumed, escalated, requeued, closed }` (job ids resumed or parked on `escalation` for having nothing to drive them, request ids returned to pending, and request ids closed as stale resumes), or the string `"skipped (forge dash owns it)"` while a live `forge dash` holds the daemon lock and reconciles on its own (sync reads the lock, never takes it), or `{ error }` when the pass failed; the rest of the sync has run either way.
 
 ## Next
 
@@ -1788,6 +1788,13 @@ A job's pull request.
 | 1 | no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held or bump-due, or its manifests at HEAD don't name the recorded release (code release_gate; nothing is called) |
 | 5 | gh or git failed |
 
+**`forge pr rerun <id>`**: re-run the failed GitHub Actions checks on the job's PR head as a person (at most 5 runs, each on that head and finished) and log ci-rerun; the job must wait on pr-review at the head the last sync recorded
+
+| Exit | When |
+|---|---|
+| 1 | no such job or PR, not waiting on pr-review, the PR head moved since the last sync, no failing checks, none of them a GitHub Actions job in the PR's repo, or GitHub re-ran none |
+| 5 | gh or git failed |
+
 **`forge pr sync <id>`**: read the PR's state, checks and review feedback into the job; each member repo PR's state and checks are read first, and the job is done only when every PR merged; a multi-repo job's PR bodies get their sibling links
 
 | Exit | When |
@@ -2044,7 +2051,7 @@ Stop a job's background command.
 
 Reconcile PRs and trackers for all jobs.
 
-**`forge sync`**: reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs and every merged job of a mandate that scores all (scoring.sample, the mandate's scoring term; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, and the requests it requeued
+**`forge sync`**: reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs and every merged job of a mandate that scores all (scoring.sample, the mandate's scoring term; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, the requests it requeued and the stale resume requests it closed
 
 ### `forge tracker`
 

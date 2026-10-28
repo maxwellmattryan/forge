@@ -90,6 +90,20 @@ export interface JobPr {
   humanDelta?: HumanDelta;
   /** The head sha forge sync last moved to integrate, so it routes each head once. */
   integrateFor?: string;
+  /** The failing checks syncPrDetailed in lib/engine/pr/sync.ts last read; absent on a job not synced since it was recorded. */
+  failingChecks?: PrFailingChecks;
+  /**
+   * Reviews and conversation comments by people with write access since the job's latest round, PR
+   * open or PR update: syncPrDetailed in lib/engine/pr/sync.ts. Absent on a job not synced since it was recorded.
+   */
+  feedbackSinceRound?: number;
+}
+
+/** A PR's failing checks as sync recorded them: at most 5 CHECK_NAME names, the rest counted in `more`, and how many are GitHub Actions jobs in the PR's own repo (which Forge could re-run). */
+export interface PrFailingChecks {
+  names: string[];
+  more: number;
+  actions: number;
 }
 
 /**

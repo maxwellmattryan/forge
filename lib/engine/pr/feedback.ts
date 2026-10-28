@@ -99,6 +99,21 @@ export function renderFeedback(pr: { number: number; url: string }, fb: PrFeedba
   return [...head, '', ...body].join('\n').replace(/\n+$/, '\n');
 }
 
+/**
+ * How many reviews and conversation comments people with write access left after `since` (an ISO time):
+ * the new feedback a person would address. With no `since`, every trusted one counts; an item whose
+ * time doesn't parse counts only then.
+ */
+export function feedbackSince(fb: Pick<PrFeedback, 'reviews' | 'comments'>, since: string | null): number {
+  const from = since === null ? null : Date.parse(since);
+  const after = (at: string | null): boolean => {
+    if (from === null) return true;
+    const t = at === null ? NaN : Date.parse(at);
+    return Number.isFinite(t) && Number.isFinite(from) && t > from;
+  };
+  return fb.reviews.filter((r) => r.trusted && after(r.submittedAt)).length + fb.comments.filter((c) => c.trusted && after(c.createdAt)).length;
+}
+
 /** Writes renderFeedback to the job's pr-feedback.md, synced now. */
 export function writeFeedback(root: string, id: string, pr: { number: number; url: string }, fb: PrFeedback, comments: 'collaborators' | 'all'): void {
   fs.writeFileSync(path.join(jobDir(root, id), 'pr-feedback.md'), renderFeedback(pr, fb, comments, now()));

@@ -105,8 +105,11 @@ export const JOB_STEPS: readonly Step[] = [
       componentsUnmatched: rest.componentsUnmatched ?? false,
     };
   } },
-  // v22 adds the context sessions `forge job agent run` starts and forks (lib/engine/workspace/context-session.ts).
-  // A v21 job never had one, so its role runs start cold or a new context, as a new job's do.
+  // v22 adds job.pr.failingChecks ({names, more, actions}) and job.pr.feedbackSinceRound, which forge pr sync
+  // records; an older job has neither until its next sync.
+  { id: 'pr-wait-reasons', up: (j) => j },
+  // v23 adds the context sessions `forge job agent run` starts and forks (lib/engine/workspace/context-session.ts).
+  // A v22 job never had one, so its role runs start cold or a new context, as a new job's do.
   { id: 'context-sessions', up: (j) => ({ ...j, contexts: j.contexts ?? [] }) },
 ];
 

@@ -1,7 +1,7 @@
 // createStream as a pure decoder: claude's stream-json chunks in, ClaudeEvents and stdin lines out.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TURN_LINE, UNATTENDED_DENIED, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
+import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TIMEOUT_DENIED, TURN_LINE, UNATTENDED_DENIED, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
 import type { ClaudeEvent, SessionCost } from './types.ts';
 
 /** One stream over in-memory sinks. */
@@ -360,7 +360,7 @@ test('every stdin line is built from fixed text', () => {
   assert.match(JSON.parse(VERDICT_RETRY_LINE).message.content[0].text, /^Your reply did not end with the line Forge needs\. Reply with exactly one line: `ASSIST: approve\|revise\|rework\|escalate · <reason>`/);
 
   const input = { command: 'cp a b', nested: { keep: [1, 2] } };
-  const answer = (decision: 'allow' | 'session' | 'deny', why?: 'unattended') => {
+  const answer = (decision: 'allow' | 'session' | 'deny', why?: 'unattended' | 'timeout') => {
     const d = decoder();
     d.s.stdout(line({ ...ask, request: { ...ask.request, input } }));
     assert.equal(d.s.answerPermission('req-1', decision, why), true, decision);
@@ -368,6 +368,11 @@ test('every stdin line is built from fixed text', () => {
   };
   assert.deepEqual(answer('deny', 'unattended'), { subtype: 'success', request_id: 'req-1', response: { behavior: 'deny', message: UNATTENDED_DENIED } });
   assert.notEqual(UNATTENDED_DENIED, PERMISSION_DENIED);
+  // A prompt nobody answered in time: its own fixed text, which tells the agent how to say it needs the call.
+  assert.deepEqual(answer('deny', 'timeout'), { subtype: 'success', request_id: 'req-1', response: { behavior: 'deny', message: TIMEOUT_DENIED } });
+  assert.notEqual(TIMEOUT_DENIED, PERMISSION_DENIED);
+  assert.notEqual(TIMEOUT_DENIED, UNATTENDED_DENIED);
+  assert.match(TIMEOUT_DENIED, /\bNEEDS-PERMISSION\b/);
   assert.deepEqual(answer('allow'), { subtype: 'success', request_id: 'req-1', response: { behavior: 'allow', updatedInput: input } });
   assert.deepEqual(answer('session'), {
     subtype: 'success',
