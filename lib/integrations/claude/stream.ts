@@ -10,7 +10,7 @@ import path from 'node:path';
 import { CHAT_MESSAGE_MAX } from '#api/constants.ts';
 import { now } from '#core/utils.ts';
 import { PERMISSION_MODES } from './argv.ts';
-import type { ClaudeEvent, ModelCost, SessionCost } from './types.ts';
+import type { ClaudeEvent, DenyWhy, ModelCost, SessionCost } from './types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 /**
@@ -72,6 +72,9 @@ export const PERMISSION_DENIED =
 /** What a tool call outside the allowed list returns to an unattended role child, where no one is there to approve it. Fixed text. */
 export const UNATTENDED_DENIED =
   'This role runs unattended: no one is there to approve tool calls outside its allowed list, so this one was denied. Do not retry it or work around it with another tool: continue without it, and record what you needed and why in your output file.';
+/** What a prompt nobody answered within daemon.permissionTimeoutMinutes returns to the agent. Fixed text. */
+export const TIMEOUT_DENIED =
+  'Nobody answered the permission prompt for this tool call in time, so Forge denied it: no human saw it. Do not retry it or work around it with another tool: continue without it, and record what you needed and why in your output file. If you cannot finish your task without it, also put NEEDS-PERMISSION in the first line of your reply.';
 /**
  * The longest tool input a prompt shows. It is never truncated: what the human reads is exactly
  * what an allow runs, so a longer input is denied without asking.
@@ -126,12 +129,12 @@ export function ruleText(r: { toolName: string; ruleContent?: string }): string 
 
 /**
  * The control_response line answering a `can_use_tool` request. An allow echoes the input claude
- * sent, unchanged; a deny carries PERMISSION_DENIED, or UNATTENDED_DENIED when `why` is `unattended`.
+ * sent, unchanged; a deny carries PERMISSION_DENIED, or UNATTENDED_DENIED or TIMEOUT_DENIED by its `why`.
  * The human picks only the decision.
  */
-function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant, why?: 'unattended'): string {
+function permissionResponse(requestId: string, decision: PermissionDecision, input: Record<string, unknown>, grant: SessionGrant, why?: DenyWhy): string {
   let response: Record<string, unknown>;
-  if (decision === 'deny') response = { behavior: 'deny', message: why === 'unattended' ? UNATTENDED_DENIED : PERMISSION_DENIED };
+  if (decision === 'deny') response = { behavior: 'deny', message: why === 'unattended' ? UNATTENDED_DENIED : why === 'timeout' ? TIMEOUT_DENIED : PERMISSION_DENIED };
   else {
     response = { behavior: 'allow', updatedInput: input };
     if (decision === 'session') {
@@ -272,7 +275,7 @@ export interface ClaudeStream {
   writeBrief(text: string): boolean;
   /** Writes VERDICT_RETRY_LINE. */
   writeVerdictRetry(): void;
-  answerPermission(requestId: string, decision: PermissionDecision, why?: 'unattended'): boolean;
+  answerPermission(requestId: string, decision: PermissionDecision, why?: DenyWhy): boolean;
   setPermissionMode(mode: DaemonPermissionMode): string | null;
 }
 

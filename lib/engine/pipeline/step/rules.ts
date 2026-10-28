@@ -13,6 +13,8 @@ export const RULES = [
   'JS1', 'JS2', 'JS3',
   // Per role, in any stage: an agent replied NEEDS-INPUT (N), or ended without its output (M).
   'N1', 'N1b', 'N2', 'M1', 'M2',
+  // Per role: an agent replied NEEDS-PERMISSION after one of its prompts timed out (NP).
+  'NP1', 'NP1b',
   // A retro job starts with the retro agent.
   'K1', 'K2',
   // Gates before the stage rules: secret scan, protected paths, repo proposals, downstream consumers.

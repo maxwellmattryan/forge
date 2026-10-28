@@ -23,7 +23,7 @@ Aim for 5-15 tasks with tags (`replay`, `ui`, `bugfix`, `refactor`, …) so subs
 forge eval start [--tags a,b] [--tasks x,y] [--label "<what changed>"]
 ```
 It returns a run record whose tasks map to eval jobs with worktrees ready. Drive each job with the step loop (SKILL.md **Run a job**); step applies **eval mode** from the job's `kind: eval`:
-- no tracker, no PR, no integrate, and no spec approval (no human gates); a `NEEDS-INPUT` from any agent fails the task
+- no tracker, no PR, no integrate, and no spec approval (no human gates); a `NEEDS-INPUT` from any agent, or a `NEEDS-PERMISSION` after a timed-out prompt, fails the task
 - design: references only, no mockups
 - after **Decide** (APPROVE or ESCALATE alike): if the task has `rubric.md` or `reference.patch`, it spawns the **judge** (output `eval-judge.md` in the job dir), then runs `forge eval grade <job>`
 - an eval job past `pipeline.maxRounds` is not parked on rounds-exhausted: step (B6b) sends it to decide, which skips the approver and goes straight to the judge and `forge eval grade`, with `roundsExhausted: true` on its result

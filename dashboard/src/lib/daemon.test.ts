@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { billingNote, daemonRows, jobFallbackMode, launchMode, poolModel, scopeSession, sessionMode, sessionPill } from './daemon.ts';
 import { activeSessions } from './live.ts';
-import { pendingPrompts, sessionPrompts } from './permissions.ts';
+import { pendingPrompts, sessionPrompts, timedOutPrompts } from './permissions.ts';
 import { barModel } from './statusbar.ts';
 
 test('daemonRows lists only job sessions, in status order', () => {
@@ -99,6 +99,34 @@ test('the office in the pool model: no session but its own', () => {
   const foreman = barModel(pool, { pending: false }).foreman;
   assert.ok(foreman.on);
   assert.deepEqual(foreman.pill, sessionPill(office));
+});
+
+test('timedOutPrompts lists denied prompts newest first and tolerates an older server', () => {
+  const prompt = { id: 'p1', tool: 'Bash', input: '{"command":"git status"}', description: 'check', agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-25T00:00:00.000Z' };
+  const denied = (id: string, deniedAt: string) => ({ ...prompt, id, deniedAt });
+  const pool = {
+    inbox: { scope: '_inbox', timedOut: [denied('i1', '2026-10-25T00:01:00.000Z')] },
+    office: { scope: '_office', timedOut: 'junk' },
+    jobs: {
+      'j-1': { scope: 'j-1', permissions: [prompt], timedOut: [denied('a', '2026-10-25T00:03:00.000Z'), { ...denied('', '2026-10-25T00:09:00.000Z') }, 'junk'] },
+      'j-2': { scope: 'j-2', timedOut: [denied('b', '2026-10-25T00:02:00.000Z'), { ...prompt, id: 'c' }] },
+    },
+  } as any;
+  assert.deepEqual(
+    timedOutPrompts(pool).map((p) => [p.scope, p.prompt.id, p.prompt.deniedAt]),
+    [
+      ['j-1', 'a', '2026-10-25T00:03:00.000Z'],
+      ['j-2', 'b', '2026-10-25T00:02:00.000Z'],
+      ['_inbox', 'i1', '2026-10-25T00:01:00.000Z'],
+      ['j-2', 'c', ''],
+    ],
+  );
+  assert.deepEqual(timedOutPrompts(pool)[0].prompt, denied('a', '2026-10-25T00:03:00.000Z'), 'every field read');
+  // The history never counts as pending.
+  assert.deepEqual(pendingPrompts(pool).map((p) => [p.scope, p.prompt.id]), [['j-1', 'p1']]);
+  // An older server's sessions carry no timedOut.
+  const older = { inbox: { scope: '_inbox', permissions: [prompt] }, jobs: { 'j-1': { scope: 'j-1' } } } as any;
+  for (const none of [older, null, undefined, {}] as any[]) assert.deepEqual(timedOutPrompts(none), [], JSON.stringify(none));
 });
 
 test('launchMode reads only the three modes', () => {

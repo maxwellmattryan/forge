@@ -60,6 +60,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v17 lets `ci-rerun` carry an `actor`: a person's Re-run failed checks (`forge pr rerun` or the dashboard), which
   // sync treats as that head's re-run. One without an actor is sync's own; an older Forge reads it as sync's.
   { id: 'person-ci-rerun', up: (e) => e },
+  // v18 adds the `permission-timed-out` event ({tool}): the supervisor denied a job session's permission prompt nobody
+  // answered within daemon.permissionTimeoutMinutes. An older Forge reads it as a generic event.
+  { id: 'permission-timed-out-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);
