@@ -14,7 +14,8 @@ import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
 import { after, afterIdx, agent, human, lastEvent, lastIdx, lastVerify, orNull, p, ref } from './facts.ts';
 import type { Ctx, Rule, RuleId, Table } from './rules.ts';
 
-const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?-]{1,600}$/;
+const CI_CAP_REASON = /^CI rework cap: [A-Za-z0-9 ._/,:#?()-]{1,600}$/;
+const CI_RERUN_REASON = /^CI re-run: [A-Za-z0-9 ._/,:#?()-]{1,600}$/;
 
 function escalationFile(x: StepInput): string {
   switch (x.job.stage) {
@@ -120,6 +121,8 @@ export function prReviewTell(x: StepInput): string {
   // The reason's check names passed CHECK_NAME in lib/integrations/github/pull-requests.ts; this pattern holds it to that class again.
   if (j.reason?.startsWith('CI rework cap:'))
     lines.push(`${j.id}: ${safe(j.reason, CI_CAP_REASON, 'CI rework cap reached')}. /forge rework ${j.id} <note> once a human has looked`);
+  else if (j.reason?.startsWith('CI re-run:'))
+    lines.push(`${j.id}: ${safe(j.reason, CI_RERUN_REASON, 'CI re-run failed')}. Re-run them on GitHub or /forge rework ${j.id} <note> once a human has looked`);
   return lines.join('\n');
 }
 

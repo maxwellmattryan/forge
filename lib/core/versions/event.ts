@@ -46,11 +46,14 @@ export const EVENT_STEPS: readonly Step[] = [
   // v13 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
   // project it loads); an older Forge reads it as `unknown`.
   { id: 'actor-source-launch', up: (e) => e },
-  // v14 adds the `push-held` event ({ kind, reason, head, paths? }): `forge pr open` held the push (CI config,
+  // v14 adds `ci-rerun` {head, runs, jobs, checks} and `ci-rerun-failed` {head, cause, checks}; an older Forge reads them as
+  // generic events.
+  { id: 'ci-rerun-events', up: (e) => e },
+  // v15 adds the `push-held` event ({ kind, reason, head, paths? }): `forge pr open` held the push (CI config,
   // a security review that isn't PASS, reported secrets) and step's PR13 parks on its reason. An older Forge
   // reads it as a generic event.
   { id: 'push-held-event', up: (e) => e },
-  // v15 adds the `pr-gate` event ({ action: set | clear | none, rule, waitingOn, reason, number, label, labeled, body,
+  // v16 adds the `pr-gate` event ({ action: set | clear | none, rule, waitingOn, reason, number, label, labeled, body,
   // error? }): `forge pr gate` synced the PR's gate section and label; step's PR14 and PR18 read it. An older Forge
   // reads it as a generic event.
   { id: 'pr-gate-event', up: (e) => e },

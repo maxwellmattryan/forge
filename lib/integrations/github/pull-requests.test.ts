@@ -25,6 +25,13 @@ const BAD_ROLLUP = [
   { name: 'build', conclusion: 'SUCCESS' },
 ];
 
+const RUN_URL = 'https://github.com/o/r/actions/runs/101/job/201';
+/** A PR whose one failing check run links `detailsUrl`. */
+const failingAt = (detailsUrl: unknown) => ghPr({ statusCheckRollup: [{ __typename: 'CheckRun', name: 'verify', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl }] });
+const MATRIX = 'verify (node 22.18.0, shard 2/2)';
+/** 21 failing Actions jobs, each in its own run. */
+const MANY_RUNS = Array.from({ length: 21 }, (_, i) => ({ name: `job ${i}`, conclusion: 'FAILURE', detailsUrl: `https://github.com/o/r/actions/runs/${i + 1}/job/${i + 100}` }));
+
 const PR_ROWS: [string, Record<string, unknown>, Partial<PrSnapshot>][] = [
   ['a safe number', ghPr({ number: 7 }), { number: 7 }],
   ['number 0', ghPr({ number: 0 }), { number: null }],
@@ -55,7 +62,27 @@ const PR_ROWS: [string, Record<string, unknown>, Partial<PrSnapshot>][] = [
   ['merge fields capped at 40 safe characters', ghPr({ mergeable: `A\nB\`${'C'.repeat(60)}` }), { mergeable: `AB${'C'.repeat(38)}` }],
   ['merge fields that are not strings or are empty', ghPr({ mergeable: 5, mergeStateStatus: '', reviewDecision: '', mergedAt: null }), { mergeable: null, mergeState: null, reviewDecision: null, mergedAt: null }],
   ['a rollup', ghPr({ statusCheckRollup: BAD_ROLLUP }), { checks: summarizeChecks(BAD_ROLLUP), failingChecks: failingCheckNames(BAD_ROLLUP) }],
-  ['a rollup that is not an array', ghPr({ statusCheckRollup: 'x' }), { checks: summarizeChecks([]), failingChecks: { names: [], more: 0 } }],
+  ['a rollup that is not an array', ghPr({ statusCheckRollup: 'x' }), { checks: summarizeChecks([]), failingChecks: { names: [], more: 0 }, failingRuns: [] }],
+  ['a failing Actions job', failingAt(RUN_URL), { failingRuns: [{ slug: 'o/r', run: '101', job: '201' }] }],
+  ['a passing Actions job', ghPr({ statusCheckRollup: [{ name: 'verify', conclusion: 'SUCCESS', detailsUrl: RUN_URL }] }), { failingRuns: [] }],
+  ['a commit status with only a targetUrl', ghPr({ statusCheckRollup: [{ __typename: 'StatusContext', context: 'ci/x', state: 'FAILURE', targetUrl: RUN_URL }] }), { failingRuns: [] }],
+  ...(
+    [
+      ['an option-like run id', 'https://github.com/o/r/actions/runs/--help/job/1'],
+      ['run id 0', 'https://github.com/o/r/actions/runs/0/job/1'],
+      ['a leading-zero job id', 'https://github.com/o/r/actions/runs/1/job/01'],
+      ['an http url', 'http://github.com/o/r/actions/runs/101/job/201'],
+      ['another host', 'https://github.com.evil/o/r/actions/runs/101/job/201'],
+      ['a query string', `${RUN_URL}?x=1`],
+      ['a trailing path', `${RUN_URL}/logs`],
+      ['a 21-digit id', `https://github.com/o/r/actions/runs/${'1'.repeat(21)}/job/201`],
+      ['a 10k-character url', `https://github.com/o/r/actions/runs/${'1/'.repeat(5000)}job/201`],
+      ['a number', 101],
+    ] as [string, unknown][]
+  ).map(([name, url]): [string, Record<string, unknown>, Partial<PrSnapshot>] => [`a failing check with ${name}`, failingAt(url), { failingRuns: [] }]),
+  ['a 20-digit run id kept as text', failingAt(`https://github.com/o/r/actions/runs/${'9'.repeat(20)}/job/201`), { failingRuns: [{ slug: 'o/r', run: '9'.repeat(20), job: '201' }] }],
+  ['at most 20 failing runs', ghPr({ statusCheckRollup: MANY_RUNS }), { failingRuns: MANY_RUNS.slice(0, 20).map((_, i) => ({ slug: 'o/r', run: String(i + 1), job: String(i + 100) })) }],
+  ['a matrix check name', ghPr({ statusCheckRollup: [{ name: MATRIX, conclusion: 'FAILURE' }] }), { failingChecks: { names: [MATRIX], more: 0 } }],
 ];
 
 test("parsePr keeps only checked values from gh's PR JSON", () => {
@@ -211,6 +238,42 @@ const OPS: { name: string; reply: RunResult; call: (g: GitHub) => unknown; argv:
     argv: ['pr', 'merge', '7', '-R', 'o/r', '--rebase'],
     result: { ok: false, error: 'not mergeable' },
   },
+  {
+    name: 'viewRun',
+    reply: ok(JSON.stringify({ headSha: SHA, status: 'COMPLETED', conclusion: 'FAILURE' })),
+    call: (g) => g.viewRun('/r', 'o/r', '101'),
+    argv: ['run', 'view', '101', '-R', 'o/r', '--json', 'headSha,status,conclusion'],
+    result: { headSha: SHA, status: 'completed', conclusion: 'failure' },
+  },
+  {
+    name: 'viewRun, a head that is not a sha',
+    reply: ok(JSON.stringify({ headSha: 'zz', status: 'in_progress', conclusion: '' })),
+    call: (g) => g.viewRun('/r', 'o/r', '101'),
+    argv: (a) => assert.equal(a[1], 'view'),
+    result: { headSha: null, status: 'in_progress', conclusion: null },
+  },
+  {
+    name: 'rerunFailed',
+    reply: ok(),
+    call: (g) => g.rerunFailed('/r', 'o/r', '101'),
+    argv: ['run', 'rerun', '101', '--failed', '-R', 'o/r'],
+    opts: { allowFail: true },
+    result: { ok: true },
+  },
+  {
+    name: 'rerunFailed, refused',
+    reply: failed('  HTTP 403: Resource not accessible by integration\n', 'ignored'),
+    call: (g) => g.rerunFailed('/r', 'o/r', '101'),
+    argv: ['run', 'rerun', '101', '--failed', '-R', 'o/r'],
+    result: { ok: false, error: 'HTTP 403: Resource not accessible by integration' },
+  },
+  {
+    name: 'rerunFailed, refused with only stdout',
+    reply: failed('', ' run 101 cannot be rerun \n'),
+    call: (g) => g.rerunFailed('/r', 'o/r', '101'),
+    argv: ['run', 'rerun', '101', '--failed', '-R', 'o/r'],
+    result: { ok: false, error: 'run 101 cannot be rerun' },
+  },
 ];
 
 test('the gh adapter makes one gh call per operation', () => {
@@ -230,10 +293,21 @@ test('the gh adapter makes one gh call per operation', () => {
     ['feedback, gh fails', failed('rate limited'), (g) => g.feedback('/r', 'o/r', 7)],
     ['headChecks, gh fails', failed('HTTP 502'), (g) => g.headChecks('/r', 'o/r', SHA)],
     ['editBody, gh fails', failed('no permission'), (g) => g.editBody('/r', 'o/r', 7, '/b.md')],
+    ['viewRun, gh fails', failed('HTTP 404'), (g) => g.viewRun('/r', 'o/r', '101')],
+    ['viewRun, not JSON', ok('<html>'), (g) => g.viewRun('/r', 'o/r', '101')],
   ];
   for (const [name, reply, call] of failures) {
     const { github, calls } = recording(reply);
     assert.throws(() => call(github), isExternal, name);
     assert.equal(calls.length, 1, `${name}: one gh call`);
+  }
+  // A run id or slug that would reach argv unchecked makes no gh call at all.
+  for (const [run, slug] of [['-1', 'o/r'], ['1 2', 'o/r'], ['01', 'o/r'], ['101', 'o/r -R x'], ['101', '--repo']]) {
+    const { github, calls } = recording(ok());
+    const refused = github.rerunFailed('/r', slug, run);
+    assert.equal(refused.ok, false, `${run} ${slug}: rerunFailed refuses`);
+    assert.match(refused.ok ? '' : refused.error, /^refused: /);
+    assert.throws(() => github.viewRun('/r', slug, run), isExternal, `${run} ${slug}: viewRun throws`);
+    assert.equal(calls.length, 0, `${run} ${slug}: no gh call`);
   }
 });

@@ -26,7 +26,26 @@ export interface PrSnapshot {
   checks: PrChecks;
   /** failingCheckNames of the rollup: names that passed CHECK_NAME, the rest counted in `more`. */
   failingChecks: { names: string[]; more: number };
+  /** failingRunsOf the rollup: the failing entries that are GitHub Actions jobs, at most 20. */
+  failingRuns: FailingRun[];
 }
+
+/** A failing check that is a GitHub Actions job, from its detailsUrl: `slug` is the URL's repo, ids are RUN_ID digits. */
+export interface FailingRun {
+  slug: string;
+  run: string;
+  job: string;
+}
+
+/** A workflow run as `gh run view` reports it: parseRun. status and conclusion lower-case; headSha isSha or null. */
+export interface RunSnapshot {
+  headSha: string | null;
+  status: string | null;
+  conclusion: string | null;
+}
+
+/** A re-run GitHub refused is an answer, not an exception, like a merge: `error` is gh's output (raw text). */
+export type RerunOutcome = { ok: true } | { ok: false; error: string };
 
 /** A PR's body and refs, for an edit that splices it: parsePrBody. */
 export interface PrBody {
@@ -136,7 +155,7 @@ export type MergeOutcome = { ok: true } | { ok: false; error: string };
 
 /**
  * Every pull-request call lib/engine/pr/ makes. Reads return checked snapshots and throw ForgeError
- * `external` when GitHub can't answer; edits throw on failure; merge never throws on a refused merge.
+ * `external` when GitHub can't answer; edits throw on failure; merge and rerunFailed never throw on a refusal.
  */
 export interface GitHub {
   /** Throws when the adapter can't reach GitHub at all (gh missing). */
@@ -161,4 +180,8 @@ export interface GitHub {
   branchRules(cwd: string, slug: string, base: string): BranchRules;
   /** Commit `sha`'s check runs and statuses in `slug`, in one GraphQL read. */
   headChecks(cwd: string, slug: string, sha: string): HeadChecks;
+  /** Workflow run `run` in `slug`. Throws `external` on a run id or slug that fails its check, before any call. */
+  viewRun(cwd: string, slug: string, run: string): RunSnapshot;
+  /** Re-runs run `run`'s failed jobs in `slug`. Never throws on a refusal, a refused id or slug included. */
+  rerunFailed(cwd: string, slug: string, run: string): RerunOutcome;
 }

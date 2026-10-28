@@ -21,5 +21,5 @@ A job's pull requests: open, update, sync, merge and adopt them, and the human d
 | `merge.ts` | Merging a job's PRs once CI allows it, in dependency order for a linked job, forge sync's hint for which deferred merges to continue, and marking drafts ready. |
 | `open.ts` | Opening a job's PRs: the checks before anything leaves the machine (the held push among them), interim deferrals and drafts, the pushes and the PRs, the gate section and label `forge pr gate` syncs while the merge waits on a person, and retargeting a stacked PR. |
 | `required.ts` | Required checks: which checks a PR's merge needs, from merge.requiredChecks or its base's protection, and whether its head satisfies them, each bound to its source. |
-| `sync.ts` | Syncing a job with its PR on GitHub: the state it leaves the job in, CI reworks, reopening deferred PRs, the human delta and pr-feedback.md. |
+| `sync.ts` | Syncing a job with its PR on GitHub: the state it leaves the job in, CI reworks and re-runs, reopening deferred PRs, the human delta and pr-feedback.md. |
 <!-- forge:map:end -->
