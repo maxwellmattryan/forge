@@ -46,6 +46,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v13 lets an actor's `source` be `launch` (the `daemon-mode` audit event `forge dash --permission-mode` writes for each
   // project it loads); an older Forge reads it as `unknown`.
   { id: 'actor-source-launch', up: (e) => e },
+  // v14 adds `ci-rerun` {head, runs, jobs, checks} and `ci-rerun-failed` {head, cause, checks}; an older Forge reads them as
+  // generic events.
+  { id: 'ci-rerun-events', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

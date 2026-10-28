@@ -9,9 +9,9 @@ import { SAFE_REF, isSha, safeText } from '#core/text.ts';
 import type { Config, PrChecks } from '#core/types.ts';
 import { SLUG_RE, gh, graphqlArgs, parseJsonOutput } from './gh.ts';
 import { HEAD_CHECKS_QUERY, parseHeadChecks, readBranchRules } from './protection.ts';
-import type { ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, PrBody, PrFeedback, PrSnapshot, PrState } from './types.ts';
+import type { ClosingPr, FailingRun, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, PrBody, PrFeedback, PrSnapshot, PrState, RunSnapshot } from './types.ts';
 
-export type { BranchRules, CheckObservation, ClosingPr, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, HeadChecks, MergeOutcome, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState, RequiredCheck } from './types.ts';
+export type { BranchRules, CheckObservation, ClosingPr, FailingRun, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, HeadChecks, MergeOutcome, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState, RequiredCheck, RerunOutcome, RunSnapshot } from './types.ts';
 export { SLUG_RE };
 
 export const MARKER = '<!-- forge -->';
@@ -87,7 +87,14 @@ export function parsePr(raw: unknown): PrSnapshot {
     mergedAt: shortText(pr.mergedAt),
     checks: summarizeChecks(rollup),
     failingChecks: failingCheckNames(rollup),
+    failingRuns: failingRunsOf(rollup),
   };
+}
+
+/** gh's run JSON as a RunSnapshot: a head that is not a sha becomes null, status and conclusion lower-case. */
+export function parseRun(raw: unknown): RunSnapshot {
+  const r = record(raw, 'a run');
+  return { headSha: isSha(r.headSha) ? r.headSha : null, status: shortText(r.status)?.toLowerCase() ?? null, conclusion: shortText(r.conclusion)?.toLowerCase() ?? null };
 }
 
 export function parsePrBody(raw: unknown): PrBody {
@@ -168,8 +175,8 @@ export function summarizeChecks(rollup: readonly unknown[]): PrChecks {
   return { state, passing, failing, pending };
 }
 
-/** Check names allowed into a reason, an event or a tell: the PR's own workflows choose them. */
-const CHECK_NAME = /^[A-Za-z0-9 ._/-]{1,60}$/;
+/** Check names allowed into a reason, an event or a tell: the PR's own workflows choose them. `(),` keep matrix names. */
+const CHECK_NAME = /^[A-Za-z0-9 ._/(),-]{1,60}$/;
 const MAX_CHECK_NAMES = 5;
 
 /**
@@ -189,6 +196,30 @@ export function failingCheckNames(rollup: unknown): { names: string[]; more: num
     else more++;
   }
   return { names, more };
+}
+
+/** A GitHub Actions run or job id: digits with no leading zero, kept as a string so 20 digits keep their precision. */
+export const RUN_ID = /^[1-9][0-9]{0,19}$/;
+// Anchored, with no query, fragment or trailing segment: the PR's own workflows choose detailsUrl.
+const ACTIONS_JOB_URL = /^https:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/actions\/runs\/([0-9]+)\/job\/([0-9]+)$/;
+const MAX_FAILING_RUNS = 20;
+
+/**
+ * The failing rollup entries that are GitHub Actions jobs, from `detailsUrl` only (a commit status's
+ * targetUrl never counts), in rollup order and at most 20. Same failing set as summarizeChecks.
+ */
+export function failingRunsOf(rollup: unknown): FailingRun[] {
+  const out: FailingRun[] = [];
+  for (const c of Array.isArray(rollup) ? rollup : []) {
+    if (out.length >= MAX_FAILING_RUNS) break;
+    if (!FAILING_STATES.includes(checkState(c))) continue;
+    const url = dig(c, 'detailsUrl');
+    if (typeof url !== 'string' || url.length > 300) continue;
+    const m = ACTIONS_JOB_URL.exec(url);
+    if (!m || !RUN_ID.test(m[3]) || !RUN_ID.test(m[4])) continue;
+    out.push({ slug: `${m[1]}/${m[2]}`, run: m[3], job: m[4] });
+  }
+  return out;
 }
 
 /** `lint, test and 2 more`, or `3 checks` when no name survived. */
@@ -271,6 +302,16 @@ export function createGhGitHub(run: GhRun = gh): GitHub {
       if (!SLUG_RE.test(slug) || !isSha(sha)) throw new ForgeError(`gh api graphql: refusing to read checks for ${JSON.stringify(slug).slice(0, 80)} at ${JSON.stringify(sha).slice(0, 80)}`, 'external');
       const [owner, name] = slug.split('/');
       return parseHeadChecks(dig(json(cwd, graphqlArgs(HEAD_CHECKS_QUERY, { owner, name, oid: sha })), 'data'));
+    },
+    // The id and slug reach gh's argv: checked here again, whatever the caller checked.
+    viewRun(cwd, slug, id) {
+      if (!SLUG_RE.test(slug) || !RUN_ID.test(id)) throw new ForgeError(`gh run view: refusing run ${JSON.stringify(id).slice(0, 80)} in ${JSON.stringify(slug).slice(0, 80)}`, 'external');
+      return parseRun(json(cwd, ['run', 'view', id, '-R', slug, '--json', 'headSha,status,conclusion']));
+    },
+    rerunFailed(cwd, slug, id) {
+      if (!SLUG_RE.test(slug) || !RUN_ID.test(id)) return { ok: false, error: `refused: run ${JSON.stringify(id).slice(0, 80)} in ${JSON.stringify(slug).slice(0, 80)}` };
+      const r = run(cwd, ['run', 'rerun', id, '--failed', '-R', slug], { allowFail: true });
+      return r.ok ? { ok: true } : { ok: false, error: (r.stderr || r.stdout).trim() };
     },
   };
 }
