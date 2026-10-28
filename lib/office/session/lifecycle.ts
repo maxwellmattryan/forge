@@ -113,7 +113,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   };
   const log = createSessionLog(core);
   const { logLine, logEvent } = log;
-  const { agents, computeKept, keptBy, facts, release } = createOwned(core);
+  const { agents, computeKept, keptBy, facts, release, takeUp } = createOwned(core);
   const control = createControl(core);
   const { setPermissionMode, answerPermission, clearModeRequests } = control;
   const { armTurn, clearTurn, armIdle, clearIdle } = createTimers(core, agents);
@@ -321,6 +321,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     else {
       proc.meta.committed.push(...ids);
       for (const id of ids) committed.add(id);
+      takeUp(ids);
       turnFailures = 0;
       strikes = 0;
       retryAt = null;

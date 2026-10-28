@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fakeClaude, repoTemplate, waitFor, withLease, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, RESUME_TAKEN_UP, ackRequest, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { UUID, sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { appendMeter } from '#engine/metrics/meter.ts';
@@ -433,8 +433,7 @@ test('a failed turn backs off, and a limit waits for its reset', async (t) => {
 });
 
 // A working turn closes the resumes it was written for, open or claimed under its own id; nothing else.
-test('a job session closes the resumes its working turn took up', { todo: true }, async (t) => {
-  const TAKEN_UP = "its job session's turn took it up";
+test('a job session closes the resumes its working turn took up', async (t) => {
   const r = rig(t, { job: true });
   r.s.spawn(r.cfg);
   const [c] = r.children;
@@ -446,7 +445,7 @@ test('a job session closes the resumes its working turn took up', { todo: true }
   turn([first]);
   const handoff = add('resume', 'daemon:_assistant-1');
   turn([first, handoff]);
-  for (const id of [first, handoff]) assert.deepEqual([req(id).status, req(id).result], ['done', TAKEN_UP], id);
+  for (const id of [first, handoff]) assert.deepEqual([req(id).status, req(id).result], ['done', RESUME_TAKEN_UP], id);
   const [resume, approve, theirs, rejected, mine] = [add('resume'), add('approve'), add('resume'), add('resume'), add('resume')];
   claimRequest(r.root, theirs, crypto.randomUUID());
   ackRequest(r.root, rejected, { status: 'rejected', result: 'not now' });
@@ -650,7 +649,8 @@ test('a job session past daemon.freshAfterTokens rotates at a safe boundary', as
     let req: { id: string } | null = null;
     if (isJob) {
       withLease(r.root, r.scope, sid);
-      req = enqueue(r.root, r.cfg, { type: 'resume', job: r.scope, from: 'dashboard' });
+      // An approve: the turn's end would close a resume it was written for, so only another type's claim is left to requeue.
+      req = enqueue(r.root, r.cfg, { type: 'approve', job: r.scope, from: 'dashboard' });
       claimRequest(r.root, req.id, sid);
     }
     row.before?.(r, c);

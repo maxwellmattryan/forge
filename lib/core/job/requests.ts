@@ -300,6 +300,34 @@ export function releaseClaim(root: string, id: string, session: string): boolean
   });
 }
 
+/** The result a `resume` gets when its job session's working turn, written for it, ends (lib/office/session/owned.ts takeUp). */
+export const RESUME_TAKEN_UP = "its job session's turn took it up";
+
+/**
+ * Closes request `id` only while it is still open (`pending` or `in-progress`) and `accept` holds, both read under the
+ * requests lock, so a claim or an ack made since the caller looked is never overwritten. The engine's own close, never
+ * an agent's: `session` is dropped, nothing but `status`, `result` and `updatedAt` is written. Returns the written
+ * record, or null (nothing written) for an invalid id, a missing or unreadable file, a closed request or a refused one.
+ */
+export function closeIfOpen(root: string, id: string, accept: (rec: ForgeRequest) => boolean, update: { status: 'done' | 'rejected'; result: string }): ForgeRequest | null {
+  if (typeof id !== 'string' || !REQUEST_ID.test(id)) return null;
+  const file = requestFile(root, id);
+  if (!exists(file)) return null;
+  return withLock(lockDir(root), () => {
+    let rec: ForgeRequest | null;
+    try {
+      rec = readJson(file, null);
+    } catch {
+      return null;
+    }
+    if (!rec || typeof rec !== 'object' || (rec.status !== 'pending' && rec.status !== 'in-progress') || !accept(rec)) return null;
+    const next: ForgeRequest = { ...rec, status: update.status, result: update.result, updatedAt: now() };
+    delete next.session;
+    writeJsonAtomic(file, next);
+    return next;
+  });
+}
+
 export function ackRequest(root: string, id: string, update: { status: 'done' | 'rejected' | 'in-progress'; result?: string }): ForgeRequest {
   const file = requestFile(root, id);
   if (!exists(file)) throw new ForgeError(`no request ${id}`, 'not_found');

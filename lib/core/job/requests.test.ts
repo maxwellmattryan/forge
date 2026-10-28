@@ -3,6 +3,8 @@
 // authority object, and how a gate run's claim is given back or requeued.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '../config/keys/defaults.ts';
 import { ForgeError } from '../errors.ts';
@@ -10,9 +12,11 @@ import {
   GATES_SCOPE,
   INBOX_SCOPE,
   OFFICE_SCOPE,
+  ackRequest,
   chatIdOf,
   chatScope,
   claimRequest,
+  closeIfOpen,
   daemonScope,
   enqueue,
   holdsForemanAuthority,
@@ -143,6 +147,39 @@ test("a gate request without a job is only a milestone draft or a mandate's rele
   const isRefusal = (e: unknown) => e instanceof ForgeError && e.message === 'a gate request needs a valid job';
   for (const [name, req] of refused) assert.throws(() => enqueue(r.dir, null, { type: 'gate', ...req, from: 'forge' }), isRefusal, name);
   assert.equal(listRequests(r.dir).length, before, 'a refused request writes nothing');
+});
+
+test('closeIfOpen closes only an open request it accepts', (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const add = () => enqueue(r.dir, null, { type: 'resume', job: 'j-1' }).id;
+  const read = (id: string) => listRequests(r.dir).find((x) => x.id === id)!;
+  const yes = () => true;
+  const done = { status: 'done', result: 'closed' } as const;
+  const open = add();
+  const claimed = add();
+  claimRequest(r.dir, claimed, 'session-a');
+  for (const id of [open, claimed]) {
+    const out = closeIfOpen(r.dir, id, yes, done);
+    assert.deepEqual([out?.status, out?.result, out?.session], ['done', 'closed', undefined], id);
+    assert.deepEqual(read(id), out, `${id}: written as returned`);
+  }
+  const acked = add();
+  ackRequest(r.dir, acked, { status: 'rejected', result: 'by hand' });
+  const refused = add();
+  const rows: [string, string, (rec: any) => boolean][] = [
+    ['a closed request', acked, yes],
+    ['a refused one', refused, (rec) => rec.type === 'approve'],
+    ['a missing file', '1-nothere', yes],
+    ['an invalid id', '../../job.json', yes],
+  ];
+  for (const [name, id, accept] of rows) assert.equal(closeIfOpen(r.dir, id, accept, done), null, name);
+  assert.deepEqual([read(acked).status, read(acked).result], ['rejected', 'by hand'], 'the ack is kept');
+  assert.deepEqual([read(refused).status, read(refused).updatedAt], ['pending', undefined], 'the refused one is untouched');
+  const file = path.join(r.dir, '.forge', 'runtime', 'requests', `${refused}.json`);
+  fs.writeFileSync(file, '{');
+  assert.equal(closeIfOpen(r.dir, refused, yes, done), null, 'an unreadable file');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{');
 });
 
 test('a gate claimed by a failed gate run goes back to pending', (t) => {
