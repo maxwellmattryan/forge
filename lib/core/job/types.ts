@@ -1,6 +1,6 @@
 // The job shapes the store, the archive and the findings summary share, type-only: re-exported by lib/core/types.ts.
 import type { SEVERITIES } from './schema.ts';
-import type { AgentUsage, ContextComposition, EventActor, Job, JobEvent } from '#api/types.ts';
+import type { AgentUsage, ContextComposition, ContextMark, EventActor, Job, JobEvent } from '#api/types.ts';
 
 /** What recordAgent knows about an agent end when it records the run: recordRun in lib/core/job/schema.ts. */
 export interface AgentRunEnd {
@@ -31,8 +31,11 @@ export interface AgentRecordChange {
   retry?: boolean;
   /** end: the output check's result, when an output is known. */
   outputMissing?: boolean;
-  /** end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found. */
-  flags?: { metered?: true; unmeasured?: true };
+  /**
+   * end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found,
+   * `context` how a role run used its round's context session (`forge job agent run`).
+   */
+  flags?: { metered?: true; unmeasured?: true; context?: ContextMark };
 }
 
 /**

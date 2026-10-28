@@ -211,13 +211,14 @@ export const JOB: HelpGroup = {
     },
     {
       command: 'job agent run',
-      args: '<id> --session S [--spawn-index N] [--epoch N]',
+      args: '<id> --session S [--spawn-index N] [--epoch N] [--cold]',
       summary:
-        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, prefix, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one",
+        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn",
       flags: [
         ['--session S', 'the session that holds the job (required): only its driver may run a role'],
         ['--spawn-index N', "which spawn of step's list to run: 0 (the default) is the action itself, 1 on its `spawns`"],
         ['--epoch N', "the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
+        ['--cold', 'run without a context session, for measurement: no context child starts and context.reason is `cold flag`'],
       ],
       exits: [
         [

@@ -11,7 +11,7 @@ import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { ForgeError } from '#core/errors.ts';
 import { agentRole } from '#core/job/lens.ts';
 import { daemonScope } from '#core/job/requests.ts';
-import type { AgentUsage, Config, ContextComposition } from '#core/types.ts';
+import type { AgentUsage, Config, ContextComposition, ContextMark } from '#core/types.ts';
 import { num, req, requireJob, str } from '../args.ts';
 import { epochFence } from './lease.ts';
 
@@ -100,6 +100,8 @@ export function endAgent(
     usage?: ImportedUsage | null;
     /** With `usage` supplied: the run's usage could not be measured at all. */
     unmeasured?: boolean;
+    /** A role run's use of its round's context session, recorded on the end event. */
+    context?: ContextMark;
     env: NodeJS.ProcessEnv;
     fence?: Fence;
   },
@@ -139,6 +141,7 @@ export function endAgent(
   }
   if (!measured && !usage && (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)) usage = { totalTokens: tokens ?? 0, toolUses: toolUses ?? 0, durationMs: durationMs ?? 0 };
   if (usage && !usage.toolUses && toolUses) usage.toolUses = toolUses;
+  const flags = { ...(metered ? { metered: true as const } : {}), ...(unmeasured ? { unmeasured: true as const } : {}), ...(o.context ? { context: o.context } : {}) };
   const job = recordAgent(
     root,
     jobId,
@@ -155,7 +158,7 @@ export function endAgent(
       importedThrough: usage?.through,
       composition: usage?.composition,
       ...(outputMissing !== null ? { outputMissing } : {}),
-      ...(metered || unmeasured ? { flags: { ...(metered ? { metered: true as const } : {}), ...(unmeasured ? { unmeasured: true as const } : {}) } } : {}),
+      ...(Object.keys(flags).length ? { flags } : {}),
     },
     config,
     fence,
