@@ -160,6 +160,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
   { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
   { step: 'improve-transcripts', input: { improve: { retroEvery: 5 } }, fields: { improve: { retroEvery: 5 } }, removed: ['improve.transcripts'], note: ONLY_VERSION },
+  { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -302,6 +303,7 @@ const EVENT_ROWS: Row[] = [
   },
   { step: 'pr-gate-event', input: { ts: 't', type: 'pr-gate', action: 'set', rule: 'PR15', waitingOn: 'escalation', reason: 'r', number: 7, label: 'forge:needs-human', labeled: true, body: true }, fields: { type: 'pr-gate', action: 'set', rule: 'PR15', labeled: true }, note: 'a gate sync reads as written' },
   { step: 'person-ci-rerun', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, fields: { type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, note: "a person's re-run keeps its actor" },
+  { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [

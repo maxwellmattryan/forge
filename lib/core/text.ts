@@ -19,6 +19,12 @@ export function redact(text: string, secrets: readonly string[]): string {
  */
 export const SAFE_REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 
+/**
+ * A tool name claude asked about that may reach a job event, a park reason or a brief: claude's
+ * built-in tools and `mcp__server__tool` names, held to characters a step action's argv accepts.
+ */
+export const SAFE_TOOL = /^[A-Za-z0-9_.:-]{1,100}$/;
+
 // Shas reach git as arguments, and a PR head comes from GitHub: anything else could read as an option.
 const SHA = /^[0-9a-f]{7,64}$/i;
 

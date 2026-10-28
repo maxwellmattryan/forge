@@ -1,34 +1,91 @@
 // The permission-prompt and mode-switch policy: which prompts a human sees and which are denied
-// unasked, and what a refused or unconfirmed mode switch does. Every line it sends claude goes through
-// the child's ClaudeChild, which builds it from fixed text (lib/integrations/claude/stream.ts).
+// unasked, the deny a prompt nobody answers within daemon.permissionTimeoutMinutes gets (with the
+// session's in-memory history of those and its job's permission-timed-out event), and what a refused
+// or unconfirmed mode switch does. Every line it sends claude goes through the child's ClaudeChild,
+// which builds it from fixed text (lib/integrations/claude/stream.ts).
 import crypto from 'node:crypto';
 import { modeReach } from '#integrations/claude/argv.ts';
 import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
 import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
+import { sharedScope, validJobId } from '#core/job/requests.ts';
+import { logEvent as logJobEvent } from '#core/job/store.ts';
+import { SAFE_TOOL } from '#core/text.ts';
 import { now } from '#core/utils.ts';
 import type { SessionCore } from './contract.ts';
-import type { DaemonPermissionMode, DaemonPermissionPrompt, EventActor, PermissionDecision } from '#core/types.ts';
+import type { DaemonPermissionMode, DaemonPermissionPrompt, DaemonTimedOutPrompt, EventActor, PermissionDecision } from '#core/types.ts';
 
 /** Prompts waiting at once per session; past this, new ones are denied without asking. */
 const MAX_PROMPTS = 20;
+/** Timed-out prompts a session keeps for the dashboard, newest first. */
+export const MAX_TIMED_OUT = 10;
+/** setTimeout's own ceiling (about 24.8 days); a longer timeout is none. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
 
 /** One session's control channel: the permission prompts waiting on a human and the mode switches waiting on claude. */
 export function createControl(core: SessionCore) {
   const { scope, ctx, o } = core;
-  /** Permission prompts waiting on a human, by the supervisor's id, oldest first. */
-  const prompts = new Map<string, { child: ClaudeChild; requestId: string; prompt: DaemonPermissionPrompt }>();
+  /** Permission prompts waiting on a human, by the supervisor's id, oldest first, each with its timeout (null: none armed). */
+  const prompts = new Map<string, { child: ClaudeChild; requestId: string; prompt: DaemonPermissionPrompt; timer: NodeJS.Timeout | null }>();
+  /** Prompts denied at their timeout, newest first. Kept across child exits, respawns and reset(); gone with the session. */
+  const timedOutPrompts: DaemonTimedOutPrompt[] = [];
   /** Mode switches sent to the current child and not yet answered, by request id, each with its confirmation deadline. */
   const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
 
+  /** The one way a prompt leaves the map, so its timer never outlives it. */
+  function removePrompt(id: string): void {
+    const p = prompts.get(id);
+    if (!p) return;
+    if (p.timer) clearTimeout(p.timer);
+    prompts.delete(id);
+  }
+
   /** Its child is gone, so nothing can answer them. */
   function dropPrompts(): void {
-    prompts.clear();
+    for (const id of [...prompts.keys()]) removePrompt(id);
     clearModeRequests();
   }
 
   function clearModeRequests(): void {
     for (const r of modeRequests.values()) clearTimeout(r.timer);
     modeRequests.clear();
+  }
+
+  /** The timeout a prompt asked now gets, in ms: the test option, else the config read now; null arms none. */
+  function promptTimeoutMs(): number | null {
+    let ms = o.permissionTimeoutMs;
+    if (ms === null) {
+      let minutes: unknown;
+      try {
+        minutes = ctx.config().daemon?.permissionTimeoutMinutes;
+      } catch {}
+      if (typeof minutes !== 'number') return null;
+      ms = minutes * 60_000;
+    }
+    return Number.isFinite(ms) && ms > 0 && ms <= MAX_TIMER_MS ? ms : null;
+  }
+
+  /**
+   * Nobody answered the prompt in time: it is denied with TIMEOUT_DENIED, never allowed. Only a prompt
+   * still pending, asked by the session's current child, is answered, so a timer racing a human's answer,
+   * a cancel or a respawn writes nothing.
+   */
+  function onTimeout(id: string): void {
+    const p = prompts.get(id);
+    if (!p || core.closed || p.child !== core.child?.claude) return;
+    removePrompt(id);
+    const sent = p.child.answerPermission(p.requestId, 'deny', 'timeout');
+    if (sent) {
+      core.logEvent('permission', { id, tool: p.prompt.tool, decision: 'deny', reason: 'timeout' });
+      timedOutPrompts.unshift({ ...p.prompt, deniedAt: now() });
+      timedOutPrompts.length = Math.min(timedOutPrompts.length, MAX_TIMED_OUT);
+      // The tool name only: the input may hold secrets, and claude's tool name is checked again before it reaches the job.
+      if (validJobId(scope) && !sharedScope(scope)) {
+        try {
+          logJobEvent(core.root, scope, 'permission-timed-out', { tool: SAFE_TOOL.test(p.prompt.tool) ? p.prompt.tool : 'unknown' });
+        } catch {}
+      }
+    }
+    core.changed();
   }
 
   /** A tool call claude asked about: a prompt the dashboard shows until a human answers it, or a deny without asking. */
@@ -55,7 +112,11 @@ export function createControl(core: SessionCore) {
       sessionDirs: e.dirs,
       at: now(),
     };
-    prompts.set(id, { child, requestId: e.requestId, prompt });
+    // Read as the prompt is asked, so a config change applies to the next prompt; a real timer, so it fires even if the session logs nothing else.
+    const ms = promptTimeoutMs();
+    const timer = ms === null ? null : setTimeout(() => onTimeout(id), ms);
+    timer?.unref?.();
+    prompts.set(id, { child, requestId: e.requestId, prompt, timer });
     core.logEvent('permission-asked', { id, tool: e.tool });
     core.changed();
   }
@@ -64,7 +125,7 @@ export function createControl(core: SessionCore) {
   function onCancelled(requestId: string): void {
     for (const [id, p] of prompts) {
       if (p.requestId !== requestId) continue;
-      prompts.delete(id);
+      removePrompt(id);
       core.logEvent('permission-cancelled', { id, tool: p.prompt.tool });
       core.changed();
     }
@@ -116,7 +177,7 @@ export function createControl(core: SessionCore) {
   function answerPermission(id: string, decision: PermissionDecision, actor?: EventActor): string | null {
     const p = prompts.get(id);
     if (!p || p.child !== core.child?.claude) return null;
-    prompts.delete(id);
+    removePrompt(id);
     const sent = p.child.answerPermission(p.requestId, decision);
     if (sent) core.logEvent('permission', { id, tool: p.prompt.tool, decision, ...(actor ? { actor } : {}) });
     core.changed();
@@ -126,5 +187,8 @@ export function createControl(core: SessionCore) {
   /** The prompts state() shows, oldest first. */
   const permissions = (): DaemonPermissionPrompt[] => [...prompts.values()].map((p) => p.prompt);
 
-  return { onAsked, onCancelled, onModeAnswer, setPermissionMode, answerPermission, modeFailed, dropPrompts, clearModeRequests, permissions };
+  /** The prompts denied at their timeout that state() shows, newest first: a copy. */
+  const timedOut = (): DaemonTimedOutPrompt[] => timedOutPrompts.map((p) => ({ ...p }));
+
+  return { onAsked, onCancelled, onModeAnswer, setPermissionMode, answerPermission, modeFailed, dropPrompts, clearModeRequests, permissions, timedOut };
 }
