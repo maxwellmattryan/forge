@@ -38,7 +38,7 @@ const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed', 'pr-head-pulled', 'recall',
+  'job-repo-removed', 'pr-head-pulled', 'recall', 'push-held', 'pr-gate',
 ]);
 
 /**
@@ -300,8 +300,11 @@ export function loadInstructionsChanged(config: Config, job: Job): string[] | nu
 /** The recall gate's paths when a config predates evals.recall. */
 const RECALL_PATHS = ['agents/', 'reviewers/', 'lib/engine/pipeline/brief.ts'];
 
+/** The stages the recall gate reads in: RC1 runs the eval before the approver, PR17 holds the merge without a record. */
+const RECALL_STAGES: readonly string[] = ['decide', 'pr'];
+
 /**
- * The recall gate from what was read: null unless the job is a non-eval job in decide with a
+ * The recall gate from what was read: null unless the job is a non-eval job in decide or pr with a
  * worktree and the main checkout has fixtures. `changed` null means git failed, which fails closed.
  */
 export function recallGate(
@@ -309,7 +312,7 @@ export function recallGate(
   config: Config,
   seen: { worktree: boolean; fixtures: boolean; changed: string[] | null; pluginHash: string | null; invalid?: boolean },
 ): StepInput['recall'] {
-  if (job.stage !== 'decide' || job.kind === 'eval' || !seen.worktree || !seen.fixtures) return null;
+  if (!RECALL_STAGES.includes(job.stage) || job.kind === 'eval' || !seen.worktree || !seen.fixtures) return null;
   if (seen.changed === null) return { required: true, pluginHash: null };
   const tokens = config.evals?.recall?.paths ?? RECALL_PATHS;
   const required = seen.changed.some((f) => inSpec(f, tokens));
@@ -320,7 +323,7 @@ export function recallGate(
 export function loadRecall(root: string, config: Config, job: Job): StepInput['recall'] {
   const worktree = Boolean(job.worktree && exists(job.worktree));
   // Nothing below runs unless the gate can apply: git and the hash cost a few ms on every step.
-  if (job.stage !== 'decide' || job.kind === 'eval' || !worktree || !hasFixtures(root)) return recallGate(job, config, { worktree, fixtures: false, changed: [], pluginHash: null });
+  if (!RECALL_STAGES.includes(job.stage) || job.kind === 'eval' || !worktree || !hasFixtures(root)) return recallGate(job, config, { worktree, fixtures: false, changed: [], pluginHash: null });
   let changed: string[] | null = null;
   let hash: string | null = null;
   try {

@@ -187,6 +187,9 @@ test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {
   assert.deepEqual(problems((c) => (c.pr.maxCiReworks = 0), 'pr.maxCiReworks'), []);
   assert.equal(problems((c) => (c.pr.maxCiReworks = -1), 'pr.maxCiReworks').length, 1);
   assert.equal(problems((c) => (c.pr.maxCiReworks = 1.5), 'pr.maxCiReworks').length, 1);
+  assert.equal(defaults().pr.needsHumanLabel, 'forge:needs-human');
+  for (const ok of ['forge:needs-human', null, 'needs a person', 'x'.repeat(50)]) assert.deepEqual(problems((c) => (c.pr.needsHumanLabel = ok), 'pr.needsHumanLabel'), [], String(ok));
+  for (const bad of [3, '', '-x', '--add-label', 'a\nb', 'a\u0007', 'x'.repeat(51), ['l']]) assert.equal(problems((c) => (c.pr.needsHumanLabel = bad), 'pr.needsHumanLabel').length, 1, JSON.stringify(bad));
   assert.deepEqual(problems((c) => (c.daemon.jobBudget = null), 'daemon.jobBudget'), []);
   assert.deepEqual(problems((c) => (c.daemon.jobBudget = { tokens: null, usd: 20, minutes: 90 }), 'daemon.jobBudget'), []);
   assert.equal(problems((c) => (c.daemon.jobBudget = { usd: -1 }), 'daemon.jobBudget').length, 1);

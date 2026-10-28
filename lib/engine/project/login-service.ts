@@ -15,8 +15,7 @@ import { launchAgentFile, launchdSteps, readLaunchAgentProgram, renderLaunchAgen
 import { readSystemdProgram, renderSystemdUnit, systemdSteps, systemdUnitFile } from '#integrations/os-service/systemd.ts';
 import type { ServiceRun, ServiceUnit } from '#integrations/os-service/types.ts';
 import type { DoctorCheck } from '#core/types.ts';
-import { allowlisted } from '../guard/command-env.ts';
-import { sanitizePath } from '../guard/command-path.ts';
+import { allowlisted, sanitizePath } from '../guard/command-env.ts';
 import { machineDashboardFile, provenDashboard, systemProbe, type DashboardProbe } from '../ops/dashboard-record.ts';
 import { PROJECT_NAME, ensureMachineDirs } from './machine-index.ts';
 

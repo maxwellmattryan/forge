@@ -1,5 +1,5 @@
 #!/bin/sh
-# A stand-in $SHELL for the login-shell PATH capture (lib/engine/guard/command-path.ts). It logs
+# A stand-in $SHELL for the login-shell PATH capture (lib/engine/guard/command-env.ts). It logs
 # `<cwd>|<args>` to $FAKE_SHELL_LOG, sleeps $FAKE_SHELL_SLEEP, exits $FAKE_SHELL_EXIT, prints profile
 # chatter and then $FAKE_SHELL_PROMPT with no newline, and sets PATH to $FAKE_SHELL_PATH, each only
 # when set, then runs the command as sh would.

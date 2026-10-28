@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts';
-import { syncPr } from './sync.ts';
+import { syncPr, syncTransition } from './sync.ts';
 import { shelveJob } from '../pipeline/moves/shelve.ts';
 import { defaults } from '#core/config/load.ts';
 import { jobDir, loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
@@ -211,6 +211,27 @@ test("the CI rework follows the job's mandate", async () => {
       repo.cleanup();
     }
   }
+});
+
+test('syncTransition leaves a gate park on the open PR alone', () => {
+  const pr = (state: 'OPEN' | 'MERGED' | 'CLOSED', more: Record<string, unknown> = {}) => ({ number: 7, url: null, state, isDraft: false, lastSyncedAt: null, headOid: SHA, behindBy: 3, mergeable: 'MERGEABLE', ...more }) as any;
+  const parked = (waitingOn: string, reason: string) => ({ stage: 'pr', state: 'waiting', waitingOn, reason, pr: { number: 7, url: null, state: 'OPEN', isDraft: false, lastSyncedAt: null, pushedSha: SHA } }) as any;
+  const opts = { route: true, ownerLive: () => false };
+  const rows: [string, ReturnType<typeof parked>, ReturnType<typeof pr>, Record<string, unknown>][] = [
+    ['an escalation on an OPEN PR that is behind', parked('escalation', 'approver escalated: see decision.md'), pr('OPEN'), {}],
+    ['a runbook on an OPEN PR', parked('infra', 'runbook: steps before merge'), pr('OPEN'), {}],
+    ['protected paths on an OPEN PR that conflicts', parked('human', 'protected paths: db/migrations/0001.sql'), pr('OPEN', { mergeable: 'CONFLICTING' }), {}],
+    ['a held push on an OPEN PR', parked('human', 'push held: the security review of round 1 is CHANGES'), pr('OPEN'), {}],
+    ['an escalation whose PR merged is done', parked('escalation', 'approver escalated: see decision.md'), pr('MERGED'), { stage: 'done', state: 'done', reason: 'PR merged' }],
+    ['an escalation whose PR closed is cancelled', parked('escalation', 'approver escalated: see decision.md'), pr('CLOSED'), { state: 'cancelled', reason: 'PR closed without merging' }],
+  ];
+  for (const [name, job, live, want] of rows) {
+    const t = syncTransition(job, live, config, opts);
+    assert.deepEqual(t.change, want, name);
+    assert.equal(t.integrate, false, name);
+  }
+  // A pr-review park on a PR that is behind still routes to integrate, as before.
+  assert.equal(syncTransition(parked('pr-review', 'r'), pr('OPEN'), config, opts).integrate, true);
 });
 
 describe("syncPr records GitHub's answer through the adapter", { concurrency: 4 }, () => {

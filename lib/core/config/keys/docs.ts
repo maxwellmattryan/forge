@@ -196,6 +196,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'pr.maxCiReworks': {
     doc: 'the CI rework cap: CI reworks forge sync starts in a row before a red head waits for a person (0: always a person; see "Open PRs")',
   },
+  'pr.needsHumanLabel': {
+    doc: 'the label forge pr gate puts on a PR whose merge waits on a person, created when the repo lacks it; null: no label (see "Merge")',
+  },
 
   merge: { doc: 'whether and how Forge merges approved PRs' },
   'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },

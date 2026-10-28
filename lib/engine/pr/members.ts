@@ -1,8 +1,8 @@
 // Member-repo PRs of a linked job: check, open, record and sync them, and keep their sibling links
 // current.
-import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir, loadJob, logEvent, readEvents, updateJob } from '#core/job/store.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import type { Config, Job, JobRepoPr, PrChecks } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { safeText } from '#core/text.ts';
@@ -16,6 +16,7 @@ import { isLinkedJob, jobRepoOrder, siblingLine } from '../project/repo-order.ts
 import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretsBlock, textUnit } from '../guard/secrets.ts';
+import type { SecretScan } from '../guard/types.ts';
 import { FULL_SHA } from '../release/interim.ts';
 import { memberPrBody, spliceSiblings } from './body.ts';
 import { pushBranch, refreshBase } from './branch.ts';
@@ -41,13 +42,17 @@ export function memberSlug(config: Config, name: string): string {
 }
 
 /** What openMemberPr pushes and opens, fixed by checkMemberPr before any repo is pushed. */
-interface MemberPrPlan {
+export interface MemberPrPlan {
   repo: string;
   slug: string;
   worktree: string;
   base: string;
   checked: string;
   body: string;
+  /** The commit scan of `checked`: under `verifySecrets: warn` its findings, or that it could not finish, hold the push. */
+  scan: SecretScan;
+  /** Whether the member's base was re-read from the push remote (false: the held push can't trust its CI diff). */
+  fresh: boolean;
 }
 
 /**
@@ -63,14 +68,14 @@ export function checkMemberPr(root: string, config: Config, job: Job, name: stri
   const body = memberPrBody(root, config, job);
   refuseSecrets(root, config, [textUnit('(pr title)', title), textUnit(`(pr body of repo ${name})`, body)], { what: `the PR title or body of repo ${name}`, id: job.id, gate: 'pr' });
   const view = { ...job, worktree, base };
-  refreshBase(view, config, mode);
+  const fresh = refreshBase(view, config, mode);
   const scan = scanBranch(root, config, view, { staged: false, head: checked });
   logSecrets(root, job.id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of repo ${name}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${job.id}`);
   if (secretsBlock(scan.findings, mode)) throw new ForgeError(refusalMessage(`the commits of repo ${name}`, scan.findings), 'secret_found', `forge secrets scan ${job.id}`);
   const ahead = git(worktree, ['rev-list', '--count', `${config.git.remote}/${base}..${checked}`, '--'], { allowFail: true });
   if (!ahead.ok || ahead.stdout.trim() === '0') throw new ForgeError(`repo ${name} has no commits ahead of ${base}; remove it (forge job repo remove) or re-add it with --verify-only`);
-  return { repo: name, slug: memberSlug(config, name), worktree, base, checked, body };
+  return { repo: name, slug: memberSlug(config, name), worktree, base, checked, body, scan, fresh };
 }
 
 /**
@@ -105,7 +110,7 @@ export function openMemberPr(root: string, config: Config, github: GitHub, job: 
       return { repo: p.repo, number, url, created: false };
     }
     const bodyFile = path.join(jobDir(root, job.id), `pr-body-${p.repo}.md`);
-    fs.writeFileSync(bodyFile, p.body);
+    writeAtomic(bodyFile, p.body);
     const isDraft = Boolean(draft ?? config.pr.draft);
     const { number, url } = github.create(p.worktree, { slug: p.slug, base: p.base, head: job.branch!, title, bodyFile, draft: isDraft, labels: config.pr.labels ?? [], reviewers: config.pr.reviewers ?? [] });
     if (number === null) throw new ForgeError(`gh pr create printed no PR url for ${p.slug}`);
@@ -183,7 +188,7 @@ function linkSiblingPrs(root: string, config: Config, github: GitHub, id: string
       }
       if (next !== body) {
         const file = path.join(jobDir(root, id), p.repo === null ? 'pr-links.md' : `pr-links-${p.repo}.md`);
-        fs.writeFileSync(file, next);
+        writeAtomic(file, next);
         // gh has no compare-and-swap edit, so re-read right before writing: a body someone changed
         // since the first read is left alone (this narrows the race to the gap between two calls).
         if (read() !== body) {

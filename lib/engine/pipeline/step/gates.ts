@@ -5,6 +5,7 @@ import { downstreamRepos } from '../../project/downstream.ts';
 import { pastTotalCeiling, totalRoundCeiling } from '../moves/foreman-gates.ts';
 import { issueLinkStatus, prLinkNote } from '#core/job/issue-link.ts';
 import { protectedApproved, protectedReason } from '../../guard/protected.ts';
+import { PUSH_HELD_PREFIX, isCiHit } from '../../guard/push-hold.ts';
 import { pendingRepoProposals } from '../../project/repo-proposals.ts';
 import type { VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
@@ -35,8 +36,23 @@ function escalationFile(x: StepInput): string {
   }
 }
 
-/** What to tell the human at a gate: fixed text around ids, absolute paths, numbers and config names. */
+/** The gates a moved park (a merge gate on an open PR) waits on. */
+const MERGE_GATE_WAITS: readonly WaitingOn[] = ['escalation', 'infra', 'human'];
+
+/**
+ * What to tell the human at a gate: fixed text around ids, absolute paths, numbers and config names.
+ * At a merge gate on an open PR, a line says the PR is open and waits on this decision before merge.
+ */
 export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
+  const j = x.job;
+  const line = gateLine(x, waitingOn);
+  // A held push, a secret park and a repo proposal stop something else than the merge.
+  const other = ['push held:', 'secret scan', 'repo proposal:'].some((p) => (j.reason ?? '').startsWith(p));
+  if (j.stage !== 'pr' || j.pr?.state !== 'OPEN' || other || !MERGE_GATE_WAITS.includes(waitingOn)) return line;
+  return `${line}\n${j.id} PR ${safe(j.pr.url, SAFE_URL, `#${Number(j.pr.number) || '?'}`)} is open: it waits on this decision before merge`;
+}
+
+function gateLine(x: StepInput, waitingOn: WaitingOn): string {
   const j = x.job;
   const id = j.id;
   const reason = j.reason ?? 'no reason recorded';
@@ -77,6 +93,10 @@ export function gateTell(x: StepInput, waitingOn: WaitingOn): string {
     case 'human':
       if (reason.startsWith('repo proposal:'))
         return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <names> --note …`;
+      if (reason.startsWith(PUSH_HELD_PREFIX)) {
+        const diff = reason.startsWith(`${PUSH_HELD_PREFIX}protected paths`) ? ` and ${path.join(x.jobDir, 'protected.diff')}` : '';
+        return `${id} push held (${reason}): nothing has left this machine. Read the change in ${j.worktree ?? 'its worktree'}${diff}, then /forge approve ${id} to push, or /forge rework ${id} <note>`;
+      }
       if (reason.startsWith('protected paths'))
         return `${id} changed protected paths (${reason}). Diff: ${path.join(x.jobDir, 'protected.diff')}. /forge approve ${id} once a human has reviewed them, or /forge rework ${id} <note>`;
       if (reason.startsWith('recall eval') && x.recall?.invalidFixtures)
@@ -155,14 +175,35 @@ export const SECRETS: Table<SecretCtx> = {
 
 // ---------- PP: protected paths ----------
 
-/** PP1: the job changes escalate paths no human approved since their current content was recorded. Shared by the pr gate and decide. */
+/** The job changes escalate paths no human approved since their current content was recorded. */
+const protectedOpen = (x: StepInput): boolean => {
+  const flag = x.job.protectedPaths;
+  return Boolean(flag?.hits?.length) && x.job.kind !== 'eval' && !protectedApproved(flag!, x.events);
+};
+
+/**
+ * PP1, before the push: an unapproved flag whose push `forge pr open` refuses, because a hit is CI
+ * config (as refuseProtected judges it), the flag has hits it couldn't store, or pr open logged a
+ * blocked escalate refusal since the last open and the last verify. The approval covers the merge too.
+ */
 export const PP1: Rule = {
   id: 'PP1',
   when: ({ x }) => {
-    const flag = x.job.protectedPaths;
-    return Boolean(flag?.hits?.length) && x.job.kind !== 'eval' && !protectedApproved(flag!, x.events);
+    if (!protectedOpen(x)) return false;
+    const flag = x.job.protectedPaths!;
+    if (flag.hits.some((h) => typeof h.path === 'string' && isCiHit(h.path)) || Number(flag.more) > 0) return true;
+    const at = lastIdx(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'escalate' && e.blocked === true);
+    const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
+    return afterIdx(at, orNull(opened)) && after(x.events[at].ts, lastVerify(x)?.at);
   },
-  then: ({ x }) => park(x, 'PP1', 'human', protectedReason(x.job.protectedPaths!)),
+  then: ({ x }) => park(x, 'PP1', 'human', `${PUSH_HELD_PREFIX}${protectedReason(x.job.protectedPaths!)}`),
+};
+
+/** PP1b, a merge gate after the push (the pr table reaches it through mergeGate): escalate paths no human approved. */
+export const PP1b: Rule = {
+  id: 'PP1b',
+  when: ({ x }) => protectedOpen(x),
+  then: ({ x }) => park(x, 'PP1b', 'human', protectedReason(x.job.protectedPaths!)),
 };
 
 const BACK = 'a path the protected-paths policy refuses is on the branch';
@@ -170,7 +211,7 @@ const BACK = 'a path the protected-paths policy refuses is on the branch';
 /**
  * In the pr stage, a path the policy refuses is on the branch: back to build, so PR2 and PR3 can't
  * loop on it (PP2: verify failed on it; PP2b: pr open refused it since the last open and verify).
- * Then a flag raised after decide (by pr open, say) parks the job like PP1 in decide.
+ * Then an unapproved flag whose push pr open holds parks the job before PR3 (PP1).
  */
 export const PROTECTED: Table = {
   name: 'protected',

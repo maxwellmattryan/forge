@@ -17,14 +17,16 @@ import { FULL_SHA } from '../release/interim.ts';
  * resolution, so the push URL is resolved once more as a fetch would (`ls-remote --get-url`): a
  * chained rewrite would send the fetch to another repository. Under `block` a rewrite like that, or a
  * fetch that fails, refuses the open (the push needs the network anyway); under `warn` the fetch is
- * skipped and the scan runs against the ref as it is.
+ * skipped and the scan runs against the ref as it is. Returns whether the ref was refreshed, so the
+ * held push (which reads the same ref for its CI diff) can refuse a base it could not re-read.
  */
-export function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): void {
+export function refreshBase(job: Job, config: Config, mode: 'block' | 'warn'): boolean {
   const remote = config.git.remote;
   // Callers check the worktree first.
   const fetched = fetchBase(job.worktree!, config, job.base, `refs/remotes/${remote}/${job.base}`);
   // `=== true`, not truthiness: the tests' loose type check narrows the union only on the literal.
-  if (fetched.ok === true || mode !== 'block') return;
+  if (fetched.ok === true) return true;
+  if (mode !== 'block') return false;
   const fix = fetched.rewritten ? `fix the git config's insteadOf/pushInsteadOf entries` : `check that ${remote}'s push remote is reachable`;
   throw new ForgeError(`can't refresh base ${job.base} from the push remote before the secret scan (${fetched.why}); forge pr open won't push a range it can't scan against the real base: ${fix}, then retry forge pr open ${job.id}`, 'external', `forge pr open ${job.id}`);
 }

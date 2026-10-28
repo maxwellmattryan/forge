@@ -1,4 +1,5 @@
-// The PR title and body Forge sends: summary, escalation approval, sibling links and issue lines.
+// The PR title and body Forge sends: summary, the gate section (why the merge waits on a person, or
+// the escalation approval), sibling links and issue lines.
 import path from 'node:path';
 import { isActive, isForemanActor, jobDir, listJobs, readEvents } from '#core/job/store.ts';
 import { isSafeUrl, nativeRef, sameIssue } from '#core/job/issue-ref.ts';
@@ -6,14 +7,33 @@ import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { MARKER } from '#integrations/github/pull-requests.ts';
 import { isLinkedJob } from '../project/repo-order.ts';
 import { attributionForbidden, stripAttribution } from '../guard/attribution.ts';
+import { sections } from '../pipeline/moves/foreman-gates.ts';
+import type { MergeGate } from '../pipeline/step/stages/pr.ts';
 import type { ActorSource, Config, Job, JobEvent } from '#core/types.ts';
-import { readText } from '#core/os/fs.ts';
+import { readRegularText, readText } from '#core/os/fs.ts';
 import { safeText } from '#core/text.ts';
 
 // The sibling line's section: Forge rewrites only what sits between these, so a human's edits to
 // the rest of a linked job's PR body survive every update.
 export const SIBLINGS_START = '<!-- forge:siblings -->';
 export const SIBLINGS_END = '<!-- /forge:siblings -->';
+// The gate section, the same way: `forge pr gate` rewrites only what sits between these.
+export const GATE_START = '<!-- forge:gate -->';
+export const GATE_END = '<!-- /forge:gate -->';
+
+/** decision.md and runbook.md are read only up to this, as regular files (never through a link). */
+const MAX_GATE_FILE = 256 * 1024;
+/** Each quoted block in the gate section is cut here. */
+const MAX_BLOCK = 4000;
+/** Control characters a text block drops: all but tab and newline, and the Unicode line and paragraph separators. */
+const BLOCK_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u{2028}\u{2029}]/gu;
+/** Line breaks a one-line reason folds into spaces. */
+const BREAKS = /[\r\n\t\u{2028}\u{2029}]+/gu;
+/**
+ * Every Forge section marker opens with `<!--`. Text an agent wrote goes between the gate markers with
+ * that opener broken, so it can never carry a marker that `spliceSection` would take for the section's end.
+ */
+const noMarker = (s: string): string => s.replace(/<!--/g, '<!- -');
 
 /**
  * The PR title and body exactly as `forge pr open` sends them, so the secret scan (and
@@ -42,7 +62,7 @@ export function escalationApproval(events: JobEvent[]): EscalationApproval | nul
   if (!approve || isForemanActor(approve) || typeof approve.ts !== 'string') return null;
   const actor = approve.actor && typeof approve.actor === 'object' ? approve.actor : { login: null, source: 'unknown' as const };
   // One line: breaks become spaces before safeText drops the remaining control characters and backticks.
-  const oneLine = String(events[park].reason ?? '').replace(/[\r\n\t\u2028\u2029]+/g, ' ');
+  const oneLine = String(events[park].reason ?? '').replace(BREAKS, ' ');
   const reason = safeText(oneLine, 200).replace(/ {2,}/g, ' ').trim().replace(/[.\s]+$/, '') || 'no reason recorded';
   return { reason, login: actor.login, source: actor.source, ts: approve.ts };
 }
@@ -65,14 +85,25 @@ export function approvedBy(a: EscalationApproval): string {
   return `\`${login}\` (${a.source}) on ${date}`;
 }
 
+/**
+ * The escalation approval line, or ''. The reason was written by an agent that read untrusted text, so
+ * it goes in a code span: no mention, link, image or HTML in it renders on a public PR (safeText
+ * already removed backticks).
+ */
+function approvalLine(events: JobEvent[]): string {
+  const approval = escalationApproval(events);
+  return approval ? `## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.` : '';
+}
+
+/** A gate section in its markers: `text` on lines of its own, or nothing between them. */
+const gateBlock = (text: string): string => (text ? `${GATE_START}\n${noMarker(text)}\n${GATE_END}` : `${GATE_START}\n${GATE_END}`);
+
 function prBody(root: string, config: Config, job: Job): string {
   const dir = jobDir(root, job.id);
   const custom = readText(path.join(dir, 'pr.md')).trim();
   const parts = [custom || `## Summary\n\n${firstParagraph(readText(path.join(dir, 'spec.md'))) || job.title}`];
-  const approval = escalationApproval(readEvents(root, job.id));
-  // The reason was written by an agent that read untrusted text, so it goes in a code span: no
-  // mention, link, image or HTML in it renders on a public PR (safeText already removed backticks).
-  if (approval) parts.push(`## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`);
+  // Always present, so `forge pr gate` can fill it later; the approval line lives inside it, never twice.
+  parts.push(gateBlock(approvalLine(readEvents(root, job.id))));
   if (isLinkedJob(job)) parts.push(`${SIBLINGS_START}\n${SIBLINGS_END}`);
   const issueLines = issueReferences(root, config, job);
   if (issueLines.length) parts.push(issueLines.join('\n'));
@@ -118,14 +149,52 @@ export function memberPrBody(root: string, config: Config, job: Job): string {
 }
 
 /**
- * `body` with `line` between the first SIBLINGS_START and the next SIBLINGS_END, or null when either
- * marker is missing (a human removed them, so Forge no longer owns any part of the body).
+ * `body` with `text` between `start` and `end`, or null unless the body holds each marker exactly once,
+ * `start` first (a human removed them, or text copied a marker, so Forge no longer owns that part of
+ * the body: a second marker would make the section's end a guess).
  */
-export function spliceSiblings(body: string, line: string): string | null {
-  const s = body.indexOf(SIBLINGS_START);
-  if (s < 0) return null;
-  const from = s + SIBLINGS_START.length;
-  const e = body.indexOf(SIBLINGS_END, from);
-  if (e < 0) return null;
-  return `${body.slice(0, from)}\n${line}\n${body.slice(e)}`;
+export function spliceSection(body: string, start: string, end: string, text: string): string | null {
+  const once = (marker: string): number => (body.indexOf(marker) === body.lastIndexOf(marker) ? body.indexOf(marker) : -1);
+  const s = once(start);
+  const e = once(end);
+  if (s < 0 || e < s + start.length) return null;
+  return `${body.slice(0, s + start.length)}\n${text ? `${text}\n` : ''}${body.slice(e)}`;
+}
+
+/** spliceSection over the siblings markers. */
+export const spliceSiblings = (body: string, line: string): string | null => spliceSection(body, SIBLINGS_START, SIBLINGS_END, line);
+
+/**
+ * Agent-written text as a fenced text block on a public PR: control characters dropped, every run of
+ * three or more backticks broken so the fence can't close early (nothing after it renders as markdown,
+ * a mention or HTML), and cut at MAX_BLOCK. A section marker in it is broken by gateSection (noMarker).
+ */
+function textBlock(raw: string): string {
+  let t = raw.replace(/\r\n?/g, '\n').replace(BLOCK_CONTROL, '').replace(/`{3,}/g, "'''").trim();
+  if (t.length > MAX_BLOCK) t = `${t.slice(0, MAX_BLOCK)}\n… (truncated)`;
+  return `\`\`\`text\n${t || '(empty)'}\n\`\`\``;
+}
+
+/** The body of a job-dir file's `## <title>` section, read as a regular file; '' when there is none. */
+function fileSection(root: string, id: string, file: string, title: string): string {
+  const text = readRegularText(path.join(jobDir(root, id), file), MAX_GATE_FILE);
+  return text === null ? '' : sections(text, [title]).join('\n').trim();
+}
+
+/**
+ * What `forge pr gate` puts between the gate markers. With an open merge gate: why the merge waits
+ * (the reason in a code span), decision.md's `## For the human` for an escalation and runbook.md's
+ * `## Steps` for a runbook, each as a text block, and who decides. Without one: the escalation
+ * approval line, or nothing.
+ */
+export function gateSection(root: string, config: Config, job: Pick<Job, 'id'>, gate: MergeGate | null, events: JobEvent[]): string {
+  let text = approvalLine(events);
+  if (gate) {
+    const parts = ['## Waiting on a decision before merge', `\`${safeText(gate.reason.replace(BREAKS, ' '), 200)}\``];
+    if (gate.rule === 'PR15') parts.push('### For the human', textBlock(fileSection(root, job.id, 'decision.md', 'For the human')));
+    if (gate.rule === 'PR16') parts.push('### Before merge', textBlock(fileSection(root, job.id, 'runbook.md', 'Steps')));
+    parts.push('A person approves this gate in Forge before the PR can merge.');
+    text = parts.join('\n\n');
+  }
+  return noMarker(attributionForbidden(config) ? stripAttribution(text) : text);
 }

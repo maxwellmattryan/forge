@@ -4,6 +4,7 @@
      it as plain text. -->
 <script lang="ts">
   import JobActions from './JobActions.svelte';
+  import GatePrNote from './GatePrNote.svelte';
   import PermissionPrompts from './PermissionPrompts.svelte';
   import { dockModel } from '../lib/dock.ts';
   import { decisionInFlight } from '../lib/decision.ts';
@@ -31,6 +32,6 @@
         {#if r.note}<span id="dock-owner-note-{job.id}" class="min-w-0 text-sm text-muted wrap-anywhere">{r.note === 'live' ? $t('drawer.ownerLive', values) : $t('drawer.ownerExpired', values)}</span>{/if}
       </div>
     {/if}
-    {#if m.actionable}{#key job.id}<JobActions {job} noteId="dock-note-{job.id}" />{/key}{/if}
+    {#if m.actionable}<GatePrNote {job} />{#key job.id}<JobActions {job} noteId="dock-note-{job.id}" />{/key}{/if}
   </section>
 {/if}

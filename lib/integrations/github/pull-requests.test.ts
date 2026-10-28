@@ -207,6 +207,8 @@ const OPS: { name: string; reply: RunResult; call: (g: GitHub) => unknown; argv:
   { name: 'editBase', reply: ok(), call: (g) => g.editBase('/r', 'o/r', 7, 'develop'), argv: ['pr', 'edit', '7', '-R', 'o/r', '--base', 'develop'] },
   { name: 'editBody', reply: ok(), call: (g) => g.editBody('/r', 'o/r', 7, '/b.md'), argv: ['pr', 'edit', '7', '-R', 'o/r', '--body-file', '/b.md'] },
   { name: 'ready', reply: ok(), call: (g) => g.ready('/r', 'o/r', 7), argv: ['pr', 'ready', '7', '-R', 'o/r'] },
+  { name: 'editLabels', reply: ok(), call: (g) => g.editLabels('/r', 'o/r', 7, { add: ['forge:needs-human'], remove: ['-x'] }), argv: ['pr', 'edit', '7', '-R', 'o/r', '--add-label=forge:needs-human', '--remove-label=-x'] },
+  { name: 'createLabel', reply: ok(), call: (g) => g.createLabel('/r', 'o/r', '-x', 'd'), argv: ['label', 'create', '-R', 'o/r', '--description=d', '--color=FBCA04', '--', '-x'] },
   {
     name: 'headChecks',
     reply: ok(JSON.stringify({ data: { repository: { object: { checkSuites: { pageInfo: { hasNextPage: false }, nodes: [] }, status: null } } } })),
