@@ -1,7 +1,9 @@
-// The Needs you PR row's actions follow why the PR waits: failing checks, feedback, both or neither.
+// The Needs you PR row's actions follow why the PR waits: failing checks, feedback, both or neither;
+// and its CI buttons post the action with the head the row showed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { prActions } from './pr-actions.ts';
+import { postPrCi, prActions } from './pr-actions.ts';
+import { setProject } from './project.ts';
 import type { Job } from './types.ts';
 
 const HEAD = 'b'.repeat(40);
@@ -30,4 +32,22 @@ test('prActions', () => {
     ['a negative or fractional count', pr({ checks: checks('passing'), unresolvedThreads: -1, feedbackSinceRound: 0.5 }), []],
   ];
   for (const [name, p, want] of rows) assert.deepEqual(prActions(p), want, name);
+});
+
+test('postPrCi posts the action and the head', async () => {
+  const seen: { url: string; init: RequestInit }[] = [];
+  const reply = { action: 'fix-ci', id: 'j 1', head: HEAD, checks: ['test'] };
+  const fetchImpl = (async (url: string, init: RequestInit) => {
+    seen.push({ url, init });
+    return new Response(JSON.stringify(reply), { status: 200 });
+  }) as unknown as typeof fetch;
+  setProject('web');
+  assert.deepEqual(await postPrCi('j 1', { action: 'fix-ci', head: HEAD }, fetchImpl), reply);
+  assert.equal(seen[0].url, '/api/p/web/jobs/j%201/ci');
+  assert.equal(seen[0].init.method, 'POST');
+  assert.deepEqual(JSON.parse(String(seen[0].init.body)), { action: 'fix-ci', head: HEAD });
+  assert.deepEqual(seen[0].init.headers, { 'content-type': 'application/json' });
+
+  const refusing = (async () => new Response(JSON.stringify({ error: 'job j moved; nothing started' }), { status: 409 })) as unknown as typeof fetch;
+  await assert.rejects(postPrCi('j', { action: 'rerun', head: HEAD }, refusing), /job j moved; nothing started/);
 });

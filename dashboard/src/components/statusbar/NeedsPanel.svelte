@@ -1,5 +1,7 @@
 <!-- The Needs-you popover's body (the page it replaced): every pending permission prompt in the pool, answered right here,
-     then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review, jobs
+     then decisions only a human can make (goal mandates' milestone drafts first, then jobs), PRs awaiting review (each
+     row's actions follow why it waits, prActions: Re-run failed checks and Fix CI post to /api/jobs/:id/ci at the head the
+     row shows, Address the PR feedback queues the fixed-text rework, and a PR with neither offers only Open PR), jobs
      parked on their dependencies (listed apart: they resume by themselves, but a human may unblock one), the Shelved
      list (ShelfSection: jobs a person set aside, not counted in the badge), and queued requests (a job-less one names
      its mandate when it has one).
@@ -17,12 +19,14 @@
   import { showRepoSection } from '../../lib/repo-budget.ts';
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
-  import type { ApiState } from '../../lib/types.ts';
+  import type { ApiState, PostJobCiBody, StateJob } from '../../lib/types.ts';
+  import { postPrCi, prActions } from '../../lib/pr-actions.ts';
+  import { toast } from '../../lib/toast.svelte.ts';
   import { cardRef } from '../../lib/board.ts';
   import { inboxGroups, requestSubject } from '../../lib/inbox.ts';
   import MilestoneDraftCard from '../MilestoneDraftCard.svelte';
   import { pendingPrompts } from '../../lib/permissions.ts';
-  import { S, openDrawer, req } from '../../lib/app.svelte.ts';
+  import { S, openDrawer, refresh, req } from '../../lib/app.svelte.ts';
   import { ticker } from '../../lib/clock.svelte.ts';
   import { keepFocus } from '../../lib/popover.svelte.ts';
   import { t } from '../../lib/locale.ts';
@@ -41,6 +45,44 @@
     void groups.shelved.length;
     keepFocus();
   });
+
+  // The PR row's CI posts in flight, by job: every CI button in that row is disabled until its post answers.
+  let busy = $state<Record<string, boolean>>({});
+
+  /** Posts a CI action at the head the row shows; false when there is none or one is already in flight. */
+  async function postCi(j: StateJob, action: PostJobCiBody['action']): Promise<boolean> {
+    const head = j.pr?.headOid;
+    if (busy[j.id] || typeof head !== 'string') return false;
+    busy[j.id] = true;
+    try {
+      await postPrCi(j.id, { action, head });
+      return true;
+    } finally {
+      busy[j.id] = false;
+      await refresh();
+    }
+  }
+
+  const failure = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+  async function rerun(j: StateJob): Promise<void> {
+    try {
+      if (await postCi(j, 'rerun')) toast($t('inbox.rerunStarted'));
+    } catch (err) {
+      toast($t('inbox.rerunFailed', { error: failure(err) }), true);
+    }
+  }
+
+  async function fixCi(j: StateJob): Promise<void> {
+    try {
+      if (await postCi(j, 'fix-ci')) toast($t('inbox.fixCiStarted'));
+    } catch (err) {
+      toast($t('inbox.fixCiFailed', { error: failure(err) }), true);
+    }
+  }
+
+  // The same fixed-text rework the row always sent: no PR text travels with it.
+  const addressFeedback = (j: StateJob) => req({ type: 'rework', job: j.id, fixedText: 'Address the PR feedback' });
 </script>
 
 <!-- plain: the popover's own surface, so the panel keeps its text off the grain wherever it renders. -->
@@ -68,9 +110,17 @@
             <button class="h card block w-full text-left break-words hover:text-gleam" onclick={() => openDrawer(j.id)}>{j.title}</button>
             <div class="flex flex-wrap items-center gap-2">
               <PrChip pr={j.pr} />
-              <span class="text-muted">{j.pr?.unresolvedThreads ? $t('inbox.threads', { count: j.pr.unresolvedThreads }) : $t('inbox.noThreads')}{j.pr?.behindBy ? $t('inbox.behind', { count: j.pr.behindBy }) : ''}</span>
+              <span class="text-muted">{j.pr?.unresolvedThreads ? $t('inbox.threads', { count: j.pr.unresolvedThreads }) : $t('inbox.noThreads')}{j.pr?.feedbackSinceRound ? $t('inbox.newFeedback', { count: j.pr.feedbackSinceRound }) : ''}{j.pr?.behindBy ? $t('inbox.behind', { count: j.pr.behindBy }) : ''}</span>
               {#if u}<a class="btn sm" href={u} target="_blank" rel="noopener"><Icon name="pull-request" />{$t('inbox.openPr')}</a>{/if}
-              <button class="btn sm" onclick={() => req({ type: 'rework', job: j.id, fixedText: 'Address the PR feedback' })}>{$t('inbox.addressFeedback')}</button>
+              {#each prActions(j.pr) as a (a)}
+                {#if a === 'rerun'}
+                  <button class="btn sm" disabled={busy[j.id]} onclick={() => rerun(j)}>{$t('inbox.rerunChecks')}</button>
+                {:else if a === 'fix-ci'}
+                  <button class="btn sm" disabled={busy[j.id]} onclick={() => fixCi(j)}>{$t('inbox.fixCi')}</button>
+                {:else}
+                  <button class="btn sm" onclick={() => addressFeedback(j)}>{$t('inbox.addressFeedback')}</button>
+                {/if}
+              {/each}
             </div>
           </li>
         {/each}
