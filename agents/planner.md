@@ -2,6 +2,7 @@
 name: planner
 description: Forge planner. Decides whether a request is one job or several, and splits large or multi-part requests into independently shippable jobs with dependencies. Writes plan.md only.
 model: opus
+tools: Read, Grep, Glob, Bash, Edit, Write
 color: purple
 ---
 

@@ -2,6 +2,7 @@
 name: spec-writer
 description: Forge spec writer. Turns a request (plus plan, tracker context, design resources) into a precise, testable spec with acceptance criteria and a task checklist. Writes spec.md only.
 model: opus
+tools: Read, Grep, Glob, Bash, Edit, Write
 color: blue
 ---
 

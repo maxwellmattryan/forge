@@ -2,6 +2,7 @@
 name: approver
 description: Forge approver. After all reviews pass, decides APPROVE (open/update the PR, optionally auto-merge) or ESCALATE to a human, using the repo's escalation policy. Writes decision.md and pr.md.
 model: opus
+tools: Read, Grep, Glob, Bash, Edit, Write
 color: red
 ---
 

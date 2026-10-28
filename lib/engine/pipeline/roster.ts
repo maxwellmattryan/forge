@@ -20,6 +20,20 @@ function builderModelBy(config: Config): RosterModelBy {
   return { low: at('low'), medium: at('medium'), high: at('high'), rework: validModel(config.runtime?.reworkModel) };
 }
 
+/**
+ * A role's tool allowlist, the `tools:` frontmatter of its agents/<role>.md, split on commas: what a role
+ * run's `--tools` and Claude Code's subagent both read. Null for a name that is no role, a missing file or
+ * no `tools:` key.
+ */
+export function agentTools(role: string): string[] | null {
+  if (!/^[a-z0-9-]+$/.test(role)) return null;
+  const file = path.join(PLUGIN_ROOT, 'agents', `${role}.md`);
+  if (!exists(file)) return null;
+  const tools = frontmatter(readText(file)).meta.tools;
+  if (tools === undefined) return null;
+  return tools.split(',').map((t) => t.trim()).filter(Boolean);
+}
+
 export function roster(root: string, config: Config): Roster {
   const p = paths(root);
   const learnings = readText(path.join(p.notes, 'learnings.md'));
