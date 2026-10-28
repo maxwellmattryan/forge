@@ -194,6 +194,8 @@ export function defaults(): Config {
       integrationReview: 'code-only',
       // Consecutive CI reworks forge sync starts before a red head waits for a person.
       maxCiReworks: 3,
+      // The label `forge pr gate` puts on a PR whose merge waits on a person; null: no label.
+      needsHumanLabel: 'forge:needs-human',
     },
     merge: {
       auto: false,

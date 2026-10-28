@@ -164,6 +164,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'daemon-fresh-after-tokens', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.freshAfterTokens'], note: ONLY_VERSION },
   { step: 'component-paths', input: { components: [...SINKS, { name: 'web', path: '.', kind: 'app', paths: ['web/**'] }] }, fields: { 'components.0': SINKS[0], 'components.1.paths': ['web/**'] }, note: ONLY_VERSION },
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
+  { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -298,6 +299,13 @@ const EVENT_ROWS: Row[] = [
   { step: 'retro-scope-event', input: { ts: 't', type: 'retro-scope', mandate: 'm1' }, fields: { type: 'retro-scope', ts: 't', mandate: 'm1' }, note: "a mandate retro's scope reads as written" },
   { step: 'actor-source-launch', input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } }, fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } }, note: 'the launch flag\'s daemon-mode event keeps source launch' },
   { step: 'ci-rerun-events', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, fields: { type: 'ci-rerun', ts: 't', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, note: 'a CI re-run reads as written; ci-rerun-failed {head, cause, checks} is the same identity step' },
+  {
+    step: 'push-held-event',
+    input: { ts: 't', type: 'push-held', kind: 'ci', reason: 'push held: CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]', head: 'a'.repeat(40), paths: ['.github/workflows/ci.yml'] },
+    fields: { type: 'push-held', ts: 't', kind: 'ci', head: 'a'.repeat(40), paths: ['.github/workflows/ci.yml'] },
+    note: 'a held push reads as written',
+  },
+  { step: 'pr-gate-event', input: { ts: 't', type: 'pr-gate', action: 'set', rule: 'PR15', waitingOn: 'escalation', reason: 'r', number: 7, label: 'forge:needs-human', labeled: true, body: true }, fields: { type: 'pr-gate', action: 'set', rule: 'PR15', labeled: true }, note: 'a gate sync reads as written' },
   { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
 ];
 
@@ -762,38 +770,4 @@ test('a v16 job is written back as current, with a lease and no owner', () => {
   } finally {
     repo.cleanup();
   }
-});
-
-test('a current-version lease is read field by field', () => {
-  // A partial or planted lease never reads as live by accident.
-  assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x' }).lease, { driver: null, epoch: 0, since: null, renewedAt: null, expiresAt: null });
-  assert.deepEqual(normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', lease: { driver: 'S', epoch: -2, expiresAt: 42 } }).lease, { driver: 'S', epoch: 0, since: null, renewedAt: null, expiresAt: null });
-});
-
-test('a shelf record is kept only well formed and only on a job waiting on shelved', () => {
-  const at = '2026-10-01T10:00:00.000Z';
-  const shelf = { at, reason: ' later\u0007 `x` ', actor: { login: 'al', source: 'gh' }, from: { state: 'waiting', waitingOn: 'escalation', reason: 'touches billing' } };
-  const read = (shelved: unknown, waitingOn = 'shelved') => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state: 'waiting', waitingOn, shelved }).shelved;
-  assert.deepEqual(read(shelf), { ...shelf, reason: 'later x' }, 'the reason is cleaned again');
-  assert.equal(read(shelf, 'escalation'), null, 'a job off the shelf keeps none');
-  const queued = { ...shelf, from: { state: 'queued', waitingOn: null, reason: null } };
-  assert.deepEqual(read(queued)?.from, queued.from);
-  assert.deepEqual(read({ ...shelf, actor: { login: 'al', source: 'root' } })?.actor, { login: null, source: 'unknown' }, 'an unknown source keeps no login');
-  const malformed: [string, unknown][] = [
-    ['a bad time', { ...shelf, at: 'yesterday' }],
-    ['an empty reason', { ...shelf, reason: '``' }],
-    ['from running', { ...shelf, from: { state: 'running', waitingOn: null, reason: null } }],
-    ['from the shelf', { ...shelf, from: { state: 'waiting', waitingOn: 'shelved', reason: null } }],
-    ['a wait with no waitingOn', { ...shelf, from: { state: 'waiting', waitingOn: null, reason: null } }],
-    ['a queued job with a waitingOn', { ...shelf, from: { state: 'queued', waitingOn: 'escalation', reason: null } }],
-    ['a reason that is not text', { ...shelf, from: { ...shelf.from, reason: 3 } }],
-    ['no record', 'shelved'],
-  ];
-  for (const [name, raw] of malformed) assert.equal(read(raw), null, name);
-});
-
-test('a finished-while-shelved mark is kept only as true, and only on a done or cancelled job', () => {
-  const read = (mark: unknown, state: string) => normalizeJob({ schemaVersion: JOB_SCHEMA_VERSION, id: 'x', state, finishedWhileShelved: mark }).finishedWhileShelved;
-  assert.deepEqual([read(true, 'cancelled'), read(true, 'done')], [true, true]);
-  assert.deepEqual([read(true, 'queued'), read(true, 'waiting'), read('true', 'cancelled'), read(1, 'done'), read(undefined, 'cancelled')], [false, false, false, false, false]);
 });

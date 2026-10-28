@@ -1,12 +1,14 @@
-// Opening a job's PRs: the checks before anything leaves the machine, interim deferrals and drafts,
-// the pushes and the PRs, and retargeting a stacked PR.
-import fs from 'node:fs';
+// Opening a job's PRs: the checks before anything leaves the machine (the held push among them),
+// interim deferrals and drafts, the pushes and the PRs, the gate section and label `forge pr gate`
+// syncs while the merge waits on a person, and retargeting a stacked PR.
 import path from 'node:path';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import { prLinkNote } from '#core/job/issue-link.ts';
 import type { Config, Job, JobRepoPr } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
+import { safeText } from '#core/text.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { assertJobPr, safePrNumber } from '#integrations/github/pull-requests.ts';
 import type { GitHub } from '#integrations/github/types.ts';
@@ -15,19 +17,27 @@ import { memberEntry, memberRepos } from '../project/job-repos.ts';
 import { unpromotedDownstream } from '../project/downstream.ts';
 import { jobRepoOrder } from '../project/repo-order.ts';
 import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
-import { checkBranch, logEscalated, protectedApproved, refusalText } from '../guard/protected.ts';
-import type { MemberBranch } from '../guard/protected.ts';
+import { LIST_LIMIT, checkBranch, logEscalated, protectedApproved, refusalText } from '../guard/protected.ts';
+import type { BranchCheck, MemberBranch } from '../guard/protected.ts';
+import { ciHoldReason, isCiHit, pushCiChanges, pushHoldApproved, secretsHoldReason, securityHoldReason } from '../guard/push-hold.ts';
+import type { CiChange } from '../guard/push-hold.ts';
 import { attributionForbidden, scrubBranch } from '../guard/attribution.ts';
 import { logSecrets, refusalMessage, refuseSecrets, scanBranch, secretMode, secretsBlock, textUnit } from '../guard/secrets.ts';
+import type { SecretMode } from '../guard/secrets.ts';
+import type { SecretScan } from '../guard/types.ts';
 import { verifiedHead } from '../verify/gate.ts';
 import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from '../release/interim.ts';
 import type { Deferral } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
 import { findPr } from './adopt.ts';
-import { prText } from './body.ts';
+import { GATE_END, GATE_START, gateSection, prText, spliceSection } from './body.ts';
+import { loadStepInput } from '../pipeline/step/input.ts';
+import { computeFacts } from '../pipeline/step/facts.ts';
+import { mergeGate } from '../pipeline/step/stages/pr.ts';
+import type { MergeGate } from '../pipeline/step/stages/pr.ts';
 import { pullPrHead, pushBranch, refreshBase } from './branch.ts';
 import { checkMemberPr, linkSiblingsQuietly, memberSlug, openMemberPr, recordMemberPr } from './members.ts';
-import type { MemberPrResult } from './members.ts';
+import type { MemberPrPlan, MemberPrResult } from './members.ts';
 import { requiredChecksNote } from './required.ts';
 
 export function openPr(
@@ -68,7 +78,7 @@ export function openPr(
   // The commits are scanned here too, verified or not: this is the real exit, a HEAD verified by a
   // Forge without the scanner was never scanned, and --force skips verify altogether.
   const mode = secretMode(config);
-  refreshBase(job, config, mode);
+  const fresh = refreshBase(job, config, mode);
   const scan = scanBranch(root, config, job, { staged: false, head: evidence.head });
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
@@ -83,7 +93,9 @@ export function openPr(
   // After checkMemberPr, which refreshes each member's base from its push remote and pushes nothing:
   // a member's remote-tracking base is writable from its worktree, and checked stale it would hide
   // the member's protected paths behind an empty diff, as the root's refresh above prevents for it.
-  refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
+  const check = refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
+  // Still before any push in any repo, and --force doesn't skip it: the held push.
+  refusePushHold(root, config, job, evidence.head, plans, { scan, mode, fresh }, check);
   // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
   // the checks (a stale session, a process the builder left behind) must not ride along.
   const checked = evidence.head;
@@ -144,7 +156,7 @@ export function openPr(
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred, ...requiredChecksNote(config, github, job.worktree!, slug, job.base!) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
-  fs.writeFileSync(bodyFile, text.body);
+  writeAtomic(bodyFile, text.body);
   // A consumer on a local edge has nothing CI can resolve, and one on a sequential edge waits for the
   // dependency's release: its PR is held as a draft.
   const isDraft = interim.drafts.has(null) || Boolean(opts.draft ?? config.pr.draft);
@@ -240,18 +252,128 @@ function freshMerged(root: string, config: Config, github: GitHub, job: Job, key
 
 /**
  * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
- * recomputed from the branch (a hand-cleared job.json flag changes nothing), a refuse path stops the
- * open, and escalate paths stop it until a human approved their current content at a PP1 park.
+ * recomputed from the branch (a hand-cleared job.json flag changes nothing) and a refuse path stops
+ * the open. An escalate CI path stops it until a human approved its current content (PP1, before the
+ * push): pushing it runs it. Other escalate paths are pushed and logged, and wait for the approval
+ * before merge (PP1b).
  */
-function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): void {
+function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): BranchCheck {
   const id = job.id;
   const c = checkBranch(root, config, job, head, 'pr', members);
   if (c.error) throw new ForgeError(`can't check ${id}'s protected paths (${c.error}); forge pr open won't push a branch it can't check`, 'protected_path');
   if (c.refused.length) throw new ForgeError(refusalText('forge pr open', c.refused), 'protected_path');
   if (c.escalated.length && !protectedApproved(c.flag, readEvents(root, id))) {
-    logEscalated(root, id, 'pr', c.escalated, head, true);
-    throw new ForgeError(`protected paths need a human approval: ${c.escalated.length} paths; /forge approve ${id}`, 'protected_path');
+    const ci = c.escalated.filter((h) => isCiHit(h.path));
+    logEscalated(root, id, 'pr', c.escalated, head, ci.length > 0);
+    if (ci.length) throw new ForgeError(`protected CI paths need a human approval before the push: ${ci.length} paths; /forge approve ${id}`, 'protected_path');
   }
+  return c;
+}
+
+/**
+ * The held push (lib/engine/guard/push-hold.ts), after the protected-paths check and before any push,
+ * member push or create: the latest security verdict, the secrets the scan only reported, then every
+ * repo's CI changes since what Forge last pushed. CI paths a person approved as protected paths at
+ * this content are not held twice. The first hold no person approved at its exact reason is logged
+ * (`push-held`, which step's PR13 parks on) and refused. The secrets hold reads every repo's commit
+ * scan (`scanned` is the root's, each member's rides on its plan). A repo whose base could not be
+ * re-read from the push remote (`fresh`, only possible under `warn`) has a CI diff that can't be
+ * trusted, since the remote-tracking ref it reads is writable from the worktree: that refuses the push.
+ */
+function refusePushHold(root: string, config: Config, job: Job, head: string, plans: MemberPrPlan[], scanned: { scan: SecretScan; mode: SecretMode; fresh: boolean }, check: BranchCheck): void {
+  const id = job.id;
+  const events = readEvents(root, id);
+  const stale = [...(scanned.fresh ? [] : ['the root repo']), ...plans.filter((p) => !p.fresh).map((p) => `repo ${p.repo}`)];
+  if (stale.length) throw new ForgeError(`can't re-read the base of ${stale.join(', ')} from ${config.git.remote}'s push remote, so ${id}'s CI changes can't be checked; forge pr open won't push a branch it can't check`, 'push_held');
+  let changes: CiChange[];
+  try {
+    changes = [
+      ...pushCiChanges(job.worktree!, config, job, head, job.pr?.pushedSha),
+      ...plans.flatMap((p) => pushCiChanges(p.worktree, config, { base: p.base }, p.checked, memberEntry(job, p.repo)?.pr?.pushedSha, p.repo)),
+    ];
+  } catch (e) {
+    throw new ForgeError(`can't check ${id}'s CI changes (${(e as Error).message.split('\n')[0].slice(0, 200)}); forge pr open won't push a branch it can't check`, 'push_held');
+  }
+  if (check.flag && protectedApproved(check.flag, events)) {
+    const approved = new Set(check.escalated.map((h) => `${h.path}\0${h.blob ?? ''}`));
+    changes = changes.filter((c) => !approved.has(`${c.path}\0${c.blob ?? ''}`));
+  }
+  const holds: { kind: 'security' | 'secrets' | 'ci'; reason: string | null; paths?: string[] }[] = [
+    { kind: 'security', reason: securityHoldReason(job) },
+    { kind: 'secrets', reason: secretsHoldReason(scanned.scan, scanned.mode, head, plans.map((p) => ({ repo: p.repo, head: p.checked, scan: p.scan }))) },
+    { kind: 'ci', reason: changes.length ? ciHoldReason(changes) : null, paths: changes.slice(0, LIST_LIMIT).map((c) => c.path) },
+  ];
+  for (const h of holds) {
+    if (h.reason === null || pushHoldApproved(events, h.reason)) continue;
+    logEvent(root, id, 'push-held', { kind: h.kind, reason: h.reason, head, ...(h.paths ? { paths: h.paths } : {}) });
+    throw new ForgeError(`${h.reason}: nothing was pushed; a person approves it before forge pr open pushes ${id}`, 'push_held', `/forge approve ${id}`);
+  }
+}
+
+/** What `forge pr gate` did: its `pr-gate` event, or `none` when the job has no open PR. */
+export type PrGateResult =
+  | { action: 'none' }
+  | { action: 'set' | 'clear'; rule: MergeGate['rule'] | null; waitingOn: string | null; reason: string | null; number: number; label: string | null; labeled: boolean; body: boolean; error?: string };
+
+const LABEL_DESCRIPTION = 'A person decides in Forge before this PR merges';
+
+/**
+ * `forge pr gate`: says on the open root PR why its merge waits on a person, or that it no longer
+ * does. The gate is mergeGate over the job as step sees it, never a reason a session passes in. The
+ * section (between the gate markers; a body without them keeps its text) is scanned for secrets
+ * before any gh call, and `pr.needsHumanLabel` is added (created in the repo when missing) while a
+ * gate is open and removed once none is, if the last sync set it. A GitHub failure is recorded as
+ * `error` and never fails the job: the park, not the label, holds the merge.
+ */
+export function syncPrGate(root: string, config: Config, github: GitHub, id: string): PrGateResult {
+  const job = loadJob(root, id);
+  const number = job.pr?.state === 'OPEN' ? safePrNumber(job.pr.number) : null;
+  if (number === null) return { action: 'none' };
+  const x = loadStepInput(root, config, id);
+  const gate = mergeGate({ x, f: computeFacts(x) });
+  const events = readEvents(root, id);
+  const text = gateSection(root, config, job, gate, events);
+  refuseSecrets(root, config, [textUnit('(pr gate section)', text)], { what: 'the PR gate section', id, gate: 'pr' });
+  const label = typeof config.pr.needsHumanLabel === 'string' && config.pr.needsHumanLabel ? config.pr.needsHumanLabel : null;
+  const last = events.findLast((e) => e.type === 'pr-gate');
+  let labeled = false;
+  let body = false;
+  let error: string | undefined;
+  try {
+    github.require();
+    const slug = github.repoSlug(root, config);
+    // A recorded number is only edited while GitHub agrees it is this job's branch and base.
+    const read = (): string | null => {
+      const view = github.viewBody(root, slug, number);
+      assertJobPr(view, job.branch, job.base, `PR #${number} in ${slug}`);
+      return view.body;
+    };
+    const current = read();
+    const next = current === null ? null : spliceSection(current, GATE_START, GATE_END, text);
+    if (next !== null && next !== current) {
+      const file = path.join(jobDir(root, id), 'pr-gate-body.md');
+      writeAtomic(file, next);
+      // gh has no compare-and-swap edit: a body someone changed since the first read is left alone.
+      if (read() !== current) throw new ForgeError(`the body of PR #${number} changed while the gate section was being written`, 'external');
+      github.editBody(root, slug, number, file);
+      body = true;
+    }
+    if (label && gate) {
+      try {
+        github.editLabels(root, slug, number, { add: [label], remove: [] });
+      } catch (e) {
+        if (!/not found/i.test((e as Error).message)) throw e;
+        github.createLabel(root, slug, label, LABEL_DESCRIPTION);
+        github.editLabels(root, slug, number, { add: [label], remove: [] });
+      }
+      labeled = true;
+    } else if (label && !gate && last?.action === 'set' && last.labeled === true) github.editLabels(root, slug, number, { add: [], remove: [label] });
+  } catch (e) {
+    error = safeText(String((e as Error).message).split('\n')[0], 200);
+  }
+  const result: PrGateResult = { action: gate ? 'set' : 'clear', rule: gate?.rule ?? null, waitingOn: gate?.waitingOn ?? null, reason: gate?.reason ?? null, number, label, labeled, body, ...(error ? { error } : {}) };
+  logEvent(root, id, 'pr-gate', result);
+  return result;
 }
 
 /**

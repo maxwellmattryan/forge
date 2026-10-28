@@ -65,6 +65,8 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
   const heads = new Map<string, unknown>();
   const runs = new Map<string, unknown>();
   const failing = new Map<keyof GitHub, string>();
+  /** The labels each repo has: a PR label must exist in its repo (createLabel adds one). */
+  const repoLabels = new Map<string, Set<string>>();
   const calls: GitHubCall[] = [];
   const key = (slug: string, n: number) => `${slug}#${n}`;
   const failIf = (op: keyof GitHub) => {
@@ -160,6 +162,23 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
     ready: (_cwd, slug, number) =>
       read('ready', { slug, number }, () => {
         stored(slug, number).isDraft = false;
+      }),
+    editLabels: (_cwd, slug, number, change) =>
+      read('editLabels', { slug, number, add: [...change.add], remove: [...change.remove] }, () => {
+        const known = repoLabels.get(slug) ?? new Set<string>();
+        const missing = change.add.find((l) => !known.has(l));
+        if (missing !== undefined) throw new ForgeError(`gh pr edit failed: '${missing}' not found`, 'external');
+        const r = stored(slug, number);
+        const now = new Set(Array.isArray(r.labels) ? (r.labels as string[]) : []);
+        for (const l of change.add) now.add(l);
+        for (const l of change.remove) now.delete(l);
+        r.labels = [...now];
+      }),
+    createLabel: (_cwd, slug, name, description) =>
+      read('createLabel', { slug, name, description }, () => {
+        const known = repoLabels.get(slug) ?? new Set<string>();
+        if (known.has(name)) throw new ForgeError(`gh label create failed: label "${name}" already exists`, 'external');
+        repoLabels.set(slug, known.add(name));
       }),
     merge(_cwd, slug, number, opts) {
       calls.push({ op: 'merge', slug, number, ...opts });

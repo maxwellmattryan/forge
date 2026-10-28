@@ -49,7 +49,15 @@ export const EVENT_STEPS: readonly Step[] = [
   // v14 adds `ci-rerun` {head, runs, jobs, checks} and `ci-rerun-failed` {head, cause, checks}; an older Forge reads them as
   // generic events.
   { id: 'ci-rerun-events', up: (e) => e },
-  // v15 adds the `context-session` event ({role: 'context', session, round, agent, model, status, reason, usage}) and
+  // v15 adds the `push-held` event ({ kind, reason, head, paths? }): `forge pr open` held the push (CI config,
+  // a security review that isn't PASS, reported secrets) and step's PR13 parks on its reason. An older Forge
+  // reads it as a generic event.
+  { id: 'push-held-event', up: (e) => e },
+  // v16 adds the `pr-gate` event ({ action: set | clear | none, rule, waitingOn, reason, number, label, labeled, body,
+  // error? }): `forge pr gate` synced the PR's gate section and label; step's PR14 and PR18 read it. An older Forge
+  // reads it as a generic event.
+  { id: 'pr-gate-event', up: (e) => e },
+  // v17 adds the `context-session` event ({role: 'context', session, round, agent, model, status, reason, usage}) and
   // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
   // and ignores the field.
   { id: 'context-session-event', up: (e) => e },

@@ -33,8 +33,7 @@ function editConfig(root: string, edit: (c: any) => void): void {
   fs.writeFileSync(file, yaml.stringify(c));
 }
 
-// The Office pass child's stand-in: the real one is a `forge office pass` process that close() doesn't wait for,
-// so it could still write in the scratch repo (.forge/runtime/spend.json) while cleanup removes it.
+// The Office pass child's stand-in: the real one is a `forge office pass` process, and these tests spawn nothing real.
 const noPass = async (): Promise<string | null> => null;
 
 /** A pool over the scratch repo `r` with a fake claude; after the test it is closed, then the repo removed, in that order. */
