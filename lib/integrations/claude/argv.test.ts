@@ -133,11 +133,23 @@ test("roleArgv builds a role child's command line", () => {
     { name: 'an agent that is a flag', vars: { agent: 'forge:--x y' }, throws: /agent must match/ },
     { name: 'a session id that is not a uuid', vars: { session: { id: 'a1b2c3', resume: true } }, throws: /must be a uuid/ },
     { name: 'a session id that is a flag', vars: { session: { id: '--dangerously-skip-permissions', resume: false } }, throws: /must be a uuid/ },
+    // The trusted prefix: after the model and effort words, before the mode; null or absent changes nothing.
+    { name: 'a system prompt file', vars: { appendSystemPromptFile: '/r/.forge/runtime/prompt-prefix/a b.md' }, want: [...head, '--model', 'haiku', '--effort', 'low', '--append-system-prompt-file', '/r/.forge/runtime/prompt-prefix/a b.md', ...tail('default', ['--session-id', uuid])] },
+    { name: 'a system prompt file on a resume, without effort', vars: { appendSystemPromptFile: '/p.md', effort: null, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--append-system-prompt-file', '/p.md', ...tail('default', ['--resume', uuid])] },
+    { name: 'a null system prompt file', vars: { appendSystemPromptFile: null }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
+    { name: 'a relative system prompt file', vars: { appendSystemPromptFile: 'prefix.md' }, throws: /system prompt file must be an absolute path/ },
+    { name: 'a flag as the system prompt file', vars: { appendSystemPromptFile: '--dangerously-skip-permissions' }, throws: /system prompt file must be an absolute path/ },
+    ...['\0', '\r', '\n'].map((ch) => ({ name: `a system prompt file holding ${JSON.stringify(ch)}`, vars: { appendSystemPromptFile: `/r/a${ch}b.md` }, throws: /system prompt file must be an absolute path/ })),
   ];
   for (const row of rows) {
     const vars = { ...base, ...row.vars } as Vars;
     if (row.throws) assert.throws(() => roleArgv(vars), row.throws, row.name);
-    else assert.deepEqual(roleArgv(vars), row.want, row.name);
+    else {
+      const argv = roleArgv(vars);
+      assert.deepEqual(argv, row.want, row.name);
+      // #374 measured no effect from it under --agent.
+      assert.ok(!argv.includes('--exclude-dynamic-system-prompt-sections'), row.name);
+    }
   }
 });
 

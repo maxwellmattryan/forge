@@ -94,7 +94,10 @@
       "conflicts": {
         "one": "{count} merge conflict",
         "other": "{count} merge conflicts"
-      }
+      },
+      "ciRerun": "Re-ran the failed checks",
+      "ciRerunFailed": "Checks failed again after the re-run",
+      "ciRerunRefused": "Couldn't re-run the failed checks"
     },
     "live": {
       "label": "Open this job's Log",
