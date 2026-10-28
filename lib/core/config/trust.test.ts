@@ -1,4 +1,4 @@
-// daemonProblems' allowedTools and --max-budget-usd policing, and what trustDigest and daemonTrust pin, in-process
+// daemonProblems' allowedTools, --setting-sources and --max-budget-usd policing, the default command's isolation, and what trustDigest and daemonTrust pin, in-process
 // against scratch directories.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaults } from './keys/defaults.ts';
-import { daemonProblems, daemonTrust, trustDigest } from './trust.ts';
+import { splitWords } from '../text.ts';
+import { daemonIsolationWarning, daemonProblems, daemonTrust, trustDigest } from './trust.ts';
 
 function scratch(t: any): { root: string; write: (rel: string, text: string) => void } {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-trust-')));
@@ -31,6 +32,34 @@ test('daemonProblems polices file rules and MCP tools', () => {
     assert.equal(problems.length, 1, entry);
     assert.ok(problems[0].includes(JSON.stringify(entry)) && problems[0].includes('list bare Edit and Write'), entry);
   }
+});
+
+test('the default daemon.command loads no user settings or MCP servers', () => {
+  const c = defaults();
+  assert.ok(c.daemon.command.includes(' --setting-sources project,local --strict-mcp-config '), c.daemon.command);
+  assert.deepEqual(daemonProblems(c), []);
+  assert.equal(daemonIsolationWarning(c), null);
+  // The words buildArgv (lib/integrations/claude/argv.ts parseTemplate) splits it into; argv.test.ts builds it.
+  const words = splitWords(c.daemon.command);
+  const at = words.indexOf('--setting-sources');
+  assert.deepEqual(words.slice(at, at + 3), ['--setting-sources', 'project,local', '--strict-mcp-config']);
+});
+
+test('daemonProblems checks --setting-sources values', () => {
+  const problemsFor = (flag: string) => {
+    const c = defaults();
+    c.daemon.command = `claude -p {session} ${flag} --permission-mode default --allowedTools {allowedTools}`;
+    return daemonProblems(c).filter((p) => p.includes('--setting-sources'));
+  };
+  for (const ok of ["--setting-sources ''", '--setting-sources project,local', '--setting-sources user', '--setting-sources local', '--setting-sources=project', '--setting-sources='])
+    assert.deepEqual(problemsFor(ok), [], ok);
+  for (const [bad, got] of [
+    ['--setting-sources bogus', 'bogus'],
+    ['--setting-sources user,branch', 'user,branch'],
+    ['--setting-sources=project,../x', 'project,../x'],
+    ['--setting-sources --strict-mcp-config', '--strict-mcp-config'],
+  ])
+    assert.deepEqual(problemsFor(bad), [`daemon.command must pass --setting-sources a comma-separated subset of user, project, local (got ${JSON.stringify(got)})`], bad);
 });
 
 test('daemonProblems refuses a dollar cap in daemon.command', () => {

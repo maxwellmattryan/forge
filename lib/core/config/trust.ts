@@ -323,6 +323,9 @@ function wideningFlags(words: string[]): string[] {
     else if (flag === '--plugin-dir' && value !== '{pluginRoot}') problems.push(`daemon.command must not pass --plugin-dir ${value ?? ''}: only {pluginRoot} may be loaded, since ${why}`);
     else if ((flag === '--allowedTools' || flag === '--allowed-tools') && value !== '{allowedTools}')
       problems.push(`daemon.command must pass ${flag} {allowedTools}, not a literal list, so daemon.allowedTools is validated`);
+    // Only claude's three scopes: a source name Forge doesn't know could load settings nobody reviewed.
+    else if (flag === '--setting-sources' && !settingSources(value).every((s) => SETTING_SOURCES.includes(s)))
+      problems.push(`daemon.command must pass --setting-sources a comma-separated subset of ${SETTING_SOURCES.join(', ')} (got ${JSON.stringify(value ?? '')})`);
     // claude reads these flags' values variadically: a bare word after the value becomes one more
     // tool or plugin dir. {session} expands to --session-id/--resume, so it may follow.
     if (['--allowedTools', '--allowed-tools', '--plugin-dir'].includes(flag)) {
@@ -332,6 +335,41 @@ function wideningFlags(words: string[]): string[] {
     }
   }
   return problems;
+}
+
+/** The setting scopes `--setting-sources` may name. */
+const SETTING_SOURCES = ['user', 'project', 'local'];
+
+/** A --setting-sources value's names: split on commas, empty parts dropped; a missing value is no source. */
+function settingSources(value: string | undefined): string[] {
+  return (value ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/**
+ * The `daemon isolation` doctor warning: `daemon.command` loads the user's settings, plugins, hooks or
+ * MCP servers into every session when it lacks --strict-mcp-config or --setting-sources, or when its
+ * --setting-sources names `user`. Null for a lean command, or one that is not a string or doesn't
+ * split (daemonProblems reports that). Reads only the template, never the environment; never blocks.
+ */
+export function daemonIsolationWarning(c: unknown): string | null {
+  const command = isMap(c) && isMap(c.daemon) ? c.daemon.command : undefined;
+  if (typeof command !== 'string') return null;
+  let words: string[];
+  try {
+    words = splitWords(command, 'daemon.command');
+  } catch {
+    return null;
+  }
+  const args = words.slice(1);
+  const sources: string[][] = [];
+  args.forEach((w, i) => {
+    if (w === '--setting-sources') sources.push(settingSources(args[i + 1]));
+    else if (w.startsWith('--setting-sources=')) sources.push(settingSources(w.slice('--setting-sources='.length)));
+  });
+  const lean = args.includes('--strict-mcp-config') && sources.length > 0 && !sources.some((s) => s.includes('user'));
+  return lean
+    ? null
+    : 'daemon.command loads your user settings, plugins, hooks or MCP servers into every session: add --setting-sources project,local --strict-mcp-config (docs/CONFIG.md "Daemon")';
 }
 
 function insideRepo(root: string, file: string): boolean {
