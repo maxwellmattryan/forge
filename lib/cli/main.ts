@@ -18,7 +18,7 @@ import { mainRoot } from '#core/paths.ts';
 import { findPr } from '#engine/pr/adopt.ts';
 import { openPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
-import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
+import { integrate, integrateContinue } from '#engine/pr/branch.ts';
 import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
 import { rerunFailedChecks } from '#engine/pr/ci.ts';
 import { currentActor } from '#integrations/github/actor.ts';
