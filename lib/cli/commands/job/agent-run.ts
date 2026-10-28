@@ -12,6 +12,8 @@ import { meterDelta, type MeterCum } from '#engine/metrics/meter.ts';
 import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
 import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
+import { rolePrefix } from '#engine/guard/prompt-prefix.ts';
+import { withPrefixLine } from '#engine/pipeline/brief.ts';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import { commandPermissionMode, parseTemplate, roleArgv, sessionEnv } from '#integrations/claude/argv.ts';
 import { runRoleChild, type RoleFailure, type RoleOutcome, type RoleRun } from '#integrations/claude/role.ts';
@@ -133,11 +135,24 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   if (briefLine(sp.brief) === null) throw new ForgeError(`cannot start a role child: step's brief for ${sp.role} is empty or over the brief cap`);
   // What a session's turns are held to as well as trustDigest: git status and content over the protected set, every nested CLAUDE.md, an in-checkout hooks dir.
   const confineBefore = confineDigest(root, config);
-  // 8. The env. Outside a daemon session whoever runs the CLI is the trust anchor, as a human starting the pool is.
+  // 8. The trusted prefix: the main checkout's instruction files, learnings and role notes as one system-prompt
+  // file every lens, round and job with the same sources shares, so the prompt cache serves it. Its sources are
+  // under the digest just taken, so step 14 catches one changed during the run. Any refusal runs as before.
+  const pre = rolePrefix(root, config, sp.role, [confined.roots.jobs, ...confined.roots.worktrees]);
+  let prefix = pre.file;
+  let prefixRefused = pre.refused;
+  let brief = sp.brief;
+  if (prefix !== null) {
+    const prefixed = withPrefixLine(sp.brief);
+    if (prefixed === null) [prefix, prefixRefused] = [null, 'the brief has no Effort line'];
+    else if (briefLine(prefixed) === null) [prefix, prefixRefused] = [null, 'the brief with the prefix line is over the brief cap'];
+    else brief = prefixed;
+  }
+  // 9. The env. Outside a daemon session whoever runs the CLI is the trust anchor, as a human starting the pool is.
   // FORGE_ROOT is pinned, as the pool pins it for every session: an inherited one must not steer the child's `forge` calls elsewhere.
   const trusted = env.FORGE_DAEMON === '1' ? (env[TRUST_ENV] as string) : digest;
   const childEnv = { ...sessionEnv(env, config.daemon.auth), ...confined.env, FORGE_ROOT: root, [TRUST_ENV]: trusted, [SCOPE_ENV]: jobId };
-  // 9. The command line; a resume only of a session id, never of an in-process subagent's.
+  // 10. The command line, the prefix on every launch; a resume only of a session id, never of an in-process subagent's.
   const resumeId = typeof sp.resume === 'string' && UUID.test(sp.resume) ? sp.resume : null;
   const argvFor = (sessionId: string, resume: boolean) =>
     roleArgv({
@@ -151,12 +166,13 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       writeRoots: [confined.roots.jobs, ...confined.roots.worktrees],
       deny,
       session: { id: sessionId, resume },
+      appendSystemPromptFile: prefix,
     });
   let sessionId = resumeId ?? crypto.randomUUID();
   let argv = argvFor(sessionId, resumeId !== null);
   const baseline = resumeId ? sidecarCum(roleRunFiles(root, jobId, resumeId).cum) : ZERO;
 
-  // 10. The start, fenced: step must still hold this spawn under the job lock, so of two racing callers one starts.
+  // 11. The start, fenced: step must still hold this spawn under the job lock, so of two racing callers one starts.
   const check = (j: LoadedJob) => {
     const again = step(loadStepInput(root, ctx.config, jobId));
     const list = again.action === 'spawn' ? [again, ...(again.spawns ?? [])] : [];
@@ -164,7 +180,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   };
   startAgent(root, config, jobId, { role: sp.role, model: sp.model, output: sp.output, retry: sp.retry === true, fence: { epoch: epoch ?? job.lease.epoch, session, check } });
 
-  // 11. The run, with the runner's own interrupts passed to the child first.
+  // 12. The run, with the runner's own interrupts passed to the child first.
   const t0 = Date.now();
   const known = knownValues(root, jobId, config);
   const timeoutMs = typeof config.daemon.turnTimeoutMinutes === 'number' && config.daemon.turnTimeoutMinutes > 0 ? config.daemon.turnTimeoutMinutes * 60_000 : null;
@@ -197,7 +213,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
         // The path that was checked, not job.worktree again: a link swapped since would move the cwd.
         cwd: wt,
         env: childEnv,
-        brief: sp.brief,
+        brief,
         maxLineBytes: MAX_LINE_BYTES,
         timeoutMs,
         onLine: (line) => {
@@ -222,7 +238,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   };
   try {
     outcome = await launch();
-    // 12. A resume that never reached claude's init found no conversation: once more, as a fresh session.
+    // 13. A resume that never reached claude's init found no conversation: once more, as a fresh session.
     if (resumeId !== null && !outcome.init && !interrupted && outcome.failure && ['error', 'exit'].includes(outcome.failure.class)) {
       resumeFailed = true;
       sessionId = crypto.randomUUID();
@@ -236,12 +252,12 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   }
   const wallMs = Date.now() - t0;
   const agentId: string = reported ?? sessionId;
-  // 13. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
+  // 14. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
   let failure: RoleFailure | null = outcome.failure;
   if (trustDigest(root) !== digest || confineDigest(root, config) !== confineBefore)
     failure = { class: 'untrusted', reason: 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it', resetsAt: null };
 
-  // 14. Usage from the result's own cumulative, less the baseline its session had; the sidecar keeps the new one.
+  // 15. Usage from the result's own cumulative, less the baseline its session had; the sidecar keeps the new one.
   const resumed = resumeId !== null && !resumeFailed;
   let usage: (AgentUsage & { through?: string | null }) | null = null;
   let unmeasured = false;
@@ -260,7 +276,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     unmeasured = !imported;
   }
 
-  // 15. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
+  // 16. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
   const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
   // The reply's first line is model output, the likeliest place for a known secret to appear: redacted before Forge stores it.
   const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
@@ -284,6 +300,8 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     denied: outcome.denied,
     wallMs,
     log,
+    prefix,
+    ...(prefixRefused ? { prefixRefused } : {}),
     usage: ended.usage ? { tokens: ended.usage.tokens, exact: ended.usage.exact } : null,
     ...(ended.unmeasured ? { unmeasured: true } : {}),
     jobTokens: ended.jobTokens,

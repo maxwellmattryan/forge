@@ -292,6 +292,8 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * keeps its project and local scope out (CLAUDE.md and CLAUDE.local.md memory, `.claude/settings*.json` hooks,
  * permissions and env, `.claude/skills` and `commands`) and `--strict-mcp-config` its `.mcp.json`: only the
  * user's own settings and the `--plugin-dir` plugin load, as for a subagent of a session at the main checkout.
+ * `appendSystemPromptFile`, when a string, follows the effort words as `--append-system-prompt-file <path>`:
+ * the trusted prefix (lib/engine/guard/prompt-prefix.ts), an absolute path with no NUL, CR or LF, or this throws.
  */
 export function roleArgv(vars: {
   executable: string;
@@ -304,8 +306,12 @@ export function roleArgv(vars: {
   writeRoots: readonly string[];
   deny: readonly string[];
   session: { id: string; resume: boolean };
+  appendSystemPromptFile?: string | null;
 }): string[] {
   if (typeof vars.agent !== 'string' || !ROLE_AGENT.test(vars.agent)) throw new ForgeError(`a role child's agent must match ${ROLE_AGENT.source} (got ${JSON.stringify(String(vars.agent).slice(0, 80))})`);
+  const prompt = vars.appendSystemPromptFile;
+  if (prompt !== undefined && prompt !== null && (typeof prompt !== 'string' || !path.isAbsolute(prompt) || /[\0\r\n]/.test(prompt)))
+    throw new ForgeError(`a role child's system prompt file must be an absolute path without NUL, CR or LF (got ${JSON.stringify(String(prompt).slice(0, 200))})`);
   if (typeof vars.session?.id !== 'string' || !UUID.test(vars.session.id)) throw new ForgeError(`a role child's session id must be a uuid (got ${JSON.stringify(String(vars.session?.id).slice(0, 80))})`);
   const relative = vars.deny.find((r) => typeof r !== 'string' || !ABSOLUTE_RULE.test(r));
   if (relative !== undefined) throw new ForgeError(`a role child's deny rules must be absolute Edit(//…) rules: ${JSON.stringify(String(relative).slice(0, 200))} would anchor at the worktree`);
@@ -328,6 +334,7 @@ export function roleArgv(vars: {
     '--strict-mcp-config',
     ...(model && model !== 'inherit' ? ['--model', model] : []),
     ...(effort ? ['--effort', effort] : []),
+    ...(typeof prompt === 'string' ? ['--append-system-prompt-file', prompt] : []),
     '--permission-mode',
     vars.permissionMode,
     '--allowedTools',
