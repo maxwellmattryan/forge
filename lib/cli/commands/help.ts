@@ -225,7 +225,8 @@ export const CORE: HelpGroup[] = [
       {
         command: 'retro prepare',
         args: '<job> [--since DATE | --mandate ID]',
-        summary: "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by",
+        summary:
+          "gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by, and agent runs' transcript stats into transcripts.json; returns the `digests` to spawn (forge:digest) over the worst runs",
         flags: [
           ['--since DATE', 'only jobs since DATE (default: since the last retro)'],
           ['--mandate ID', "only the mandate's jobs, live and archived, with no date window; recorded on the retro job, so a later prepare keeps it (not with --since)"],

@@ -1936,7 +1936,7 @@ Retrospectives over finished jobs.
 
 **`forge retro due`**: whether a retro is due: improve.retroEvery jobs finished since the last one, mandate retros aside
 
-**`forge retro prepare <job> [--since DATE | --mandate ID]`**: gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by
+**`forge retro prepare <job> [--since DATE | --mandate ID]`**: gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by, and agent runs' transcript stats into transcripts.json; returns the `digests` to spawn (forge:digest) over the worst runs
 
 | Flag | Meaning |
 |---|---|
