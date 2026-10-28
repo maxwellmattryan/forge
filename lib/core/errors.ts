@@ -17,7 +17,7 @@ export const ERROR_CODE_DOCS: Record<ErrorCode, string> = {
   protected_path:
     'a path the `policy.protectedPaths` policy refuses is in what `forge git add|commit` would stage or commit, `forge pr open` found a refused path or an escalate CI path no human approved, or `forge pr merge` finds a protected path at the live PR head that no human approved at that content (docs/CONFIG.md "Protected paths")',
   push_held:
-    '`forge pr open` holds the push until a person approves it: the push would change CI config, the latest security review is not PASS, or the secret scan reported possible secrets under `verifySecrets: warn` (or could not finish); nothing was pushed in any repo, and a `push-held` event names the reason a person approves at (docs/CONFIG.md "The held push")',
+    '`forge pr open` holds the push until a person approves it: the push would change CI config, the latest security review is not PASS, or the secret scan of any job repo reported possible secrets under `verifySecrets: warn` (or could not finish); nothing was pushed in any repo, and a `push-held` event names the reason a person approves at (docs/CONFIG.md "The held push"). When git cannot compute the CI changes, or a repo\'s base could not be re-read from the push remote, it fails with this code too and no event',
   interim_stale:
     "`forge pr open` found a git-ref or canary pin in the checked commits that is not the dependency's checked HEAD (a hand-edited pin, or a dependency that moved without a verify), or, after a recorded release, a consumer manifest that does not name the released version yet; the hint is `forge verify <id>` (docs/CONFIG.md \"Interim strategies\")",
   release_gate:
