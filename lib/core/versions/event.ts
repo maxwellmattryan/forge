@@ -57,6 +57,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // error? }): `forge pr gate` synced the PR's gate section and label; step's PR14 and PR18 read it. An older Forge
   // reads it as a generic event.
   { id: 'pr-gate-event', up: (e) => e },
+  // v17 lets `ci-rerun` carry an `actor`: a person's Re-run failed checks (`forge pr rerun` or the dashboard), which
+  // sync treats as that head's re-run. One without an actor is sync's own; an older Forge reads it as sync's.
+  { id: 'person-ci-rerun', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

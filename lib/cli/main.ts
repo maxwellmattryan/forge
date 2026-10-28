@@ -18,8 +18,10 @@ import { mainRoot } from '#core/paths.ts';
 import { findPr } from '#engine/pr/adopt.ts';
 import { openPr, syncPrGate } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
-import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
+import { integrate, integrateContinue } from '#engine/pr/branch.ts';
 import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
+import { rerunFailedChecks } from '#engine/pr/ci.ts';
+import { currentActor } from '#integrations/github/actor.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
 import { maskCredentials } from '#engine/guard/redact.ts';
@@ -244,6 +246,7 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
         return { data: r, exitCode: r.action === 'refused' || r.action === 'failed' ? 1 : 0 };
       }
       if (sub === 'ready') return ok(readyPr(root, config, ghGitHub, id, mergeTarget(flags, 'ready')));
+      if (sub === 'rerun') return ok(rerunFailedChecks(root, config, ghGitHub, id, { actor: currentActor(root) }));
       throw usage('pr');
     }
     case 'release':

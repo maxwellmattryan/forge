@@ -105,6 +105,9 @@ export const JOB_STEPS: readonly Step[] = [
       componentsUnmatched: rest.componentsUnmatched ?? false,
     };
   } },
+  // v22 adds job.pr.failingChecks ({names, more, actions}) and job.pr.feedbackSinceRound, which forge pr sync
+  // records; an older job has neither until its next sync.
+  { id: 'pr-wait-reasons', up: (j) => j },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);
