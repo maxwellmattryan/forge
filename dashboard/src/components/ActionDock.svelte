@@ -16,7 +16,7 @@
   let { job }: { job: JobDetail['job'] } = $props();
   const m = $derived(dockModel(job, S.data?.daemons ?? null));
   // A decision in flight (its status line is JobActions'; Resume keeps its toast): Resume waits for it rather than racing it.
-  const flight = $derived(decisionInFlight(job.id, S.sent[job.id], S.data?.requests));
+  const flight = $derived(decisionInFlight(job,S.sent[job.id], S.data?.requests));
 </script>
 
 {#if m.show}

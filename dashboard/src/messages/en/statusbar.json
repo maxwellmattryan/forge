@@ -201,7 +201,7 @@
       "queued": "Queued: {label}. A job session picks it up and moves the gate.",
       "queuedManual": "Queued: {label}. Your orchestrator session picks it up (/forge requests).",
       "applying": "Applying: {label}. A job session is moving the gate.",
-      "elsewhere": "a decision sent from elsewhere"
+      "elsewhere": "a {type} request from {from}, sent {age}"
     }
   },
   "shelf": {
