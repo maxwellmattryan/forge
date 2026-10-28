@@ -107,8 +107,27 @@ test('agent run runs a scripted role end to end', async (t) => {
   const real = fs.realpathSync(s.root);
   assert.equal(started.cwd, fs.realpathSync(loadJob(s.root, id).worktree!), 'launched at the path that was checked');
   const argv: string[] = started.argv;
-  // The worktree is branch-written data: only the user's settings load (no CLAUDE.md, .claude/settings*.json or .mcp.json of the branch).
-  assert.deepEqual(argv.slice(0, 13), ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', PLUGIN_ROOT, '--agent', 'forge:planner', '--setting-sources', 'user', '--strict-mcp-config']);
+  // The worktree is branch-written data and the user's setup is none of Forge's: no setting source loads (no CLAUDE.md,
+  // .claude/settings*.json or .mcp.json of the branch, no user plugins or hooks), and the planner gets its own built-in tools.
+  assert.deepEqual(argv.slice(0, 16), [
+    '-p',
+    '--input-format',
+    'stream-json',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--plugin-dir',
+    PLUGIN_ROOT,
+    '--agent',
+    'forge:planner',
+    '--setting-sources',
+    '',
+    '--strict-mcp-config',
+    '--disable-slash-commands',
+    '--tools',
+    'Read,Grep,Glob,Bash,Edit,Write',
+  ]);
+  assert.ok(!argv.includes('--mcp-config'), 'no browser for the planner');
   assert.deepEqual(argv.slice(-4, -2)[0], '--disallowedTools');
   assert.deepEqual(argv.slice(-2), ['--permission-prompt-tool', 'stdio']);
   assert.equal(argv[argv.indexOf('--permission-mode') + 1], 'default');

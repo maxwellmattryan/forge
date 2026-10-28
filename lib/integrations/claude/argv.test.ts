@@ -112,10 +112,11 @@ test("the office model is Forge's, once", () => {
 test("roleArgv builds a role child's command line", () => {
   const uuid = session.id;
   const deny = ['Edit(//r/.forge/config.yml)', 'Edit(//r/CLAUDE.md)'];
-  const base = { executable: '/opt/claude', pluginRoot: '/p lugin', agent: 'forge:verifier', model: 'haiku', effort: 'low' as const, permissionMode: 'default', allowedTools: ['Agent', 'Read', 'Edit', 'Write(~/**)', 'Bash(forge:*)'], writeRoots: ['/r/.forge/jobs', '/w'], deny, session };
+  const base = { executable: '/opt/claude', pluginRoot: '/p lugin', agent: 'forge:verifier', tools: ['Read', 'Write'], model: 'haiku', effort: 'low' as const, permissionMode: 'default', allowedTools: ['Agent', 'Read', 'Edit', 'Write(~/**)', 'Bash(forge:*)'], writeRoots: ['/r/.forge/jobs', '/w'], deny, session };
   type Vars = Parameters<typeof roleArgv>[0];
-  // Only the user's settings and the plugin load: the worktree's CLAUDE.md, .claude/settings*.json and .mcp.json are branch-written data.
-  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier', '--setting-sources', 'user', '--strict-mcp-config'];
+  // Only the plugin loads: no setting source (neither the user's plugins and hooks nor the worktree's branch-written
+  // CLAUDE.md and .claude/settings*.json), no .mcp.json, no skills, and only the agent's own built-in tools.
+  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier', '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--tools', 'Read,Write'];
   const tail = (mode: string, sid: string[]) => ['--permission-mode', mode, '--allowedTools', 'Agent,Read,Bash(forge:*),Edit(//r/.forge/jobs/**),Edit(//w/**)', ...sid, '--disallowedTools', deny.join(','), '--permission-prompt-tool', 'stdio'];
   const rows: { name: string; vars?: Partial<Vars>; want?: string[]; throws?: RegExp }[] = [
     { name: 'every flag', want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
@@ -140,6 +141,10 @@ test("roleArgv builds a role child's command line", () => {
     { name: 'a relative system prompt file', vars: { appendSystemPromptFile: 'prefix.md' }, throws: /system prompt file must be an absolute path/ },
     { name: 'a flag as the system prompt file', vars: { appendSystemPromptFile: '--dangerously-skip-permissions' }, throws: /system prompt file must be an absolute path/ },
     ...['\0', '\r', '\n'].map((ch) => ({ name: `a system prompt file holding ${JSON.stringify(ch)}`, vars: { appendSystemPromptFile: `/r/a${ch}b.md` }, throws: /system prompt file must be an absolute path/ })),
+    // The agent's tool list: built-in names only, so none becomes a flag, a second word or an MCP grant.
+    { name: "a builder's tools", vars: { agent: 'forge:builder', tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'], effort: null }, want: [...head.slice(0, 10), 'forge:builder', ...head.slice(11, 16), 'Read,Grep,Glob,Bash,Edit,Write', '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
+    { name: 'no tools', vars: { tools: [] }, throws: /tools must be built-in tool names/ },
+    ...['--dangerously-skip-permissions', 'Read Bash', 'mcp__x__*', 'Read,Bash', 'Bash(rm:*)', 'read', ''].map((t) => ({ name: `a tool named ${JSON.stringify(t)}`, vars: { tools: ['Read', t] }, throws: /tools must be built-in tool names/ })),
   ];
   for (const row of rows) {
     const vars = { ...base, ...row.vars } as Vars;

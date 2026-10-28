@@ -14,6 +14,7 @@ import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { rolePrefix } from '#engine/guard/prompt-prefix.ts';
 import { withPrefixLine } from '#engine/pipeline/brief.ts';
+import { agentTools } from '#engine/pipeline/roster.ts';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import { commandPermissionMode, parseTemplate, roleArgv, sessionEnv } from '#integrations/claude/argv.ts';
 import { runRoleChild, type RoleFailure, type RoleOutcome, type RoleRun } from '#integrations/claude/role.ts';
@@ -153,12 +154,18 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const trusted = env.FORGE_DAEMON === '1' ? (env[TRUST_ENV] as string) : digest;
   const childEnv = { ...sessionEnv(env, config.daemon.auth), ...confined.env, FORGE_ROOT: root, [TRUST_ENV]: trusted, [SCOPE_ENV]: jobId };
   // 10. The command line, the prefix on every launch; a resume only of a session id, never of an in-process subagent's.
+  // The agent's own tool list, built-ins only: MCP tools reach a child only through a server Forge declares.
+  const role = sp.agent.startsWith('forge:') ? sp.agent.slice('forge:'.length) : sp.agent;
+  const tools = agentTools(role);
+  if (!tools?.length) throw new ForgeError(`cannot start a role child: agents/${role}.md has no tools: list`);
+  const builtins = tools.filter((t) => !t.startsWith('mcp__'));
   const resumeId = typeof sp.resume === 'string' && UUID.test(sp.resume) ? sp.resume : null;
   const argvFor = (sessionId: string, resume: boolean) =>
     roleArgv({
       executable: parseTemplate(config.daemon.command)[0],
       pluginRoot: PLUGIN_ROOT,
       agent: sp.agent,
+      tools: builtins,
       model: sp.model,
       effort: sp.effort,
       permissionMode: commandPermissionMode(config.daemon.command),
