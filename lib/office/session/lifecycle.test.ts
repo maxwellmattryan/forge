@@ -219,6 +219,8 @@ test('a session spawns, takes a turn and logs it', async (t) => {
   assert.equal(w.s.spawn(w.cfg), true);
   const wargv = w.children[0].argv;
   assert.deepEqual([wargv[wargv.indexOf('--mcp-config') + 1], wargv.filter((x) => x === '--mcp-config').length], [json, 1]);
+  assert.ok(wargv[wargv.indexOf('--disallowedTools') + 1].split(',').includes('mcp__forge-browser__browser_run_code_unsafe'), "the server's code-running tool is denied");
+  assert.ok(!c.argv[c.argv.indexOf('--disallowedTools') + 1].includes('browser_run_code_unsafe'), 'and only with the browser');
   assert.deepEqual(w.browserScopes, [w.scope]);
 });
 

@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { BIN, cliEnv, forgeAsync, forgeInProcess, jobAt, repoTemplate, waitFor, withLease } from '../../helpers.ts';
+import { BIN, cliEnv, fakeBin, forgeAsync, forgeInProcess, jobAt, repoTemplate, waitFor, withLease } from '../../helpers.ts';
 import { loadConfig, trustDigest } from '#core/config/load.ts';
 import { jobFiles } from '#core/paths.ts';
 import { loadJob, logEvent, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
@@ -18,6 +18,7 @@ import { buildPrefix } from '#engine/guard/prompt-prefix.ts';
 import { withPrefixLine } from '#engine/pipeline/brief.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { UNATTENDED_DENIED } from '#integrations/claude/stream.ts';
+import { BROWSER_ALLOWED, BROWSER_DENIED } from '#integrations/claude/browser.ts';
 
 const CLAUDE = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'claude');
 const S = '11111111-1111-4111-8111-111111111111';
@@ -163,6 +164,7 @@ test('agent run runs a scripted role end to end', async (t) => {
 
 test('agent run gives the browser only to a UI role of a spec with a UI AC', async (t) => {
   const s = scratch(t);
+  const npx = fakeBin('npx');
   const { id, dir } = await s.job({ stage: 'build' });
   fs.writeFileSync(path.join(dir, 'spec.md'), '# Spec\n\n## Acceptance criteria\n- [ ] AC1 — the list renders · Proven by: screenshots/ac1-list-375.png\n- [ ] AC2 — the API answers · Proven by: a test\n');
   updateJob(s.root, id, (j) => {
@@ -171,18 +173,30 @@ test('agent run gives the browser only to a UI role of a spec with a UI AC', asy
   assert.equal((await forgeInProcess(s.root, ['job', 'round', id])).status, 0);
   const step = await s.stepOf(id);
   assert.deepEqual([step.action, step.role], ['spawn', 'builder'], JSON.stringify(step));
-  const r = await forgeInProcess(s.root, ['job', 'agent', 'run', id, '--session', S], { env: s.env({ FAKE_CLAUDE_WRITE: `${path.join(dir, 'build.md')}=## Round 1\n` }) });
+  const PATH = [npx.dir, process.env.PATH].filter(Boolean).join(path.delimiter);
+  const r = await forgeInProcess(s.root, ['job', 'agent', 'run', id, '--session', S], { env: s.env({ PATH, FAKE_CLAUDE_WRITE: `${path.join(dir, 'build.md')}=## Round 1\n` }) });
   assert.equal(r.status, 0, JSON.stringify(r.error ?? r.data));
   const [started] = starts(s.records());
   const argv: string[] = started.argv;
   assert.equal(argv[argv.indexOf('--tools') + 1], 'Read,Grep,Glob,Bash,Edit,Write', 'the browser is not a built-in tool');
   const config = JSON.parse(argv[argv.indexOf('--mcp-config') + 1]);
   assert.deepEqual(Object.keys(config.mcpServers), ['forge-browser']);
-  const args: string[] = config.mcpServers['forge-browser'].args;
+  const server = config.mcpServers['forge-browser'];
+  const args: string[] = server.args;
   assert.equal(args[args.indexOf('--allowed-origins') + 1], 'http://localhost:7412;http://127.0.0.1:7412');
   assert.equal(args[args.indexOf('--output-dir') + 1], path.join(s.root, '.forge', 'jobs', id, 'screenshots'));
+  // Nothing the worktree holds chooses what runs: the npx is an absolute path, on a PATH of absolute entries, and npm's prefix is an empty Forge dir.
+  assert.equal(server.command, npx.bin, 'an absolute npx');
+  assert.deepEqual(args.slice(0, 3), ['-y', '--prefix', path.join(fs.realpathSync(s.root), '.forge', 'runtime', 'browser')]);
+  const serverPath: string[] = server.env.PATH.split(path.delimiter);
+  assert.ok(serverPath.includes(npx.dir) && serverPath.every((d) => path.isAbsolute(d)), serverPath.join(path.delimiter));
   assert.ok(argv.indexOf('--mcp-config') < argv.indexOf('--permission-mode'), 'before the mode');
-  assert.ok(argv[argv.indexOf('--allowedTools') + 1].endsWith(',mcp__forge-browser'), 'allowed without a prompt nobody could answer');
+  // Named page tools are allowed without a prompt nobody could answer, the server's code-running tool is denied, and the server as a whole is neither.
+  const allowed = argv[argv.indexOf('--allowedTools') + 1].split(',');
+  const denied = argv[argv.indexOf('--disallowedTools') + 1].split(',');
+  assert.deepEqual(allowed.slice(-BROWSER_ALLOWED.length), [...BROWSER_ALLOWED]);
+  assert.deepEqual(denied.slice(-BROWSER_DENIED.length), [...BROWSER_DENIED]);
+  assert.ok(!allowed.includes('mcp__forge-browser') && !allowed.some((rule) => BROWSER_DENIED.includes(rule)));
 });
 
 test('agent run starts without the prefix when a source is refused', async (t) => {

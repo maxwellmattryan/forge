@@ -161,8 +161,12 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const tools = agentTools(role);
   if (!tools?.length) throw new ForgeError(`cannot start a role child: agents/${role}.md has no tools: list`);
   const builtins = tools.filter((t) => !t.startsWith('mcp__'));
-  // Forge's browser, only for a UI role of a spec with a UI AC and a job with a dev-server port: from an integer and a Forge path.
-  const mcpConfig = needsBrowser(sp, input.spec.uiAcs) && typeof job.port === 'number' ? browserMcpConfig({ port: job.port, outputDir: path.join(jobDir(root, jobId), 'screenshots') }) : null;
+  // Forge's browser, only for a UI role of a spec with a UI AC and a job with a dev-server port: from an integer, Forge paths and
+  // the child's own PATH. Null (no `npx` on its absolute PATH entries) runs the role without a browser.
+  const mcpConfig =
+    needsBrowser(sp, input.spec.uiAcs) && typeof job.port === 'number'
+      ? browserMcpConfig({ root, port: job.port, outputDir: path.join(jobDir(root, jobId), 'screenshots'), env: childEnv })
+      : null;
   const resumeId = typeof sp.resume === 'string' && UUID.test(sp.resume) ? sp.resume : null;
   const argvFor = (sessionId: string, resume: boolean) =>
     roleArgv({

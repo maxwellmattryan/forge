@@ -25,8 +25,16 @@ test('sessionBrowser gives the browser only to a job whose spec needs UI proof',
     });
     return id;
   };
+  // The machine's npx, found on an absolute PATH entry only: the session's PATH, here a scratch dir holding one.
+  const bin = path.join(root, '.git', 'scratch-bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, process.platform === 'win32' ? 'npx.cmd' : 'npx'), '', { mode: 0o755 });
+  const env = { PATH: bin };
   const ui = job(UI_SPEC, 7412);
-  assert.equal(sessionBrowser(root, ui), browserMcpConfig({ port: 7412, outputDir: path.join(root, '.forge', 'jobs', ui, 'screenshots') }));
+  const want = browserMcpConfig({ root, port: 7412, outputDir: path.join(root, '.forge', 'jobs', ui, 'screenshots'), env });
+  assert.equal(typeof want, 'string');
+  assert.equal(sessionBrowser(root, ui, env), want);
+  assert.equal(sessionBrowser(root, ui, { PATH: '' }), null, 'no npx on the PATH: no browser');
   const none: [string, string][] = [
     ['the inbox', '_inbox'],
     ['the office', '_office'],
@@ -46,7 +54,7 @@ test('sessionBrowser gives the browser only to a job whose spec needs UI proof',
     execFileSync('mkfifo', [path.join(root, '.forge', 'jobs', fifo, 'spec.md')]);
     none.push(['a linked spec.md', linked], ['a FIFO spec.md', fifo]);
   }
-  for (const [name, scope] of none) assert.equal(sessionBrowser(root, scope), null, name);
+  for (const [name, scope] of none) assert.equal(sessionBrowser(root, scope, env), null, name);
 });
 
 interface Fake extends SlotMember {

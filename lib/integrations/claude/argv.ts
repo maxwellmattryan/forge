@@ -10,7 +10,7 @@ import { validModel } from '#core/config/models.ts';
 import { UUID } from '#core/job/session-files.ts';
 import { SESSION_PINS, pinEnv } from '../git/runner.ts';
 import { splitWords } from '#core/text.ts';
-import { BROWSER_RULE } from './browser.ts';
+import { BROWSER_ALLOWED, BROWSER_DENIED } from './browser.ts';
 import type { DaemonAuth, DaemonBilling, DaemonPermissionMode, Effort } from '#core/types.ts';
 
 /**
@@ -242,8 +242,9 @@ export function scopedTools(allowedTools: readonly string[], writeRoots: readonl
  * appends `--agent forge:assistant`, the one agent a gate run (lib/office/foreman/attempt.ts) starts as; it is a
  * fixed value, never config text. `mcpConfig`, when a string, follows as `--mcp-config <json>`: only a job
  * session's spawn passes it, and only browserMcpConfig's (lib/integrations/claude/browser.ts); the template
- * itself may never pass the flag (lib/core/config/trust.ts). DENY_TOOLS, then `deny`, and PROMPT_TOOL always
- * follow the template, so a flag follows claude's variadic --mcp-config value.
+ * itself may never pass the flag (lib/core/config/trust.ts), and BROWSER_DENIED joins the deny list with it.
+ * DENY_TOOLS, then `deny`, then those, and PROMPT_TOOL always follow the template, so a flag follows
+ * claude's variadic --mcp-config value.
  */
 export function buildArgv(
   template: string,
@@ -277,8 +278,9 @@ export function buildArgv(
   if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
   if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
   if (vars.agent === 'forge:assistant') argv.push('--agent', 'forge:assistant');
-  if (typeof vars.mcpConfig === 'string') argv.push('--mcp-config', mcpJson(vars.mcpConfig));
-  return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? [])].join(','), ...PROMPT_TOOL];
+  const browser = typeof vars.mcpConfig === 'string';
+  if (browser) argv.push('--mcp-config', mcpJson(vars.mcpConfig as string));
+  return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? []), ...(browser ? BROWSER_DENIED : [])].join(','), ...PROMPT_TOOL];
 }
 
 /** An --mcp-config value, which must be a JSON object: never a word claude could read as a flag or a file path. */
@@ -312,7 +314,8 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * `appendSystemPromptFile`, when a string, follows the effort words as `--append-system-prompt-file <path>`:
  * the trusted prefix (lib/engine/guard/prompt-prefix.ts), an absolute path with no NUL, CR or LF, or this throws.
  * `mcpConfig`, when a string, is browserMcpConfig's JSON (lib/integrations/claude/browser.ts): it follows as
- * `--mcp-config <json>`, and `--allowedTools` gains BROWSER_RULE, since a role child has no one to ask.
+ * `--mcp-config <json>`, `--allowedTools` gains BROWSER_ALLOWED (the page tools, since a role child has no one
+ * to ask, never the whole server) and `--disallowedTools` gains BROWSER_DENIED after the caller's `deny`.
  * claude reads `--tools` and `--mcp-config` variadically, so a flag always follows each.
  */
 export function roleArgv(vars: {
@@ -369,11 +372,11 @@ export function roleArgv(vars: {
     '--permission-mode',
     vars.permissionMode,
     '--allowedTools',
-    [scopedTools(vars.allowedTools, vars.writeRoots), ...(mcp !== null ? [BROWSER_RULE] : [])].filter(Boolean).join(','),
+    [scopedTools(vars.allowedTools, vars.writeRoots), ...(mcp !== null ? BROWSER_ALLOWED : [])].filter(Boolean).join(','),
     vars.session.resume ? '--resume' : '--session-id',
     vars.session.id,
     '--disallowedTools',
-    vars.deny.join(','),
+    [...vars.deny, ...(mcp !== null ? BROWSER_DENIED : [])].join(','),
     ...PROMPT_TOOL,
   ];
 }

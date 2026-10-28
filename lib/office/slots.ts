@@ -64,17 +64,18 @@ export const sessionModel = (scope: string, c: Config): string | null => (scope 
 
 /**
  * The --mcp-config a spawn of `scope` gets: Forge's browser (browserMcpConfig) for a job session whose spec.md
- * has a UI AC and whose job has a port, read at every spawn; null for the inbox, the office, a chat, and a job
- * with no spec, no UI AC, no port or an unreadable file. Only a boolean and the CLI-written port come from job
- * files, and spec.md is read as a regular file only, so a planted link or FIFO can't steer or stall the spawn.
+ * has a UI AC and whose job has a port, read at every spawn; null for the inbox, the office, a chat, a job
+ * with no spec, no UI AC, no port or an unreadable file, and a machine with no `npx` on `env`'s absolute PATH
+ * entries. Only a boolean and the CLI-written port come from job files, and spec.md is read as a regular
+ * file only, so a planted link or FIFO can't steer or stall the spawn.
  */
-export function sessionBrowser(root: string, scope: string): string | null {
+export function sessionBrowser(root: string, scope: string, env: NodeJS.ProcessEnv = process.env): string | null {
   if (sharedScope(scope)) return null;
   try {
     const job = loadJob(root, scope);
     const spec = readRegularText(path.join(jobDir(root, scope), 'spec.md'), AGENT_TEXT_MAX);
     if (spec === null || !specUiAcs(spec).length || typeof job.port !== 'number') return null;
-    return browserMcpConfig({ port: job.port, outputDir: path.join(jobDir(root, scope), 'screenshots') });
+    return browserMcpConfig({ root, port: job.port, outputDir: path.join(jobDir(root, scope), 'screenshots'), env });
   } catch {
     return null;
   }
