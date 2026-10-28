@@ -22,6 +22,7 @@ import { integrate, integrateContinue } from '#engine/pr/integrate.ts';
 import { mergePr, mergeTarget, readyPr } from '#engine/pr/merge.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
 import { prepareRetro, retroDue } from '#engine/evals/retro.ts';
+import { maskCredentials } from '#engine/guard/redact.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { computeStats, statsByPromptCmd, statsCsv } from '#engine/metrics/stats.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -273,7 +274,10 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'retro': {
       needInit();
       if (sub === 'due') return ok(retroDue(root, config));
-      if (sub === 'prepare') return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since, mandate: retroMandateFlag(root, flags) }));
+      if (sub === 'prepare') {
+        const mask = (text: string): string => maskCredentials(text, config);
+        return ok(prepareRetro(root, config, requireJob(root, rest[0]).id, { since: flags.since, mandate: retroMandateFlag(root, flags), mask }));
+      }
       throw usage('retro');
     }
     case 'eval':

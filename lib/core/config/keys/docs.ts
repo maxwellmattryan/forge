@@ -282,6 +282,8 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'improve.experiments': { doc: 'forge experiment evaluate (docs/IMPROVEMENT.md "Settling experiments")' },
   'improve.experiments.minJobs': { doc: 'after-jobs with a value needed before an entry is decided; fewer is pending' },
   'improve.experiments.maxJobs': { doc: 'after this many finished jobs an undecided entry is closed as inconclusive; at least minJobs' },
+  'improve.transcripts': { doc: 'the transcript pass of forge retro prepare (docs/IMPROVEMENT.md "Agent transcripts")' },
+  'improve.transcripts.max': { doc: 'agent runs digest agents read in depth per retro, worst first, 3 per digest; 0 writes transcripts.json only' },
 
   evals: { doc: 'a run\'s variant is an overlay, never an edit here (see "Eval overlays" below)' },
   'evals.testPattern': { doc: "regex for test files: mining PRs into eval tasks, and verify's integrity report (null: a built-in default)" },

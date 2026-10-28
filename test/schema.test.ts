@@ -143,12 +143,7 @@ const CONFIG_ROWS: Row[] = [
     note: "the assistant's model and effort move under foreman.assistants",
   },
   { step: 'office-uptime', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.keepAwake'], note: ONLY_VERSION },
-  {
-    step: 'mandate-notify',
-    input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } },
-    fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] },
-    note: ONLY_VERSION,
-  },
+  { step: 'mandate-notify', input: { notify: { webhooks: [{ url: 'https://example.com/hook', events: ['gate'] }] } }, fields: { 'notify.webhooks': [{ url: 'https://example.com/hook', events: ['gate'] }] }, note: ONLY_VERSION },
   { step: 'daemon-daily-usd-chat', input: { daemon: { enabled: true, dailyUsd: { inbox: 25, office: 60 } } }, fields: { 'daemon.dailyUsd': { inbox: 25, office: 60 } }, removed: ['daemon.dailyUsd.chat'], note: ONLY_VERSION },
   {
     step: 'release-script',
@@ -164,6 +159,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'component-paths', input: { components: [...SINKS, { name: 'web', path: '.', kind: 'app', paths: ['web/**'] }] }, fields: { 'components.0': SINKS[0], 'components.1.paths': ['web/**'] }, note: ONLY_VERSION },
   { step: 'foreman-escalations', input: { foreman: { enabled: true, ship: 'merge' } }, fields: { 'foreman.enabled': true, 'foreman.ship': 'merge' }, removed: ['foreman.escalations', 'foreman.senior'], note: ONLY_VERSION },
   { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
+  { step: 'improve-transcripts', input: { improve: { retroEvery: 5 } }, fields: { improve: { retroEvery: 5 } }, removed: ['improve.transcripts'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
