@@ -52,8 +52,8 @@ export interface DaemonOptions {
   redactor?: Redactor;
   /** How often the pool runs `forge sync` while it is wanted; 0 never does. */
   syncMs?: number;
-  /** Runs one `forge sync`; resolves with null on success or the failure's message. */
-  runSync?: (root: string) => Promise<string | null>;
+  /** Runs one `forge sync`; resolves with null on success or the failure's message. Its signal aborts when the pool closes, and close() waits for its promise. */
+  runSync?: (root: string, signal: AbortSignal) => Promise<string | null>;
 }
 
 /** The known values to redact from one scope's session log. */

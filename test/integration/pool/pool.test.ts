@@ -14,25 +14,34 @@ import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/jo
 import { claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { createPool } from '#office/pool.ts';
+import type { PoolOptions } from '#office/modes.ts';
 import { createMachineSlots } from '#office/slots.ts';
 import { CHAT_PROMPT } from '#office/session/launch.ts';
 
 // The Office pass child's stand-in for tests that don't look at the pass: the real one is a `forge office pass`
-// process that close() doesn't wait for, so it could still write in the temp repo while cleanup removes it.
+// process, and these tests spawn nothing real.
 const noPass = async (): Promise<string | null> => null;
+
+/** A pool over `repo` with `opts`; after the test it is closed, then the repo removed, in that order. */
+function poolFor(t: any, repo: { dir: string; cleanup: () => void }, opts: PoolOptions) {
+  const p = createPool(repo.dir, opts);
+  t.after(async () => {
+    await p.close();
+    repo.cleanup();
+  });
+  return p;
+}
 
 test('a draft request turns the office session, never the inbox', async (t) => {
   for (const foreman of [true, false]) {
     const repo = tempRepo();
-    t.after(repo.cleanup);
     const root = repo.dir;
     fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
     fs.writeFileSync(path.join(root, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: true, command: 'claude {session}' }, foreman: { enabled: foreman } }));
     const { config } = loadConfig(root);
     const r = enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
     const fake = fakeClaude();
-    const pool = createPool(root, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
-    t.after(() => pool.close());
+    const pool = poolFor(t, repo, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
     pool.start('boot');
     const of = (scope: string) => fake.children.filter((c) => c.scope === scope);
     if (foreman) {
@@ -52,7 +61,6 @@ test('a draft request turns the office session, never the inbox', async (t) => {
 // B59: boot releases whatever a recorded session's ids drove, under any of its ids.
 test("boot releases every recorded session's jobs and leaves interactive ones alone", async (t) => {
   const repo = tempRepo();
-  t.after(repo.cleanup);
   const root = repo.dir;
   fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
   fs.writeFileSync(path.join(root, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: true, command: 'claude {session}' } }));
@@ -82,8 +90,7 @@ test("boot releases every recorded session's jobs and leaves interactive ones al
     claimed[job] = r.id;
   }
 
-  const pool = createPool(root, { claude: fakeClaude().adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
-  t.after(() => pool.close());
+  const pool = poolFor(t, repo, { claude: fakeClaude().adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
   pool.start('boot');
 
   const request = (job: string) => listRequests(root).find((r) => r.id === claimed[job])!;
@@ -106,25 +113,23 @@ test("boot releases every recorded session's jobs and leaves interactive ones al
   assert.equal(request(b).status, 'in-progress');
 });
 
-/** A repo whose config.yml is `extra` over an enabled daemon, and its loaded config. */
-function daemonRepo(t: any, extra: Record<string, unknown>) {
+/** A repo whose config.yml is `extra` over an enabled daemon, and its loaded config; poolFor removes it. */
+function daemonRepo(extra: Record<string, unknown>) {
   const repo = tempRepo();
-  t.after(repo.cleanup);
   const root = repo.dir;
   fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
   const { daemon, ...rest } = extra as { daemon?: Record<string, unknown> };
   fs.writeFileSync(path.join(root, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: true, command: 'claude {session}', ...daemon }, ...rest }));
-  return { root, config: loadConfig(root).config };
+  return { repo, root, config: loadConfig(root).config };
 }
 
 test('chat text reaches only its chat session', async (t) => {
-  const { root, config } = daemonRepo(t, { foreman: { enabled: true, assistants: { enabled: true } } });
+  const { repo, root, config } = daemonRepo({ foreman: { enabled: true, assistants: { enabled: true } } });
   const job = createJob(root, config, { title: 'running' }).id;
   enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
   enqueue(root, config, { type: 'draft', args: { mandate: 'g1' }, from: 'forge' });
   const claude = fakeClaude();
-  const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
-  t.after(() => pool.close());
+  const pool = poolFor(t, repo, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   pool.start('boot');
   const others = ['_inbox', '_office', job];
   assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the inbox, office and job sessions all run');
@@ -156,13 +161,12 @@ test('chat text reaches only its chat session', async (t) => {
 });
 
 test('chat sessions count against neither daemon.maxConcurrent nor the machine cap', async (t) => {
-  const { root, config } = daemonRepo(t, { daemon: { maxConcurrent: 1 } });
+  const { repo, root, config } = daemonRepo({ daemon: { maxConcurrent: 1 } });
   const job = createJob(root, config, { title: 'running' }).id;
   enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
   const claude = fakeClaude();
   const slots = createMachineSlots(() => 1);
-  const pool = createPool(root, { claude: claude.adapter, slots, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
-  t.after(() => pool.close());
+  const pool = poolFor(t, repo, { claude: claude.adapter, slots, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50 });
   pool.start('boot');
   assert.ok(claude.children.some((c) => c.scope === job), 'the job session holds the slot');
   assert.deepEqual({ live: pool.state().live, machine: pool.state().machine?.live }, { live: 1, machine: 1 });
@@ -175,7 +179,7 @@ test('chat sessions count against neither daemon.maxConcurrent nor the machine c
 
 test('the Office pass runs at start and on a mandate change, and its direct request turns the office', async (t) => {
   for (const enabled of [true, false]) {
-    const { root, config } = daemonRepo(t, { foreman: { enabled, model: 'opus', effort: 'high' } });
+    const { repo, root, config } = daemonRepo({ foreman: { enabled, model: 'opus', effort: 'high' } });
     const job = createJob(root, config, { title: 'work' }).id;
     enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
     let calls = 0;
@@ -186,8 +190,7 @@ test('the Office pass runs at start and on a mandate change, and its direct requ
       return null;
     };
     const claude = fakeClaude();
-    const pool = createPool(root, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass });
-    t.after(() => pool.close());
+    const pool = poolFor(t, repo, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass });
     pool.start('boot');
     const of = (scope: string) => claude.children.filter((c) => c.scope === scope);
     if (!enabled) {
@@ -212,5 +215,33 @@ test('the Office pass runs at start and on a mandate change, and its direct requ
     await waitFor(() => calls === 2, { what: 'a pass after the mandate change' });
     assert.equal(of('_office')[0].turns, 1, 'the second pass queued no direct request');
     await pool.close();
+  }
+});
+
+test('close() waits for a running Office pass and sync child', async (t) => {
+  for (const row of ['pass', 'sync'] as const) {
+    const { repo, root } = daemonRepo({ foreman: { enabled: row === 'pass' } });
+    // The child's stand-in: it records its signal and ends only when the test releases it, as a killed child would.
+    const seen: { signal?: AbortSignal; release?: (err: string | null) => void } = {};
+    const child = (_r: string, signal: AbortSignal) =>
+      new Promise<string | null>((resolve) => {
+        seen.signal = signal;
+        seen.release = resolve;
+      });
+    const runs: PoolOptions = row === 'pass' ? { runPass: child, syncMs: 0 } : { runSync: child, syncMs: 20, runPass: noPass };
+    const pool = poolFor(t, repo, { claude: fakeClaude().adapter, pollMs: 3_600_000, reconcileMs: 0, graceMs: 50, ...runs });
+    pool.start('boot');
+    await waitFor(() => seen.signal, { what: `the ${row} child` });
+    let settled = false;
+    const closing = pool.close().then(() => void (settled = true));
+    assert.equal(seen.signal?.aborted, true, `${row}: its signal is aborted by close()`);
+    await new Promise((r) => setTimeout(r, 50));
+    assert.equal(settled, false, `${row}: close() waits for the child`);
+    seen.release!('exit SIGTERM');
+    await closing;
+    const scope = row === 'pass' ? '_office' : '_inbox';
+    const log = path.join(root, '.forge', 'runtime', 'daemons', `${scope}.log`);
+    const text = fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '';
+    assert.doesNotMatch(text, row === 'pass' ? /office pass failed/ : /periodic forge sync failed/, `${row}: the kill is not logged`);
   }
 });
