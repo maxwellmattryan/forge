@@ -1,13 +1,14 @@
-// syncChildEnv, and a tracked core.hooksPath hook against a real `git fetch` under that env.
+// syncChildEnv, and a tracked core.hooksPath hook against a real `git fetch` under that env; runChild's stop
+// signal against real node children.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scratchGitConfig } from '../../test/helpers.ts';
+import { scratchGitConfig, waitFor } from '../../test/helpers.ts';
 import { SYNC_PINS } from '#integrations/git/runner.ts';
-import { syncChildEnv } from './sync-child.ts';
+import { runChild, syncChildEnv } from './sync-child.ts';
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = process.env) => execFileSync('git', args, { cwd, env, stdio: 'pipe', encoding: 'utf8' });
 
@@ -64,4 +65,29 @@ test('the sync child runs git with the pins', (t) => {
   const bareDir = checkout('bare');
   git(bareDir, ['fetch', '-q', 'origin']);
   assert.equal(fs.existsSync(path.join(bareDir, 'hook-ran')), true, 'the hook runs without them');
+});
+
+test('an aborted child is stopped: SIGTERM, then SIGKILL after the grace period', async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX signals');
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-child-')));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const graceMs = 100;
+  // Each child writes its ready file (argv[1]) once its SIGTERM handling is in place, then runs until killed.
+  const rows = [
+    { name: 'honours SIGTERM', script: "require('fs').writeFileSync(process.argv[1], ''); setInterval(() => {}, 1000)", early: false, message: 'exit SIGTERM' },
+    { name: 'ignores SIGTERM', script: "process.on('SIGTERM', () => {}); require('fs').writeFileSync(process.argv[1], ''); setInterval(() => {}, 1000)", early: false, message: 'exit SIGKILL' },
+    { name: 'already aborted', script: 'setInterval(() => {}, 1000)', early: true, message: 'exit SIGTERM' },
+  ];
+  for (const row of rows) {
+    const ready = path.join(base, `${rows.indexOf(row)}.ready`);
+    const stop = new AbortController();
+    if (row.early) stop.abort();
+    const run = runChild(process.execPath, ['-e', row.script, ready], { cwd: base, env: process.env, stop: { signal: stop.signal, graceMs } });
+    if (!row.early) await waitFor(() => fs.existsSync(ready), { what: `${row.name}: the child is ready` });
+    const abortedAt = Date.now();
+    stop.abort();
+    const message = await run;
+    assert.equal(message, row.message, row.name);
+    if (row.message === 'exit SIGKILL') assert.ok(Date.now() - abortedAt >= graceMs - 5, `${row.name}: killed only after the grace period`);
+  }
 });
