@@ -1,9 +1,9 @@
 // Opening a job's PRs: the checks before anything leaves the machine (the held push among them),
 // interim deferrals and drafts, the pushes and the PRs, the gate section and label `forge pr gate`
 // syncs while the merge waits on a person, and retargeting a stacked PR.
-import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
+import { writeAtomic } from '#core/os/fs.ts';
 import { prLinkNote } from '#core/job/issue-link.ts';
 import type { Config, Job, JobRepoPr } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -78,7 +78,7 @@ export function openPr(
   // The commits are scanned here too, verified or not: this is the real exit, a HEAD verified by a
   // Forge without the scanner was never scanned, and --force skips verify altogether.
   const mode = secretMode(config);
-  refreshBase(job, config, mode);
+  const fresh = refreshBase(job, config, mode);
   const scan = scanBranch(root, config, job, { staged: false, head: evidence.head });
   logSecrets(root, id, 'pr', scan, { blocked: mode === 'block' });
   if (mode === 'block' && scan.error) throw new ForgeError(`secret scan of ${id}'s commits could not finish (${scan.error}); forge pr open won't push an unscanned branch`, 'secret_found', `forge secrets scan ${id}`);
@@ -95,7 +95,7 @@ export function openPr(
   // the member's protected paths behind an empty diff, as the root's refresh above prevents for it.
   const check = refuseProtected(root, config, job, evidence.head, plans.map((p) => ({ repo: p.repo, worktree: p.worktree, base: p.base, head: p.checked })));
   // Still before any push in any repo, and --force doesn't skip it: the held push.
-  refusePushHold(root, config, job, evidence.head, plans, scan, mode, check);
+  refusePushHold(root, config, job, evidence.head, plans, { scan, mode, fresh }, check);
   // From here on only the checked commit is used, never HEAD: a commit made in the worktree after
   // the checks (a stale session, a process the builder left behind) must not ride along.
   const checked = evidence.head;
@@ -156,7 +156,7 @@ export function openPr(
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred, ...requiredChecksNote(config, github, job.worktree!, slug, job.base!) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
-  fs.writeFileSync(bodyFile, text.body);
+  writeAtomic(bodyFile, text.body);
   // A consumer on a local edge has nothing CI can resolve, and one on a sequential edge waits for the
   // dependency's release: its PR is held as a draft.
   const isDraft = interim.drafts.has(null) || Boolean(opts.draft ?? config.pr.draft);
@@ -275,11 +275,16 @@ function refuseProtected(root: string, config: Config, job: Job, head: string, m
  * member push or create: the latest security verdict, the secrets the scan only reported, then every
  * repo's CI changes since what Forge last pushed. CI paths a person approved as protected paths at
  * this content are not held twice. The first hold no person approved at its exact reason is logged
- * (`push-held`, which step's PR13 parks on) and refused.
+ * (`push-held`, which step's PR13 parks on) and refused. The secrets hold reads every repo's commit
+ * scan (`scanned` is the root's, each member's rides on its plan). A repo whose base could not be
+ * re-read from the push remote (`fresh`, only possible under `warn`) has a CI diff that can't be
+ * trusted, since the remote-tracking ref it reads is writable from the worktree: that refuses the push.
  */
-function refusePushHold(root: string, config: Config, job: Job, head: string, plans: MemberPrPlan[], scan: SecretScan, mode: SecretMode, check: BranchCheck): void {
+function refusePushHold(root: string, config: Config, job: Job, head: string, plans: MemberPrPlan[], scanned: { scan: SecretScan; mode: SecretMode; fresh: boolean }, check: BranchCheck): void {
   const id = job.id;
   const events = readEvents(root, id);
+  const stale = [...(scanned.fresh ? [] : ['the root repo']), ...plans.filter((p) => !p.fresh).map((p) => `repo ${p.repo}`)];
+  if (stale.length) throw new ForgeError(`can't re-read the base of ${stale.join(', ')} from ${config.git.remote}'s push remote, so ${id}'s CI changes can't be checked; forge pr open won't push a branch it can't check`, 'push_held');
   let changes: CiChange[];
   try {
     changes = [
@@ -295,7 +300,7 @@ function refusePushHold(root: string, config: Config, job: Job, head: string, pl
   }
   const holds: { kind: 'security' | 'secrets' | 'ci'; reason: string | null; paths?: string[] }[] = [
     { kind: 'security', reason: securityHoldReason(job) },
-    { kind: 'secrets', reason: secretsHoldReason(scan, mode, head) },
+    { kind: 'secrets', reason: secretsHoldReason(scanned.scan, scanned.mode, head, plans.map((p) => ({ repo: p.repo, head: p.checked, scan: p.scan }))) },
     { kind: 'ci', reason: changes.length ? ciHoldReason(changes) : null, paths: changes.slice(0, LIST_LIMIT).map((c) => c.path) },
   ];
   for (const h of holds) {
@@ -337,14 +342,19 @@ export function syncPrGate(root: string, config: Config, github: GitHub, id: str
   try {
     github.require();
     const slug = github.repoSlug(root, config);
-    const view = github.viewBody(root, slug, number);
-    // A recorded number is only edited while GitHub agrees it is this job's branch.
-    if (view.headRefName !== job.branch) throw new ForgeError(`PR #${number} in ${slug} is not on ${id}'s branch`, 'external');
-    const current = view.body;
+    // A recorded number is only edited while GitHub agrees it is this job's branch and base.
+    const read = (): string | null => {
+      const view = github.viewBody(root, slug, number);
+      assertJobPr(view, job.branch, job.base, `PR #${number} in ${slug}`);
+      return view.body;
+    };
+    const current = read();
     const next = current === null ? null : spliceSection(current, GATE_START, GATE_END, text);
     if (next !== null && next !== current) {
       const file = path.join(jobDir(root, id), 'pr-gate-body.md');
-      fs.writeFileSync(file, next);
+      writeAtomic(file, next);
+      // gh has no compare-and-swap edit: a body someone changed since the first read is left alone.
+      if (read() !== current) throw new ForgeError(`the body of PR #${number} changed while the gate section was being written`, 'external');
       github.editBody(root, slug, number, file);
       body = true;
     }

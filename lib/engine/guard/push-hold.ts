@@ -105,16 +105,32 @@ export function securityHoldReason(job: Pick<Job, 'verdicts'>): string | null {
   return `${PUSH_HELD_PREFIX}the security review of round ${s.round} is ${s.verdict === 'CHANGES' ? 'CHANGES' : 'not PASS'}`;
 }
 
+/** One member repo's commit scan, as the secrets hold reads it: the commit scanned, and what the scan said. */
+export interface RepoScan {
+  repo: string;
+  head: string;
+  scan: Pick<SecretScan, 'findings' | 'error'>;
+}
+
+const shortHead = (head: string): string => String(head).replace(/[^0-9a-f]/g, '').slice(0, 12);
+
 /**
- * The secrets hold's reason under `verifySecrets: warn` (block mode refuses these before the push):
- * findings the scan reported, bound to their fingerprints, or a scan that could not finish, bound to the head.
+ * The secrets hold's reason under `verifySecrets: warn` (block mode refuses these before the push),
+ * over the root's scan and every member's: a scan that could not finish, bound to the head (to each
+ * repo and its head when a member's too), else the findings the scans reported, bound to their
+ * fingerprints (a member's together with its repo). A root-only reason has the same text as ever.
  */
-export function secretsHoldReason(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode, head: string): string | null {
+export function secretsHoldReason(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode, head: string, members: RepoScan[] = []): string | null {
   if (mode !== 'warn') return null;
-  if (scan.error) return `${PUSH_HELD_PREFIX}the secret scan could not finish [head ${String(head).replace(/[^0-9a-f]/g, '').slice(0, 12)}]`;
-  if (!scan.findings.length) return null;
-  const prints = [...new Set(scan.findings.map((f) => `${f.fingerprint}\0`))];
-  return `${PUSH_HELD_PREFIX}the secret scan reported ${scan.findings.length} possible secrets [fp ${digest16(prints)}]`;
+  const unfinished = members.filter((m) => m.scan.error);
+  if (unfinished.length) {
+    const keys = [...(scan.error ? [`\0${head}\0`] : []), ...unfinished.map((m) => `${m.repo}\0${m.head}\0`)];
+    return `${PUSH_HELD_PREFIX}the secret scan could not finish in ${keys.length} ${keys.length === 1 ? 'repo' : 'repos'} [heads ${digest16(keys)}]`;
+  }
+  if (scan.error) return `${PUSH_HELD_PREFIX}the secret scan could not finish [head ${shortHead(head)}]`;
+  const prints = [...new Set([...scan.findings.map((f) => `${f.fingerprint}\0`), ...members.flatMap((m) => m.scan.findings.map((f) => `${m.repo}\0${f.fingerprint}\0`))])];
+  const total = scan.findings.length + members.reduce((n, m) => n + m.scan.findings.length, 0);
+  return total ? `${PUSH_HELD_PREFIX}the secret scan reported ${total} possible secrets [fp ${digest16(prints)}]` : null;
 }
 
 /**

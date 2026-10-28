@@ -29,6 +29,11 @@ const MAX_BLOCK = 4000;
 const BLOCK_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u{2028}\u{2029}]/gu;
 /** Line breaks a one-line reason folds into spaces. */
 const BREAKS = /[\r\n\t\u{2028}\u{2029}]+/gu;
+/**
+ * Every Forge section marker opens with `<!--`. Text an agent wrote goes between the gate markers with
+ * that opener broken, so it can never carry a marker that `spliceSection` would take for the section's end.
+ */
+const noMarker = (s: string): string => s.replace(/<!--/g, '<!- -');
 
 /**
  * The PR title and body exactly as `forge pr open` sends them, so the secret scan (and
@@ -91,7 +96,7 @@ function approvalLine(events: JobEvent[]): string {
 }
 
 /** A gate section in its markers: `text` on lines of its own, or nothing between them. */
-const gateBlock = (text: string): string => (text ? `${GATE_START}\n${text}\n${GATE_END}` : `${GATE_START}\n${GATE_END}`);
+const gateBlock = (text: string): string => (text ? `${GATE_START}\n${noMarker(text)}\n${GATE_END}` : `${GATE_START}\n${GATE_END}`);
 
 function prBody(root: string, config: Config, job: Job): string {
   const dir = jobDir(root, job.id);
@@ -144,16 +149,16 @@ export function memberPrBody(root: string, config: Config, job: Job): string {
 }
 
 /**
- * `body` with `text` between the first `start` and the next `end`, or null when either marker is
- * missing (a human removed them, so Forge no longer owns that part of the body).
+ * `body` with `text` between `start` and `end`, or null unless the body holds each marker exactly once,
+ * `start` first (a human removed them, or text copied a marker, so Forge no longer owns that part of
+ * the body: a second marker would make the section's end a guess).
  */
 export function spliceSection(body: string, start: string, end: string, text: string): string | null {
-  const s = body.indexOf(start);
-  if (s < 0) return null;
-  const from = s + start.length;
-  const e = body.indexOf(end, from);
-  if (e < 0) return null;
-  return `${body.slice(0, from)}\n${text ? `${text}\n` : ''}${body.slice(e)}`;
+  const once = (marker: string): number => (body.indexOf(marker) === body.lastIndexOf(marker) ? body.indexOf(marker) : -1);
+  const s = once(start);
+  const e = once(end);
+  if (s < 0 || e < s + start.length) return null;
+  return `${body.slice(0, s + start.length)}\n${text ? `${text}\n` : ''}${body.slice(e)}`;
 }
 
 /** spliceSection over the siblings markers. */
@@ -162,7 +167,7 @@ export const spliceSiblings = (body: string, line: string): string | null => spl
 /**
  * Agent-written text as a fenced text block on a public PR: control characters dropped, every run of
  * three or more backticks broken so the fence can't close early (nothing after it renders as markdown,
- * a mention or HTML), and cut at MAX_BLOCK.
+ * a mention or HTML), and cut at MAX_BLOCK. A section marker in it is broken by gateSection (noMarker).
  */
 function textBlock(raw: string): string {
   let t = raw.replace(/\r\n?/g, '\n').replace(BLOCK_CONTROL, '').replace(/`{3,}/g, "'''").trim();
@@ -191,5 +196,5 @@ export function gateSection(root: string, config: Config, job: Pick<Job, 'id'>, 
     parts.push('A person approves this gate in Forge before the PR can merge.');
     text = parts.join('\n\n');
   }
-  return attributionForbidden(config) ? stripAttribution(text) : text;
+  return noMarker(attributionForbidden(config) ? stripAttribution(text) : text);
 }

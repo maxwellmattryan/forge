@@ -65,6 +65,18 @@ test('the security and secrets reasons', () => {
   const two = secretsHoldReason({ findings: [finding('sha256:1'), finding('sha256:2')] }, 'warn', head)!;
   assert.match(two, /^push held: the secret scan reported 2 possible secrets \[fp [0-9a-f]{16}\]$/);
   assert.notEqual(two, secretsHoldReason({ findings: [finding('sha256:1'), finding('sha256:3')] }, 'warn', head), 'new findings, a new reason');
+  // A member's scan joins the root's: its findings count and are bound to its repo, a scan that could not finish to its repo and head.
+  const lib = (scan: { findings: any[]; error?: string }, repo = 'lib', at = 'b'.repeat(40)) => ({ repo, head: at, scan });
+  const withLib = secretsHoldReason({ findings: [] }, 'warn', head, [lib({ findings: [finding('sha256:1')] })])!;
+  assert.match(withLib, /^push held: the secret scan reported 1 possible secrets \[fp [0-9a-f]{16}\]$/);
+  assert.notEqual(withLib, secretsHoldReason({ findings: [finding('sha256:1')] }, 'warn', head), 'the same fingerprint in another repo is another reason');
+  assert.notEqual(withLib, secretsHoldReason({ findings: [] }, 'warn', head, [lib({ findings: [finding('sha256:1')] }, 'docs')]), 'and in another member');
+  assert.equal(secretsHoldReason({ findings: [] }, 'block', head, [lib({ findings: [finding('sha256:1')] })]), null, 'block mode refuses before the push');
+  assert.equal(secretsHoldReason({ findings: [] }, 'warn', head, [lib({ findings: [] })]), null);
+  const unfinished = secretsHoldReason({ findings: [] }, 'warn', head, [lib({ findings: [], error: 'base gone' })])!;
+  assert.match(unfinished, /^push held: the secret scan could not finish in 1 repo \[heads [0-9a-f]{16}\]$/);
+  assert.notEqual(unfinished, secretsHoldReason({ findings: [] }, 'warn', head, [lib({ findings: [], error: 'base gone' }, 'lib', 'c'.repeat(40))]), 'a new head, a new reason');
+  assert.match(secretsHoldReason({ findings: [], error: 'x' }, 'warn', head, [lib({ findings: [], error: 'x' })])!, / in 2 repos \[heads /, 'the root and a member');
 });
 
 test("a held push is approved only by a person's approve at exactly its reason", () => {

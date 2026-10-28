@@ -1166,8 +1166,8 @@ export const rows: Row[] = [
   },
   { name: 'DC9b an escalation parked in decide before the move goes on to integrate when the job runs again', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: escalated.slice(0, 5) }, want: { rule: 'DC9b' } },
   { name: 'DC9b approved after an escalation wait re-integrates', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: unparked }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
-  { name: 'cleared gate: DC7 a human-cleared escalation re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: sentBack }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
-  { name: 'cleared gate: DC8 a human-cleared runbook re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: runbookSentBack, runbookBeforeMerge: true }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
+  { name: 'cleared gate: a human-cleared escalation (the old DC7 park) re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: sentBack }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
+  { name: 'cleared gate: a human-cleared runbook (the old DC8 park) re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: runbookSentBack, runbookBeforeMerge: true }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
   { name: 'PR15 a budget acknowledgement after an ESCALATE does not clear it', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'budget', 'job budget: 1000 tokens')] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESCALATED) },
   { name: 'PR16 a budget acknowledgement does not clear the runbook', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PR16', RUNBOOK), ...approvedAt(32, 'pr', 'budget', 'job budget: 1000 tokens')], runbookBeforeMerge: true }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'infra', '--reason', RUNBOOK) },
   { name: 'PR16 an escalation approve does not clear the runbook', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PR16', RUNBOOK), ...approvedAt(32, 'pr', 'escalation', ESCALATED)], runbookBeforeMerge: true }, want: { rule: 'PR16' } },
@@ -1181,7 +1181,7 @@ export const rows: Row[] = [
   { name: 'DC9b a round with no recorded review still integrates (reviewCurrent null)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: null }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC9b a HEAD that follows the reviewed head integrates (reviewCurrent true)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: true }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC1 under auto-merge a PR rework goes back to the approver', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'decide', round: 2, pr: OPEN_PR }), files: ['spec'] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
-  // ---- Recall eval before the approver (RC1, RC2)
+  // ---- Recall eval before the approver (RC1; the old RC2 park is PR17 now)
   { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
   { name: 'RC1 a diff touching reviewers/code.md runs it', fx: { job: freshDecide(), recall: { changed: ['lib/x.ts', 'reviewers/code.md'] } }, want: { action: 'procedure', reference: RECALL_MD } },
   { name: 'RC1 a diff touching lib/engine/pipeline/brief.ts runs it', fx: { job: freshDecide(), recall: { changed: ['lib/engine/pipeline/brief.ts'] } }, want: { action: 'procedure', reference: RECALL_MD } },
@@ -1198,7 +1198,7 @@ export const rows: Row[] = [
   },
   { name: 'DC1 two recall starts with no record: the approver runs, and PR17 holds the merge', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: [recallStart(30), recallStart(31)] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
   {
-    name: 'DC1 a human approve at the RC2 park waives the recall eval',
+    name: 'DC1 a human approve at the old RC2 park waives the recall eval',
     fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, events: recallWaiver() },
     want: { action: 'spawn', role: 'approver' },
     check: (a) => assert.ok(a.brief.split('\n').includes('Reviewer recall: waived by a human'), a.brief),
@@ -1215,7 +1215,7 @@ export const rows: Row[] = [
   { name: 'PR17 fixtures that do not load park on a human after the push', fx: { job: atGate({ pr: null }), recall: { changed: ['agents/x.md'], invalid: true }, events: [OPENED] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', RECALL_REASON), rule: 'PR17' } },
   { name: 'PR4 a recall record for the prompts lets an eligible PR merge', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, recall: { changed: ['agents/x.md'] }, events: [recallStart(10), recallRecord(11), ...gateEvents('APPROVE')] }, want: { rule: 'PR4' } },
   { name: 'DC1 fixtures that do not load no longer park in decide', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'], invalid: true } }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
-  { name: 'DC1 a human approve at the RC2 park waives it with fixtures that do not load', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'], invalid: true }, events: recallWaiver().slice(2) }, want: { action: 'spawn', role: 'approver' } },
+  { name: 'DC1 a human approve at the old RC2 park waives it with fixtures that do not load', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'], invalid: true }, events: recallWaiver().slice(2) }, want: { action: 'spawn', role: 'approver' } },
   {
     name: 'DC1 brief: a diff with no reviewer prompts says none',
     fx: { job: freshDecide(), recall: { changed: ['lib/step/order.ts'] } },

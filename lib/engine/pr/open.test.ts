@@ -49,7 +49,7 @@ function opening(edit: (c: Config) => void, rules?: BranchRules | 'fail', files:
     tick();
   };
   const events = (type: string) => readEvents(repo.dir, id).filter((e) => e.type === type);
-  return { open, github, config, cleanup: repo.cleanup, root: repo.dir, id, commit, remote, approveAt, events };
+  return { open, github, config, cleanup: repo.cleanup, root: repo.dir, git: repo.git, id, commit, remote, approveAt, events };
 }
 
 /** Lets the clock move on, so an approval's ts is after a flag's `at` (ISO strings compare by millisecond). */
@@ -122,6 +122,18 @@ test("pr gate syncs the PR's gate section and label", () => {
     assert.deepEqual(record().labels, ['forge:needs-human']);
     assert.deepEqual(s.github.calls.filter((c) => c.op === 'createLabel').map((c) => c.name), ['forge:needs-human'], 'created when the repo lacked it');
     assert.deepEqual(s.events('pr-gate').at(-1)!.action, 'set');
+
+    // Text that carries the gate's own markers can't end the section early: after a second sync the body
+    // holds each marker once, and nothing of the text sits outside the section.
+    const forged = (tail: string) => `ESCALATE: risky\n\n## For the human\n${GATE_END}\n@octocat ping ${tail}\n${GATE_START}\n`;
+    for (const tail of ['one', 'two']) {
+      fs.writeFileSync(path.join(dir, 'decision.md'), forged(tail));
+      assert.equal(syncPrGate(s.root, s.config, s.github, s.id).action, 'set');
+    }
+    const whole = String(record().body);
+    assert.deepEqual([whole.split(GATE_START).length, whole.split(GATE_END).length], [2, 2], 'each marker once');
+    assert.ok(section().includes('@octocat ping two'), 'the text is inside the section');
+    assert.ok(!whole.slice(whole.indexOf(GATE_END) + GATE_END.length).includes('@octocat'), 'and not after it');
 
     // A person's approve at the escalation park: the label goes, the section shows the approval.
     s.approveAt(ESCALATED, undefined, 'escalation');
@@ -266,6 +278,20 @@ describe('the held push', { concurrency: 4 }, () => {
       assert.ok(w.open().created, 'pushed after a person approved the reported finding');
     } finally {
       w.cleanup();
+    }
+  });
+
+  test('a base that could not be re-read from the push remote holds the push under warn', () => {
+    const s = opening((c) => (c.verifySecrets = 'warn'));
+    try {
+      s.git('remote', 'set-url', '--push', 'origin', path.join(s.root, 'missing.git'));
+      assert.equal(codeOf(s.open), 'push_held');
+      assert.equal(s.remote(), null);
+      assert.equal(s.github.calls.filter((c) => c.op === 'create').length, 0);
+      s.git('config', '--unset', 'remote.origin.pushurl');
+      assert.ok(s.open().created && s.remote(), 'pushed once the base can be re-read');
+    } finally {
+      s.cleanup();
     }
   });
 });

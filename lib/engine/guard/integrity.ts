@@ -262,7 +262,7 @@ function packageOverrides(file: string, beforeText: string | null, afterText: st
 }
 
 /** CI runner files, the one list isConfigPath and the held push (push-hold.ts) share; `fold` matches any case, as a case-insensitive checkout reads the name. */
-export const isCiPath = (p: string, fold = false): boolean => new RegExp('^(?:(?:\\.github/workflows|\\.circleci|\\.buildkite|\\.forge/ci)/|(?:\\.gitlab-ci\\.yml|azure-pipelines\\.yml|Jenkinsfile)$)', fold ? 'iu' : '').test(p);
+export const isCiPath = ((re: RegExp[]) => (p: string, fold = false): boolean => re[fold ? 1 : 0].test(p))(['', 'iu'].map((flags) => new RegExp('^(?:(?:\\.github/workflows|\\.circleci|\\.buildkite|\\.forge/ci)/|(?:\\.gitlab-ci\\.yml|azure-pipelines\\.yml|Jenkinsfile)$)', flags)));
 /** Paths that are test, build or CI config whatever their content; `fold` reads the name as a case-insensitive checkout does (the escalate floor, floor.ts). */
 export function isConfigPath(p: string, fold = false): boolean {
   const f = (s: string): string => (fold ? s.toLowerCase() : s);
