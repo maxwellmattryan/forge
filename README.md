@@ -92,10 +92,10 @@ The `forge` CLI underneath also serves scripts, CI and other agent runtimes: see
                                        integrate
                                            │
                                            ▼
-                     you ◄── ESCALATE ─ decide
-                                           │ APPROVE
+                                        decide
+                                           │ APPROVE · ESCALATE
                                            ▼
-                                           PR ──► sync: merged, review
+                     you ◄── merge gate ── PR ──► sync: merged, review
                                                   feedback, conflicts,
                                                   CI → continue
 ```
@@ -103,7 +103,7 @@ The `forge` CLI underneath also serves scripts, CI and other agent runtimes: see
 1. **Plan.** The planner decides whether your request is one job or several, and the spec-writer turns it into a spec with acceptance criteria for you to approve.
 2. **Build.** The builder implements the spec on its own branch and worktree, then your tests and verifiers check it.
 3. **Review.** A panel of reviewers, picked from what the diff touches, reads it through one lens each; blocking findings send it back to build.
-4. **Decide.** The approver opens the pull request or escalates to you, and Forge follows the PR until it merges.
+4. **Decide.** The approver opens the pull request, or escalates to you on the open PR (the merge waits for you there), and Forge follows the PR until it merges.
 
 The CLI owns every deterministic step and all state, so agents only judge, and any session can resume any job. Dive deeper: [How it works](docs/ARCHITECTURE.md#how-it-works) · [Dashboard](docs/DASHBOARD.md) · [CLI](docs/CLI.md) · [Config](docs/CONFIG.md) · [Glossary](docs/GLOSSARY.md) · [Other agent runtimes](docs/PROTOCOL.md)
 

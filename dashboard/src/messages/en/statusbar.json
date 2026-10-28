@@ -191,6 +191,8 @@
     "secretRescan": "Approve runs the secret scan again. First remove or allowlist the value, or fix what stopped the scan.",
     "stillBlocked": "Still blocked",
     "stillBlockedNote": "The last approve ran the scan again and it still found a problem.",
+    "gatePrOpen": "The PR is open. It waits on your decision before it can merge.",
+    "pushHeld": "The push is held: nothing has left this machine. Approve pushes the branch and opens or updates the PR.",
     "budgetFailed": "Budget change failed: {error}",
     "budgetStillOver": "Still over budget: {keys}. Raise those limits in the note, or approve with no limits to acknowledge them.",
     "mandate": "mandate {id}",

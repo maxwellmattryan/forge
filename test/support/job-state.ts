@@ -31,14 +31,14 @@ const GATE_STAGE: Record<WaitingOn, Stage> = {
   'split-approval': 'plan', // P3
   'issue-link': 'spec', // SP7
   input: 'build', // N1b: any agent stage; build is the common one
-  escalation: 'decide', // DC7
-  infra: 'decide', // DC8
+  escalation: 'decide', // DC3; PR15 parks in pr (pass opts.stage)
+  infra: 'decide', // a job parked before the move; PR16 parks in pr
   conflicts: 'integrate', // IG4
   'rounds-exhausted': 'build', // B2
   'pr-review': 'pr', // PR5
   external: 'build', // no step rule; set by hand
   budget: 'build', // the round-start budget check
-  human: 'build', // SC1b/PP1/RP1: any stage
+  human: 'build', // SC1b/RP1: any stage; PP1, PP1b, PR13 and PR17 park in pr
   shelved: 'decide', // forge job shelve: any stage; keeps the one it had
 };
 

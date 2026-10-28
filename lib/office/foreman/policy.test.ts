@@ -587,7 +587,14 @@ test("with the runner's authority, the policy checks still refuse", () => {
     const head = 'a'.repeat(40);
     const pr = parkedAt(r.dir, 'pr-review', { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: head } }).id;
     enqueue(r.dir, config, { type: 'gate', job: pr, args: { gate: 'pr-feedback', key: 'b'.repeat(40), reserved: null }, from: 'forge' });
+    // The moved escalation: parked in stage pr after the PR opened, the same gate class as in decide.
+    const openPr = { number: 8, url: 'https://github.com/o/r/pull/8', state: 'OPEN' };
+    const merging = parkedAt(r.dir, 'escalation', { stage: 'pr', reason: 'approver escalated: see decision.md', pr: openPr }).id;
+    const insecureMerge = withRound(r.dir, parkedAt(r.dir, 'escalation', { stage: 'pr', reason: 'approver escalated: see decision.md', pr: openPr }).id, 1, { code: 'PASS', security: 'CHANGES' }).id;
     const rows: [string, string, string, string, RegExp | null][] = [
+      ['a stage-pr escalation approved with a plain note', merging, 'approve', 'the change is sound', null],
+      ['a stage-pr escalation approved with a note naming a reserved pattern', merging, 'approve', 'the payments change is sound', refused('reserved (payments): left for a human')],
+      ['a stage-pr escalation approved past a security review of CHANGES', insecureMerge, 'approve', 'ship it', refused('reserved ((security review: CHANGES)): left for a human')],
       ['a reserved pattern in the note', spec, 'approve-spec', 'the payments flow is fine', refused('reserved (payments): left for a human')],
       ['an approve past a security review of CHANGES', insecure, 'approve', 'ship it', refused('reserved ((security review: CHANGES)): left for a human')],
       ['a rework past it', insecure, 'rework', 'fix the finding', null],

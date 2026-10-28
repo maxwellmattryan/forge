@@ -256,6 +256,8 @@ export interface Config {
     integrationReview: 'always' | 'code-only';
     /** Consecutive CI reworks forge sync starts before a red head waits for a person. */
     maxCiReworks: number;
+    /** The label on a PR whose merge waits on a person's decision (a merge gate); null: none. */
+    needsHumanLabel: string | null;
   };
   merge: {
     auto: boolean;

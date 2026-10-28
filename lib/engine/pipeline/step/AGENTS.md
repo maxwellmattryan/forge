@@ -19,15 +19,15 @@
 | `input.ts` | loadStepInput: the one place `forge job step` reads disk. |
 | `order.ts` | `forge job step`: the one decider of pipeline transitions, the way the CLI is already the one writer of state. |
 | `panel.ts` | The review panel and the lenses each round reviews: pure helpers step, `forge job panel` and loadStepInput share. |
-| `recall.ts` | The decide gate's recall facts (RC1, RC2) and the approver's `Reviewer recall:` line read them too, so they live apart from the decide table and the brief: pure functions of the StepInput. |
+| `recall.ts` | The recall eval's facts: decide runs it before the approver (RC1), the pr table holds the merge without a record (PR17), and the approver's `Reviewer recall:` line reads them too, so they live apart from both tables and the brief: pure functions of the StepInput. |
 | `rules.ts` | The rule IDs of `forge job step` and the shape of its tables. |
 | `stages/build.ts` | Build: open a round, hold it to the round limits, run the builder, then verify. |
-| `stages/decide.ts` | Decide: the approver (or, for an eval, the judge and the grade) and the gates its decision opens. |
+| `stages/decide.ts` | Decide: the approver (or, for an eval, the judge and the grade), then on to integrate and pr. |
 | `stages/design.ts` | Design: the designer writes design.md, the spec-writer folds its spec deltas in, then back to spec. |
 | `stages/intake.ts` | Intake (backlog): find an issue, create the worktree, adopt a PR, then plan or spec. |
 | `stages/integrate.ts` | Integrate: bring the branch up to date with its base, resolve conflicts per pr.conflicts, and review the resolution before the approver or the PR. |
 | `stages/plan.ts` | Plan: the planner decides one job or a split, and a split waits on a human unless split is auto. |
-| `stages/pr.ts` | PR: verify, open or update the PR, follow interim deferrals and releases, merge or wait on review. |
+| `stages/pr.ts` | PR: verify, open or update the PR (unless the push is held), follow interim deferrals and releases, then hold the merge on an open merge gate (an escalation, a before-merge runbook, protected paths, a missing recall eval) until a person decides, merge, or wait on review. |
 | `stages/review.ts` | Review: pick the panel, write the scope report, run the lenses, record their verdicts, move on. |
 | `stages/spec.ts` | Spec: the spec-writer writes spec.md, step records the panel, then the spec gate and the issue link. |
 | `stages/verify.ts` | Verify: run the checks, then the repo's verifiers when it has some, then review or back to build. |

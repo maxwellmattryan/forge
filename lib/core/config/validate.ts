@@ -175,6 +175,10 @@ export function validateConfig(c: unknown, root: string): string[] {
     problems.push(`pipeline.maxTotalRounds must be null or a positive integer (got ${JSON.stringify(total)})`);
   const ci = c.pr.maxCiReworks;
   if (ci !== undefined && !(Number.isInteger(ci) && ci >= 0)) problems.push(`pr.maxCiReworks must be an integer >= 0 (got ${JSON.stringify(ci)})`);
+  // The label reaches gh's argv: a plain name, never an option, a control character or an empty word.
+  const label = c.pr.needsHumanLabel;
+  if (label !== undefined && label !== null && !(typeof label === 'string' && /^[A-Za-z0-9][A-Za-z0-9 :._/-]{0,49}$/.test(label)))
+    problems.push(`pr.needsHumanLabel must be null or a label name of at most 50 letters, digits, spaces and : . _ / - not starting with - (got ${JSON.stringify(label).slice(0, 80)})`);
   for (const [k, v] of Object.entries(c.pipeline.budget ?? {})) {
     if (v === null) continue;
     if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) problems.push(`pipeline.budget.${k} must be null or a non-negative number (got ${JSON.stringify(v)})`);

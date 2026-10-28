@@ -1,6 +1,6 @@
 // The Needs-you inbox: its groups and each gate card's kind, doc, note, buttons and badges. No DOM access.
 import { MANDATE_ID_SOURCE } from './types.ts';
-import type { DraftGate, ForgeRequest, HandoffClass, LastHuman, RequestType, StateJob, WaitingOn } from './types.ts';
+import type { DraftGate, ForgeRequest, HandoffClass, JobPr, LastHuman, RequestType, StateJob, WaitingOn } from './types.ts';
 import { isRepoHold } from './repo-budget.ts';
 import { isRepoProposal } from './repo-proposals.ts';
 import { hasLinkedIssue, isDependencyPark, isShelved, needsHuman } from './job-state.ts';
@@ -146,6 +146,27 @@ export function secretPark(j: Pick<StateJob, 'state' | 'waitingOn' | 'reason' | 
   const stillBlocked =
     h?.type === 'human' && h.action === 'approve' && e?.type === 'transition' && to.state === 'waiting' && to.waitingOn === 'human' && Date.parse(s(e.ts)) > Date.parse(s(h.ts));
   return { stillBlocked };
+}
+
+/** The reason `forge job step` (PR13, PP1) gives a park on a push `forge pr open` holds: lib/engine/guard/push-hold.ts. */
+export const PUSH_HELD_PREFIX = 'push held: ';
+
+/** The gates a merge gate on an open PR waits on (PR15, PR16, PP1b, PR17). */
+const MERGE_GATE_WAITS: readonly (WaitingOn | null | undefined)[] = ['escalation', 'infra', 'human'];
+
+/**
+ * What a gate card says about the PR beside its buttons: `open` for a merge gate on an open PR (in
+ * stage pr, the PR waits on this decision before it can merge), `held` for a push `forge pr open`
+ * holds (nothing has left the machine), else null. A secret park and a repo proposal stop something
+ * else, so they get neither.
+ */
+export function gatePrNote(j: Pick<JobLike, 'stage' | 'state' | 'waitingOn' | 'reason' | 'pr'>): { kind: 'open'; pr: JobPr } | { kind: 'held' } | null {
+  if (j.state !== 'waiting') return null;
+  const reason = s(j.reason);
+  if (j.waitingOn === 'human' && reason.startsWith(PUSH_HELD_PREFIX)) return { kind: 'held' };
+  if (j.stage !== 'pr' || !MERGE_GATE_WAITS.includes(j.waitingOn) || inboxKind(j) !== j.waitingOn) return null;
+  if (reason.startsWith(SECRET_PARK_PREFIX) || isRepoProposal(j)) return null;
+  return j.pr && j.pr.state === 'OPEN' ? { kind: 'open', pr: j.pr } : null;
 }
 
 /** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */
