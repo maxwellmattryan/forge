@@ -73,6 +73,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   /** Aborted by close() and killSync(): stops a running sync child (SIGTERM, then SIGKILL after graceMs). */
   const children = new AbortController();
   const runSync = opts.runSync ?? ((r: string, signal: AbortSignal) => runSyncChild(r, o.env, { signal, graceMs: o.graceMs }));
+  const runPass = opts.runPass ?? ((r: string, signal: AbortSignal) => runPassChild(r, o.env, { signal, graceMs: o.graceMs }));
   const platform = opts.platform ?? process.platform;
   reapOrphans(root, { graceMs: o.graceMs });
 
@@ -99,8 +100,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   let syncTimer: NodeJS.Timeout | null = null;
   let reconcileTimer: NodeJS.Timeout | null = null;
   let lastReconcileError: string | null = null;
-  let syncing = false;
-  /** The running sync, from runSync to the end of its handler, and every reconcile pass not yet settled: what close() waits for. */
+  /** The running sync, from runSync to the end of its handler (one at a time), and every reconcile pass not yet settled: what close() waits for. */
   let syncInFlight: Promise<void> | null = null;
   const reconciling = new Set<Promise<void>>();
   let lastSyncError: string | null = null;
@@ -153,13 +153,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   /** Decides gate requests in code, one forge:assistant child per run; its runs count against no cap and end with a poke. */
   const gates = createGateRunner(root, { ctx, o });
   /** The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
-  const passes = createPassScheduler(root, {
-    run: opts.runPass ?? ((r, signal) => runPassChild(r, o.env, { signal, graceMs: o.graceMs })),
-    done: () => tick(),
-    log: (message) => {
-      if (!closed) office.logEvent('error', { message });
-    },
-  });
+  // runPass gets the scheduler's signal, which its abort() and close() abort; a pass that ends after close() logs nothing.
+  const passes = createPassScheduler(root, { run: runPass, done: () => tick(), log: (message) => office.logEvent('error', { message }) });
 
   function session(scope: string): Session {
     let s = sessions.get(scope);
@@ -251,11 +246,10 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
    * One reconciler pass (lib/office/reconcile.ts), for every job or only `only`. Never throws: a failed
    * pass is logged once per distinct failure and retried at the next timer. close() waits for it.
    */
-  function runReconcile(only?: string): Promise<void> {
-    if (closed || !fs.existsSync(root)) return Promise.resolve();
+  function runReconcile(only?: string): void {
+    if (closed || !fs.existsSync(root)) return;
     const pass = reconcileOnce(only).finally(() => reconciling.delete(pass));
     reconciling.add(pass);
-    return pass;
   }
   async function reconcileOnce(only?: string): Promise<void> {
     try {
@@ -366,13 +360,11 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
    * one still runs, and while the trust snapshot is stale (tick stops the pool for that).
    */
   function periodicSync(): void {
-    if (!wanted || closed || syncing || !enabled) return;
+    if (!wanted || closed || syncInFlight || !enabled) return;
     if (trustDigest(root) !== trusted) return;
-    syncing = true;
     syncInFlight = runSync(root, children.signal)
       .catch((e: unknown) => (e as Error).message ?? String(e))
       .then((err) => {
-        syncing = false;
         syncInFlight = null;
         // A sync the close stopped: its failure is the kill, and the inbox log is closed.
         if (closed) return;
@@ -488,9 +480,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
         syncTimer.unref?.();
       }
       if (!reconcileTimer && reconcileMs > 0) {
-        reconcileTimer = setInterval(() => {
-          if (wanted && !closed) runReconcile();
-        }, reconcileMs);
+        // runReconcile skips a closed pool itself.
+        reconcileTimer = setInterval(() => void (wanted && runReconcile()), reconcileMs);
         reconcileTimer.unref?.();
       }
       inboxEager = true;
@@ -588,8 +579,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       wanted = false;
       closed = true;
       leave?.();
-      // A running sync or pass child gets SIGTERM, then SIGKILL after graceMs, and is waited for, so nothing this pool
-      // started still writes in the repo once close() resolves.
+      // A running sync or pass child gets SIGTERM, then SIGKILL after graceMs, and is waited for: none still writes once close() resolves.
       children.abort();
       await Promise.all([...[...sessions.values()].map((s) => s.close()), gates.close(), passes.close(), ...(syncInFlight ? [syncInFlight] : []), ...reconciling]);
       releaseDaemonLock();
