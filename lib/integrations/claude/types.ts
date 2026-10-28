@@ -27,6 +27,8 @@ export type ClaudeEvent =
   | { kind: 'log'; stream: 'stdout' | 'stderr'; line: string }
   /** A stdout line over maxLineBytes was dropped unread. */
   | { kind: 'line-too-long'; bytes: number }
+  /** A stdout line that is not a JSON object was logged as `forge-raw` and read no further. */
+  | { kind: 'unreadable-line' }
   /** claude started a turn (its system/init). */
   | { kind: 'turn-started' }
   /** The session id an init reported: a non-empty string, not yet checked to be a uuid. */
@@ -40,9 +42,10 @@ export type ClaudeEvent =
    */
   | { kind: 'first-request'; input: number; cacheRead: number; cacheWrite: number }
   /**
-   * The tool calls of one main-loop assistant line (never a subagent's): each tool's name, capped at 100 characters, at
-   * most 20 per line. A context session's child may only Read (lib/engine/workspace/context-session.ts), so the runner
-   * reads the names to refuse a context that did anything else.
+   * The tool calls of one main-loop assistant line (never a subagent's): the distinct tool names, each capped at 100
+   * characters, at most 20 per line (a line with more distinct names holds many that are not `Read`). A context session's
+   * child may only Read (lib/engine/workspace/context-session.ts), so the runner reads the names to refuse a context that
+   * did anything else.
    */
   | { kind: 'tool-use'; names: string[] }
   /** How many background tasks claude says are running. */

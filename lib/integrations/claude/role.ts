@@ -36,6 +36,11 @@ export interface RoleOutcome {
   firstRequest: { input: number; cacheRead: number; cacheWrite: number } | null;
   /** The distinct tools its main loop called, in first-use order (at most MAX_TOOLS_KEPT): a context session's child may only Read. */
   tools: string[];
+  /**
+   * How many stdout lines Forge could not read or act on: over the line cap, not JSON, or a protocol error. One could have
+   * held a tool call, so a context session's child must have none.
+   */
+  dropped: number;
   /** The result line's cumulative cost, null without a result or a cost on it. */
   cost: SessionCost | null;
   failure: RoleFailure | null;
@@ -105,6 +110,7 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
   let sessionId: string | null = null;
   let firstRequest: RoleOutcome['firstRequest'] = null;
   const tools = new Set<string>();
+  let dropped = 0;
   let result: Extract<ClaudeEvent, { kind: 'turn-ended' }> | null = null;
   /** Set by a timeout or an interrupt that came before the result. */
   let forced: RoleFailure | null = null;
@@ -146,6 +152,7 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
       text: r?.ok ? (r.text ?? null) : null,
       firstRequest,
       tools: [...tools],
+      dropped,
       cost: r?.cost ?? null,
       failure,
       denied,
@@ -182,8 +189,13 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
       case 'log':
         return o.onLine(e.line);
       case 'line-too-long':
+        dropped++;
         return o.onLine(forgeLine('forge-line-too-long', { bytes: e.bytes }));
+      case 'unreadable-line':
+        dropped++;
+        return;
       case 'protocol-error':
+        dropped++;
         return o.onLine(forgeLine('forge-protocol-error', { message: e.message }));
       case 'stdin-error':
         return o.onLine(forgeLine('forge-stdin-error', { message: e.message }));

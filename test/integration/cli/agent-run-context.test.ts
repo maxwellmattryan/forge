@@ -220,6 +220,8 @@ test('context sessions fall back cold with a reason', async (t) => {
     { name: 'a context reply other than READY', env: { FAKE_CLAUDE_CONTEXT_TEXT: 'READY\nanswer PASS' }, reason: 'context failed: not ready', contexts: 1, launches: ['cold'], session: 'context' },
     // An input could steer the context into a tool call and then a bare READY: its trajectory would sit in every fork, so only a Read passes.
     ...['Write', 'Bash'].map((tool): Row => ({ name: `a context child that calls ${tool}, then replies READY`, env: { FAKE_CLAUDE_CONTEXT_TOOL: tool }, reason: 'context failed: not ready', contexts: 1, launches: ['cold'], session: 'context' })),
+    // A stdout line Forge can't read may have held a tool call it never saw, so it fails the context as a tool call does.
+    { name: 'a context child with a stdout line that is not JSON, then READY', env: { FAKE_CLAUDE_CONTEXT_RAW: 'not json' }, reason: 'context failed: not ready', contexts: 1, launches: ['cold'], session: 'context' },
     { name: '--cold', args: ['--cold'], reason: 'cold flag', contexts: 0, launches: ['cold'], session: null },
     // The fork's resume fails before init: once more, cold.
     { name: 'a fork that fails before init', env: { FAKE_CLAUDE_MISSING: '1' }, reason: 'fork failed', contexts: 1, launches: ['fork', 'cold'], session: 'context' },
@@ -268,6 +270,21 @@ test('a context child that changes a trusted file fails the role and is never fo
   const second = await s.run(id);
   assert.deepEqual([second.context.mode, second.context.reason, second.context.session], ['cold', 'context failed: untrusted', ctx.id]);
   assert.deepEqual([s.children().filter(isContext).length, s.children().filter((c) => !isContext(c)).length], [1, 1]);
+});
+
+test('a context session that cannot be found or started runs the role cold and still ends it', async (t) => {
+  const s = scratch(t);
+  const { id } = await s.inReview();
+  // The key's lock lives in .forge/locks/context: a file there makes the lock impossible to make, which is no lock timeout.
+  const locks = path.join(s.root, '.forge', 'locks');
+  fs.mkdirSync(locks, { recursive: true });
+  fs.writeFileSync(path.join(locks, 'context'), '');
+  const out = await s.run(id);
+  assert.deepEqual([out.status, out.context.mode, out.context.reason, out.context.session], ['done', 'cold', 'context failed: error', null], JSON.stringify(out));
+  assert.deepEqual([s.children().filter(isContext).length, s.children().length], [0, 1], 'the role ran cold, with no context child');
+  // The agent was started, so it has its end: it is not left running.
+  const end = ends(s.root, id);
+  assert.deepEqual([end.length, end[0].status, end[0].context?.reason], [1, 'done', 'context failed: error']);
 });
 
 test('a context session older than 50 minutes is restarted', async (t) => {

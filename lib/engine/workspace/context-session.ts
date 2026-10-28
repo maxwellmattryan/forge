@@ -25,13 +25,15 @@ export const CONTEXT_LOCK_MS = 11 * 60_000;
 export const CONTEXT_INPUT_MAX_BYTES = 256 * 1024;
 export const CONTEXT_INPUTS_MAX_BYTES = 384 * 1024;
 export const CONTEXTS_KEPT = 20;
+/** The fixed cold reasons a run records (`ContextMark.reason`); a failed context adds `context failed: <reason>` (ColdText). */
+export type ColdReason = 'cold flag' | 'no inputs' | 'context busy' | 'brief over the cap' | 'fork failed' | 'cache miss';
 /**
- * The fixed cold reasons; a failed context adds `context failed: <failure class | not ready>` (contextFailed). `not ready`
- * is any reply but `READY`, a tool call other than Read and a denied call; the class `untrusted` is a moved trusted file.
+ * A cold run's reason: one of ColdReason, or its context's failure: a failure class (`untrusted` is a moved trusted file),
+ * `not ready` (any reply but `READY`, a tool call other than Read, a denied call, a stream line Forge could not read), or
+ * `error` (the find-or-start itself failed).
  */
-export const COLD_REASONS = ['cold flag', 'no inputs', 'context busy', 'brief over the cap', 'fork failed', 'cache miss'] as const;
-export type ColdReason = (typeof COLD_REASONS)[number];
-export const contextFailed = (reason: string | null): string => `context failed: ${reason ?? 'error'}`;
+export type ColdText = ColdReason | `context failed: ${string}`;
+export const contextFailed = (reason: string | null): ColdText => `context failed: ${reason ?? 'error'}`;
 
 const ZERO: MeterCum = { usd: 0, models: {} };
 const TOKEN_FIELDS = ['input', 'output', 'cacheRead', 'cacheWrite'] as const;
@@ -249,7 +251,7 @@ export interface ContextLaunch {
 }
 
 /** A role run's context: fork `rec`, or run cold for `reason` (with the context's id when one was involved). */
-export type ContextResolution = { mode: 'fork'; rec: ContextSession } | { mode: 'cold'; reason: string; session: string | null };
+export type ContextResolution = { mode: 'fork'; rec: ContextSession } | { mode: 'cold'; reason: ColdText; session: string | null };
 
 /**
  * Find or start the context for `key`, under its lock: a warm ready record is forked; a warm failed one sends the run

@@ -155,7 +155,7 @@ test("claude's stream-json lines become domain events", () => {
     },
     {
       // A context session's child may only Read: its tool calls are told apart by name, a subagent's own never counting.
-      name: "tool use: a main-loop line's tool_use names, capped, never a subagent's",
+      name: "tool use: a main-loop line's distinct tool_use names, capped, never a subagent's",
       feed: (s) => s.stdout([calls('Read', 'W'.repeat(150), undefined), subCall, calls(...Array.from({ length: 25 }, (_, i) => `T${i}`)), { type: 'assistant', parent_tool_use_id: null, message: { content: 'text' } }, ok].map(line).join('')),
       events: [
         logged(calls('Read', 'W'.repeat(150), undefined)),
@@ -167,6 +167,12 @@ test("claude's stream-json lines become domain events", () => {
         logged(ok),
         { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null },
       ],
+    },
+    {
+      // The cap counts distinct names, not blocks: more than 20 Reads on one line can't push a later call out of the report.
+      name: 'tool use: 25 Reads then a Bash on one line still report the Bash',
+      feed: (s) => s.stdout(line(calls(...Array.from({ length: 25 }, () => 'Read'), 'Bash', 'Read'))),
+      events: [logged(calls(...Array.from({ length: 25 }, () => 'Read'), 'Bash', 'Read')), { kind: 'tool-use', names: ['Read', 'Bash'] }],
     },
     {
       name: 'context: a non-finite or negative count reads as 0, on a failed turn too',
@@ -267,7 +273,9 @@ test("claude's stream-json lines become domain events", () => {
         { type: 'control_request', request_id: 'forge-mode-<id>', request: { subtype: 'set_permission_mode', mode: 'default' } },
       ],
     },
-    { name: 'non-JSON text', feed: (s) => s.stdout('not json\n'), events: [{ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: '<at>', text: 'not json' }) }] },
+    // A line Forge can't read may have held anything, so besides the log it is reported: a context session's child must have none.
+    { name: 'non-JSON text', feed: (s) => s.stdout('not json\n'), events: [{ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: '<at>', text: 'not json' }) }, { kind: 'unreadable-line' }] },
+    { name: 'JSON that is not an object', feed: (s) => s.stdout('42\n'), events: [{ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: '<at>', text: '42' }) }, { kind: 'unreadable-line' }] },
     {
       name: 'a line with a timestamp',
       feed: (s) => s.stdout('{"type":"assistant","timestamp":"2026-01-01T00:00:00Z"}\n'),

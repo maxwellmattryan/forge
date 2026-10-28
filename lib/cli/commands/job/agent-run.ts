@@ -18,12 +18,14 @@ import { contextBrief, withContextLine, withPrefixLine } from '#engine/pipeline/
 import {
   CONTEXT_TIMEOUT_MS,
   cacheMiss,
+  contextFailed,
   contextKey,
   contextKind,
   forkBase,
   inputsChanged,
   resolveContext,
   touchContext,
+  type ColdText,
   type ContextInput,
   type ContextLaunch,
   type ContextResolution,
@@ -58,7 +60,7 @@ const staleStep = (msg: string) => new ForgeError(`${msg}; nothing was started: 
 const described = (a: StepAction) => `forge job step returns ${a.action} (${a.rule})${a.action === 'spawn' ? ` for ${a.role}` : ''}`;
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 /** The outcome of a launch that never started a child. */
-const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, tools: [], cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
+const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, tools: [], dropped: 0, cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
 const CHANGED = 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it';
 
 /** A sidecar's cumulative cost, or null for anything the runner did not write (a missing, planted or malformed file). */
@@ -154,7 +156,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const confineBefore = confineDigest(root, config);
   // 8. The trusted prefix: the main checkout's instruction files, learnings and role notes as one system-prompt
   // file every lens, round and job with the same sources shares, so the prompt cache serves it. Its sources are
-  // under the digest just taken, so step 14 catches one changed during the run. Any refusal runs as before.
+  // under the digest just taken, so step 15 catches one changed during the run. Any refusal runs as before.
   const pre = rolePrefix(root, config, sp.role, [confined.roots.jobs, ...confined.roots.worktrees]);
   let prefix = pre.file;
   let prefixRefused = pre.refused;
@@ -286,8 +288,9 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   /**
    * A context child: the spawn's own argv with a fresh session id, the fixed context brief, its own timeout, never attached.
    * It is ready only on a bare `READY` after nothing but Reads: its own turns stay in every fork of it, so a child that
-   * called another tool (an input steered it to write or run something), had a call denied, or moved a trusted or
-   * protected file is failed, however it then replied, and its record is never forked.
+   * called another tool (an input steered it to write or run something), had a call denied, sent a stream line Forge could
+   * not read (one could have held a tool call), or moved a trusted or protected file is failed, however it then replied,
+   * and its record is never forked.
    */
   let ctxLog = '';
   const launchContext = async (inputs: ContextInput[]): Promise<ContextLaunch> => {
@@ -296,14 +299,14 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     const [startedAt, c0] = [now(), Date.now()];
     const out = await launch(argvFor(id, false), id, contextBrief(job, wt, sp.agent, inputs.map((i) => i.path)), { attach: false, timeoutMs: CONTEXT_TIMEOUT_MS });
     contextUntrusted = trustMoved();
-    const readOnly = out.denied === 0 && out.tools.every((t) => t === 'Read');
+    const readOnly = out.denied === 0 && out.dropped === 0 && out.tools.every((t) => t === 'Read');
     const ready = out.ok && !contextUntrusted && readOnly && out.text?.trim() === 'READY';
     const m = measure(id, out, ZERO, Date.now() - c0);
     const fr = out.firstRequest;
     const reason = ready ? null : out.failure ? out.failure.class : contextUntrusted ? 'untrusted' : 'not ready';
     return { id, status: ready ? 'ready' : 'failed', reason, startPrefix: fr ? fr.input + fr.cacheRead + fr.cacheWrite : null, usage: m.usage, unmeasured: m.unmeasured, startedAt, endedAt: now() };
   };
-  const cold = (reason: string, ctxId: string | null = null): ContextMark => ({ mode: 'cold', session: ctxId, reason, firstRead: null });
+  const cold = (reason: ColdText, ctxId: string | null = null): ContextMark => ({ mode: 'cold', session: ctxId, reason, firstRead: null });
   const coldBrief = brief;
   let mark: ContextMark | null = null;
   /** The context the final launch forked, null for a cold one. */
@@ -319,8 +322,10 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
           res = await resolveContext(root, config, jobId, contextKey(sp, prefix), { launch: launchContext, fence: { epoch: epoch ?? job.lease.epoch }, signal: abort.signal });
         } catch (e) {
           if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the context session was not recorded, and its run log is kept at ${ctxLog}`, 'stale_epoch');
-          // Interrupted while waiting: the launch below fails `interrupted` with nothing started.
-          if (!interrupted) throw e;
+          // Interrupted while waiting: the launch below fails `interrupted` with nothing started. Any other failure of the
+          // find-or-start (a lock dir that can't be made, a record that can't be written) must not strand the role `running`
+          // with no agent-end: a context session only saves cost, so the role runs cold.
+          if (!interrupted) mark = cold(contextFailed(null));
         }
       }
       if (res?.mode === 'cold') mark = cold(res.reason, res.session);

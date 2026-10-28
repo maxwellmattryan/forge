@@ -46,10 +46,26 @@ test('runRoleChild writes the brief once and ends the child after its result', a
   const out = await run.done;
   assert.deepEqual(
     { ...out, wallMs: 0 },
-    { ok: true, started: true, init: true, sessionId: SID, summary: 'VERIFY: 2 yes', text: 'VERIFY: 2 yes\nthe rest', firstRequest: { input: 2, cacheRead: 60000, cacheWrite: 100 }, tools: ['Read', 'Write'], cost, failure: null, denied: 0, exit: { code: 0, signal: null }, wallMs: 0 },
+    { ok: true, started: true, init: true, sessionId: SID, summary: 'VERIFY: 2 yes', text: 'VERIFY: 2 yes\nthe rest', firstRequest: { input: 2, cacheRead: 60000, cacheWrite: 100 }, tools: ['Read', 'Write'], dropped: 0, cost, failure: null, denied: 0, exit: { code: 0, signal: null }, wallMs: 0 },
   );
   assert.deepEqual([lines, ids], [['{"type":"assistant"}'], [SID]]);
   assert.deepEqual(c.signals, [], 'a child that exits on its own is never signalled');
+});
+
+test('runRoleChild counts the stdout lines it could not read or act on', async () => {
+  const { adapter, children } = fakeClaude();
+  const { run, lines } = start(adapter);
+  const [c] = children;
+  init(c);
+  // One could have held a tool call, so a context session's child must have none: too long, not JSON, or a protocol error.
+  c.emit({ kind: 'line-too-long', bytes: 9_000_000 });
+  c.emit({ kind: 'unreadable-line' });
+  c.emit({ kind: 'protocol-error', message: 'ignored a control_request without a usable request_id' });
+  c.emit(ok);
+  c.exit(0, null);
+  const out = await run.done;
+  assert.deepEqual([out.ok, out.dropped], [true, 3]);
+  assert.deepEqual(lines.map((l) => JSON.parse(l).type), ['forge-line-too-long', 'forge-protocol-error']);
 });
 
 test('runRoleChild sends SIGTERM, then SIGKILL, to a child that outlives its result', async () => {

@@ -33,6 +33,7 @@
 //   FAKE_CLAUDE_CONTEXT_EXIT        exit with this code once its brief is read, writing nothing more
 //   FAKE_CLAUDE_CONTEXT_TOOL        a main-loop call of this tool (an assistant line with a tool_use block) before its result
 //   FAKE_CLAUDE_CONTEXT_WRITE       `path=text`: write text to path before its result, as FAKE_CLAUDE_WRITE does for a role
+//   FAKE_CLAUDE_CONTEXT_RAW         this text as one stdout line (not JSON, so one forge cannot read) before its result
 // Every child's first assistant line carries message.id and a usage: a fork's reads FAKE_CLAUDE_FORK_READ from the
 // cache and writes 100, any other child reads 15000 and writes 14000 (its start prefix: 2 + 15000 + 14000).
 // Like claude 2.1.299: init reports --permission-mode (manual read as default), and a set_permission_mode control_request is
@@ -132,6 +133,7 @@ function serve() {
     turn++;
     if (context && env.FAKE_CLAUDE_CONTEXT_TOOL)
       out({ type: 'assistant', session_id: session, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_ctx_${turn}`, name: env.FAKE_CLAUDE_CONTEXT_TOOL, input: {} }] } });
+    if (context && env.FAKE_CLAUDE_CONTEXT_RAW) process.stdout.write(env.FAKE_CLAUDE_CONTEXT_RAW + '\n');
     if (env.FAKE_CLAUDE_DRIVE) return drive(session);
     if (env.FAKE_CLAUDE_NO_RESULT) return;
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
