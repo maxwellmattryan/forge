@@ -297,6 +297,7 @@ const EVENT_ROWS: Row[] = [
   { step: 'retro-scope-event', input: { ts: 't', type: 'retro-scope', mandate: 'm1' }, fields: { type: 'retro-scope', ts: 't', mandate: 'm1' }, note: "a mandate retro's scope reads as written" },
   { step: 'actor-source-launch', input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } }, fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } }, note: 'the launch flag\'s daemon-mode event keeps source launch' },
   { step: 'ci-rerun-events', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, fields: { type: 'ci-rerun', ts: 't', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, note: 'a CI re-run reads as written; ci-rerun-failed {head, cause, checks} is the same identity step' },
+  { step: 'person-ci-rerun', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, fields: { type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, note: "a person's re-run keeps its actor" },
 ];
 
 const MACHINE_ROWS: Row[] = [

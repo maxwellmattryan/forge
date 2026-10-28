@@ -1780,6 +1780,13 @@ A job's pull request.
 | 1 | no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held or bump-due, or its manifests at HEAD don't name the recorded release (code release_gate; nothing is called) |
 | 5 | gh or git failed |
 
+**`forge pr rerun <id>`**: re-run the failed GitHub Actions checks on the job's PR head as a person (at most 5 runs, each on that head and finished) and log ci-rerun; the job must wait on pr-review at the head the last sync recorded
+
+| Exit | When |
+|---|---|
+| 1 | no such job or PR, not waiting on pr-review, the PR head moved since the last sync, no failing checks, none of them a GitHub Actions job in the PR's repo, or GitHub re-ran none |
+| 5 | gh or git failed |
+
 **`forge pr sync <id>`**: read the PR's state, checks and review feedback into the job; each member repo PR's state and checks are read first, and the job is done only when every PR merged; a multi-repo job's PR bodies get their sibling links
 
 | Exit | When |

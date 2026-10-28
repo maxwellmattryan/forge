@@ -190,6 +190,13 @@ export const CORE: HelpGroup[] = [
         ],
         exits: [[1, "no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held or bump-due, or its manifests at HEAD don't name the recorded release (code release_gate; nothing is called)"], GH_FAILED],
       },
+      {
+        command: 'pr rerun',
+        args: '<id>',
+        summary:
+          "re-run the failed GitHub Actions checks on the job's PR head as a person (at most 5 runs, each on that head and finished) and log ci-rerun; the job must wait on pr-review at the head the last sync recorded",
+        exits: [[1, "no such job or PR, not waiting on pr-review, the PR head moved since the last sync, no failing checks, none of them a GitHub Actions job in the PR's repo, or GitHub re-ran none"], GH_FAILED],
+      },
     ],
   },
   {

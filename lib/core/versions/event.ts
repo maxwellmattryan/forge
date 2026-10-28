@@ -49,6 +49,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v14 adds `ci-rerun` {head, runs, jobs, checks} and `ci-rerun-failed` {head, cause, checks}; an older Forge reads them as
   // generic events.
   { id: 'ci-rerun-events', up: (e) => e },
+  // v15 lets `ci-rerun` carry an `actor`: a person's Re-run failed checks (`forge pr rerun` or the dashboard), which
+  // sync treats as that head's re-run. One without an actor is sync's own; an older Forge reads it as sync's.
+  { id: 'person-ci-rerun', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);
