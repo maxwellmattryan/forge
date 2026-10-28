@@ -50,6 +50,13 @@ const main = (input: number, cacheRead: number, cacheCreation: number) => ({
   message: { usage: { input_tokens: input, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheCreation, output_tokens: 50 } },
 });
 const sub = { type: 'assistant', parent_tool_use_id: 'toolu_1', message: { usage: { input_tokens: 1, cache_read_input_tokens: 900_000, cache_creation_input_tokens: 0 } } };
+/** A main-loop assistant line calling these tools (a block with no name given is `undefined`), after some text; a subagent's call. */
+const calls = (...names: (string | undefined)[]) => ({
+  type: 'assistant',
+  parent_tool_use_id: null,
+  message: { content: [{ type: 'text', text: 'reading' }, ...names.map((name, i) => ({ type: 'tool_use', id: `toolu_${i}`, name, input: {} }))] },
+});
+const subCall = { type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'tool_use', id: 'toolu_9', name: 'Bash', input: {} }] } };
 const ok = { type: 'result', is_error: false };
 
 /** A modelUsage entry in claude's words, and the ModelCost it becomes. */
@@ -144,6 +151,21 @@ test("claude's stream-json lines become domain events", () => {
         logged(main(5, 9, 9)),
         logged(ok),
         { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 23 },
+      ],
+    },
+    {
+      // A context session's child may only Read: its tool calls are told apart by name, a subagent's own never counting.
+      name: "tool use: a main-loop line's tool_use names, capped, never a subagent's",
+      feed: (s) => s.stdout([calls('Read', 'W'.repeat(150), undefined), subCall, calls(...Array.from({ length: 25 }, (_, i) => `T${i}`)), { type: 'assistant', parent_tool_use_id: null, message: { content: 'text' } }, ok].map(line).join('')),
+      events: [
+        logged(calls('Read', 'W'.repeat(150), undefined)),
+        { kind: 'tool-use', names: ['Read', 'W'.repeat(100), 'unknown'] },
+        logged(subCall),
+        logged(calls(...Array.from({ length: 25 }, (_, i) => `T${i}`))),
+        { kind: 'tool-use', names: Array.from({ length: 20 }, (_, i) => `T${i}`) },
+        logged({ type: 'assistant', parent_tool_use_id: null, message: { content: 'text' } }),
+        logged(ok),
+        { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null },
       ],
     },
     {

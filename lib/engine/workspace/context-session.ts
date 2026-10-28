@@ -25,7 +25,10 @@ export const CONTEXT_LOCK_MS = 11 * 60_000;
 export const CONTEXT_INPUT_MAX_BYTES = 256 * 1024;
 export const CONTEXT_INPUTS_MAX_BYTES = 384 * 1024;
 export const CONTEXTS_KEPT = 20;
-/** The fixed cold reasons; a failed context adds `context failed: <failure class | not ready>` (contextFailed). */
+/**
+ * The fixed cold reasons; a failed context adds `context failed: <failure class | not ready>` (contextFailed). `not ready`
+ * is any reply but `READY`, a tool call other than Read and a denied call; the class `untrusted` is a moved trusted file.
+ */
 export const COLD_REASONS = ['cold flag', 'no inputs', 'context busy', 'brief over the cap', 'fork failed', 'cache miss'] as const;
 export type ColdReason = (typeof COLD_REASONS)[number];
 export const contextFailed = (reason: string | null): string => `context failed: ${reason ?? 'error'}`;
@@ -139,7 +142,7 @@ export function inputsChanged(dir: string, inputs: readonly ContextInput[]): str
   return inputs
     .filter((i) => {
       const rel = path.relative(dir, i.path);
-      if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return true;
+      if (!rel || rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) return true;
       const b = readInput(realDir, dir, rel);
       return !b || sha256(b) !== i.sha256;
     })

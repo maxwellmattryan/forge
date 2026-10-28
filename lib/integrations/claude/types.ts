@@ -39,6 +39,12 @@ export type ClaudeEvent =
    * reads it to tell a fork that hit the prompt cache from one that missed it.
    */
   | { kind: 'first-request'; input: number; cacheRead: number; cacheWrite: number }
+  /**
+   * The tool calls of one main-loop assistant line (never a subagent's): each tool's name, capped at 100 characters, at
+   * most 20 per line. A context session's child may only Read (lib/engine/workspace/context-session.ts), so the runner
+   * reads the names to refuse a context that did anything else.
+   */
+  | { kind: 'tool-use'; names: string[] }
   /** How many background tasks claude says are running. */
   | { kind: 'background'; count: number }
   /** A tool call waiting on a human. `input` is the call's JSON, or null when it can't be serialised; `tool` is null when unusable. */

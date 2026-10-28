@@ -185,6 +185,9 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
   return { status: r.status, resetsAt };
 }
 
+/** What a `tool-use` event keeps of one assistant line: this many tool calls, each name cut to this many characters. */
+const MAX_TOOLS_PER_LINE = 20;
+const TOOL_NAME_CHARS = 100;
 const MAX_COST_MODELS = 20;
 const costCount = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 
@@ -313,10 +316,18 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
    * One API call's context: its input, cache-read and cache-creation tokens, each finite and >= 0 or else 0.
    * Only a main-loop line counts: a subagent's (a non-empty parent_tool_use_id) runs in its own context.
    * The stream's first such line also emits `first-request`: whether a fork's opening call read its context from the cache.
+   * A main-loop line's `tool_use` blocks emit `tool-use` with their names (a block without a usable name reads `unknown`).
    */
   function onAssistant(ev: Record<string, any>): void {
     if (typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id) return;
-    const usage = record(ev.message).usage;
+    const message = record(ev.message);
+    const names = (Array.isArray(message.content) ? message.content : [])
+      .map(record)
+      .filter((b) => b.type === 'tool_use')
+      .slice(0, MAX_TOOLS_PER_LINE)
+      .map((b) => (typeof b.name === 'string' && b.name ? b.name.slice(0, TOOL_NAME_CHARS) : 'unknown'));
+    if (names.length) emit({ kind: 'tool-use', names });
+    const usage = message.usage;
     if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return;
     const input = costCount(usage.input_tokens);
     const cacheRead = costCount(usage.cache_read_input_tokens);

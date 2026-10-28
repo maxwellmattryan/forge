@@ -31,6 +31,8 @@
 //   FAKE_CLAUDE_CONTEXT_HOLD        hold its result until this file exists (runs that must overlap it, deterministically)
 //   FAKE_CLAUDE_CONTEXT_MODEL_USAGE JSON modelUsage for its result
 //   FAKE_CLAUDE_CONTEXT_EXIT        exit with this code once its brief is read, writing nothing more
+//   FAKE_CLAUDE_CONTEXT_TOOL        a main-loop call of this tool (an assistant line with a tool_use block) before its result
+//   FAKE_CLAUDE_CONTEXT_WRITE       `path=text`: write text to path before its result, as FAKE_CLAUDE_WRITE does for a role
 // Every child's first assistant line carries message.id and a usage: a fork's reads FAKE_CLAUDE_FORK_READ from the
 // cache and writes 100, any other child reads 15000 and writes 14000 (its start prefix: 2 + 15000 + 14000).
 // Like claude 2.1.299: init reports --permission-mode (manual read as default), and a set_permission_mode control_request is
@@ -128,6 +130,8 @@ function serve() {
     out({ type: 'assistant', session_id: session, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }], ...(usage ? { id: `msg_${turn + 1}`, usage } : {}) } });
     first = false;
     turn++;
+    if (context && env.FAKE_CLAUDE_CONTEXT_TOOL)
+      out({ type: 'assistant', session_id: session, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_ctx_${turn}`, name: env.FAKE_CLAUDE_CONTEXT_TOOL, input: {} }] } });
     if (env.FAKE_CLAUDE_DRIVE) return drive(session);
     if (env.FAKE_CLAUDE_NO_RESULT) return;
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
@@ -144,9 +148,10 @@ function serve() {
     const finish = (/** @type {string | null} */ answer) =>
       setTimeout(function send() {
         if (hold && !fs.existsSync(hold)) return void setTimeout(send, 20);
-        if (env.FAKE_CLAUDE_WRITE && !context) {
-          const at = env.FAKE_CLAUDE_WRITE.indexOf('=');
-          fs.writeFileSync(env.FAKE_CLAUDE_WRITE.slice(0, at), env.FAKE_CLAUDE_WRITE.slice(at + 1));
+        const write = context ? env.FAKE_CLAUDE_CONTEXT_WRITE : env.FAKE_CLAUDE_WRITE;
+        if (write) {
+          const at = write.indexOf('=');
+          fs.writeFileSync(write.slice(0, at), write.slice(at + 1));
         }
         if (env.FAKE_CLAUDE_RATE_LIMIT) out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Number(env.FAKE_CLAUDE_RATE_LIMIT) }, session_id: session });
         out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed, ...(answer ? { result: `permission: ${answer}` } : {}) });

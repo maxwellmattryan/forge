@@ -58,7 +58,8 @@ const staleStep = (msg: string) => new ForgeError(`${msg}; nothing was started: 
 const described = (a: StepAction) => `forge job step returns ${a.action} (${a.rule})${a.action === 'spawn' ? ` for ${a.role}` : ''}`;
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 /** The outcome of a launch that never started a child. */
-const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
+const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, tools: [], cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
+const CHANGED = 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it';
 
 /** A sidecar's cumulative cost, or null for anything the runner did not write (a missing, planted or malformed file). */
 function sidecarCum(file: string): MeterCum | null {
@@ -278,17 +279,28 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     }
     return { usage, unmeasured };
   };
-  /** A context child: the spawn's own argv with a fresh session id, the fixed context brief, its own timeout, never attached. */
+  /** Whether a trusted or protected file moved since the start: the child changed it, whatever it was told. */
+  const trustMoved = () => trustDigest(root) !== digest || confineDigest(root, config) !== confineBefore;
+  /** Set when the context child moved one: the role then starts nothing and fails `untrusted`. */
+  let contextUntrusted = false;
+  /**
+   * A context child: the spawn's own argv with a fresh session id, the fixed context brief, its own timeout, never attached.
+   * It is ready only on a bare `READY` after nothing but Reads: its own turns stay in every fork of it, so a child that
+   * called another tool (an input steered it to write or run something), had a call denied, or moved a trusted or
+   * protected file is failed, however it then replied, and its record is never forked.
+   */
   let ctxLog = '';
   const launchContext = async (inputs: ContextInput[]): Promise<ContextLaunch> => {
     const id = crypto.randomUUID();
     ctxLog = roleRunFiles(root, jobId, id).log;
     const [startedAt, c0] = [now(), Date.now()];
     const out = await launch(argvFor(id, false), id, contextBrief(job, wt, sp.agent, inputs.map((i) => i.path)), { attach: false, timeoutMs: CONTEXT_TIMEOUT_MS });
-    const ready = out.ok && out.text?.trim() === 'READY';
+    contextUntrusted = trustMoved();
+    const readOnly = out.denied === 0 && out.tools.every((t) => t === 'Read');
+    const ready = out.ok && !contextUntrusted && readOnly && out.text?.trim() === 'READY';
     const m = measure(id, out, ZERO, Date.now() - c0);
     const fr = out.firstRequest;
-    const reason = ready ? null : out.failure ? out.failure.class : 'not ready';
+    const reason = ready ? null : out.failure ? out.failure.class : contextUntrusted ? 'untrusted' : 'not ready';
     return { id, status: ready ? 'ready' : 'failed', reason, startPrefix: fr ? fr.input + fr.cacheRead + fr.cacheWrite : null, usage: m.usage, unmeasured: m.unmeasured, startedAt, endedAt: now() };
   };
   const cold = (reason: string, ctxId: string | null = null): ContextMark => ({ mode: 'cold', session: ctxId, reason, firstRead: null });
@@ -326,7 +338,8 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       }
     }
     t0 = Date.now();
-    outcome = await launch(argv, sessionId, brief, { attach: true, timeoutMs });
+    // A context child that moved a trusted or protected file: the role does not start on top of it.
+    outcome = contextUntrusted ? notRun('untrusted', CHANGED) : await launch(argv, sessionId, brief, { attach: true, timeoutMs });
     const preInit = () => !outcome.init && !interrupted && outcome.failure !== null && ['error', 'exit'].includes(outcome.failure.class);
     // 14. A resume that never reached claude's init found no conversation, nor did a fork: once more, as a fresh session.
     if ((resumeId !== null || fork) && preInit()) {
@@ -350,8 +363,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   }
   // 15. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
   let failure: RoleFailure | null = outcome.failure;
-  if (trustDigest(root) !== digest || confineDigest(root, config) !== confineBefore)
-    failure = { class: 'untrusted', reason: 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it', resetsAt: null };
+  if (trustMoved()) failure = { class: 'untrusted', reason: CHANGED, resetsAt: null };
 
   // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
   const resumed = resumeId !== null && !resumeFailed;

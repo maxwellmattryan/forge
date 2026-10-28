@@ -40,7 +40,14 @@ test('the real adapter runs claude and reports its events', async (t) => {
   assert.deepEqual(calls, [{ cmd: CLAUDE, args: ['--session-id', id], opts: { cwd: os.tmpdir(), env: process.env, detached: true, stdio: ['pipe', 'pipe', 'pipe'] } }]);
   a.child.writeTurn();
   await waitFor(() => a.events.some((e) => e.kind === 'turn-ended'), { what: 'the turn to end' });
-  assert.deepEqual(a.kinds(), [{ kind: 'turn-started' }, { kind: 'session-id', id }, { kind: 'permission-mode', mode: 'default' }, { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }]);
+  // The stub's first assistant line carries a usage (a cold child writes its prefix: 2 + 15000 + 14000), so the turn has a first request and a context.
+  assert.deepEqual(a.kinds(), [
+    { kind: 'turn-started' },
+    { kind: 'session-id', id },
+    { kind: 'permission-mode', mode: 'default' },
+    { kind: 'first-request', input: 2, cacheRead: 15000, cacheWrite: 14000 },
+    { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 29002 },
+  ]);
   a.child.endInput();
   await a.child.closed;
   assert.deepEqual(a.events.at(-1), { kind: 'exit', code: 0, signal: null });

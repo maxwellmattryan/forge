@@ -124,6 +124,9 @@ test('changed inputs are the ones whose digest moved', (t) => {
   // In input order: a FIFO now (never read, never blocking), a new digest, and a file gone.
   assert.deepEqual(inputsChanged(s.dir, inputs), ['design.md', 'build.md', 'scope.md'].map((f) => path.join(s.dir, f)));
   assert.deepEqual(inputsChanged(s.dir, [{ path: '/etc/hosts', sha256: 'x' }]), ['/etc/hosts'], 'a path outside the job dir is never read');
+  // A name that merely starts with two dots lies inside the dir: it is not taken for a path out of it.
+  fs.writeFileSync(path.join(s.dir, '..spec'), 'spec.md\n');
+  assert.deepEqual(inputsChanged(s.dir, [{ path: path.join(s.dir, '..spec'), sha256: inputs[0].sha256 }]), []);
 });
 
 test('fork baseline and cache-miss rules', () => {

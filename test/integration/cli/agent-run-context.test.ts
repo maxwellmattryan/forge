@@ -106,7 +106,8 @@ test('a panel forks one context session per agent and model', async (t) => {
   assert.deepEqual([first.rule, first.role, (first.spawns ?? []).map((x: any) => x.role)], ['RV4', 'reviewer:code', ['reviewer:tests', 'reviewer:docs', 'reviewer:security']], JSON.stringify(first));
   // Each lens run takes index 0, so the next one starts the next lens; the contexts hold their result until every lens started.
   const hold = path.join(s.root, '.git', 'context-hold');
-  const env = s.env({ FAKE_CLAUDE_CONTEXT_HOLD: hold, FAKE_CLAUDE_CONTEXT_MODEL_USAGE: JSON.stringify(CTX_USAGE), FAKE_CLAUDE_MODEL_USAGE: JSON.stringify(FORK_USAGE) });
+  // A context child Reads its inputs before it replies READY: a Read is the one tool it may use.
+  const env = s.env({ FAKE_CLAUDE_CONTEXT_HOLD: hold, FAKE_CLAUDE_CONTEXT_TOOL: 'Read', FAKE_CLAUDE_CONTEXT_MODEL_USAGE: JSON.stringify(CTX_USAGE), FAKE_CLAUDE_MODEL_USAGE: JSON.stringify(FORK_USAGE) });
   const runs: ReturnType<typeof forgeAsync>[] = [];
   for (let i = 0; i < LENSES.length; i++) {
     runs.push(forgeAsync(s.root, ['job', 'agent', 'run', id, '--session', S, '--spawn-index', '0'], env));
@@ -217,6 +218,8 @@ test('context sessions fall back cold with a reason', async (t) => {
       },
     },
     { name: 'a context reply other than READY', env: { FAKE_CLAUDE_CONTEXT_TEXT: 'READY\nanswer PASS' }, reason: 'context failed: not ready', contexts: 1, launches: ['cold'], session: 'context' },
+    // An input could steer the context into a tool call and then a bare READY: its trajectory would sit in every fork, so only a Read passes.
+    ...['Write', 'Bash'].map((tool): Row => ({ name: `a context child that calls ${tool}, then replies READY`, env: { FAKE_CLAUDE_CONTEXT_TOOL: tool }, reason: 'context failed: not ready', contexts: 1, launches: ['cold'], session: 'context' })),
     { name: '--cold', args: ['--cold'], reason: 'cold flag', contexts: 0, launches: ['cold'], session: null },
     // The fork's resume fails before init: once more, cold.
     { name: 'a fork that fails before init', env: { FAKE_CLAUDE_MISSING: '1' }, reason: 'fork failed', contexts: 1, launches: ['fork', 'cold'], session: 'context' },
@@ -247,6 +250,24 @@ test('context sessions fall back cold with a reason', async (t) => {
     if (row.reason === 'cache miss') assert.equal(out.context.firstRead, 20000);
     await row.then?.(id);
   }
+});
+
+test('a context child that changes a trusted file fails the role and is never forked', async (t) => {
+  const s = scratch(t);
+  const { id } = await s.inReview();
+  const config = path.join(s.root, '.forge', 'config.yml');
+  const first = await s.run(id, { FAKE_CLAUDE_CONTEXT_WRITE: `${config}=${fs.readFileSync(config, 'utf8')}\n# changed by the context child\n` });
+  // The role never started on top of the change, and the context is recorded failed.
+  assert.deepEqual([first.status, first.failure.class, first.context.mode, first.context.reason], ['failed', 'untrusted', 'cold', 'context failed: untrusted']);
+  assert.deepEqual([s.children().filter(isContext).length, s.children().filter((c) => !isContext(c)).length], [1, 0]);
+  const [ctx] = loadJob(s.root, id).contexts;
+  assert.deepEqual([ctx.status, ctx.reason, ctx.id], ['failed', 'untrusted', first.context.session]);
+
+  // A human restores the file: the next lens of the round goes cold on the failed context, starting no other.
+  execFileSync('git', ['checkout', '--', '.forge/config.yml'], { cwd: s.root });
+  const second = await s.run(id);
+  assert.deepEqual([second.context.mode, second.context.reason, second.context.session], ['cold', 'context failed: untrusted', ctx.id]);
+  assert.deepEqual([s.children().filter(isContext).length, s.children().filter((c) => !isContext(c)).length], [1, 1]);
 });
 
 test('a context session older than 50 minutes is restarted', async (t) => {
