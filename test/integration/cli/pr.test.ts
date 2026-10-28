@@ -48,7 +48,39 @@ test('forge pr sync reads the PR through gh', { skip: process.platform === 'win3
   }
 });
 
-test('forge pr merge refuses --now and a broken scope under the daemon, with no gh merge call', { skip: process.platform === 'win32' }, async () => {
+test('forge pr rerun re-runs through gh run rerun --failed and logs ci-rerun', { skip: process.platform === 'win32' }, async () => {
+  const { repo, id } = await prRepo('rerun through gh');
+  const sha = 'b'.repeat(40);
+  const checks = { state: 'failing', passing: 0, failing: 1, pending: 0 };
+  setJob(repo.dir, id, { stage: 'pr', state: 'waiting', waitingOn: 'pr-review', owned: { pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', headOid: sha, checks } } });
+  const gh = fakeGh({
+    'pr view': JSON.stringify(ghPr({ headRefOid: sha, statusCheckRollup: [{ name: 'test', conclusion: 'FAILURE', detailsUrl: 'https://github.com/o/r/actions/runs/101/job/201' }] })),
+    'run view': JSON.stringify({ headSha: sha, status: 'completed', conclusion: 'failure' }),
+    'run rerun': '',
+  });
+  const reruns = () => gh.calls().filter((c) => c.args[0] === 'run' && c.args[1] === 'rerun');
+  try {
+    const r = await forgeAsync(repo.dir, ['pr', 'rerun', id], gh.env);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+    assert.deepEqual(JSON.parse(r.stdout), { action: 'rerun', id, head: sha, runs: ['101'], jobs: ['201'], checks: ['test'] });
+    assert.deepEqual(reruns().map((c) => c.args), [['run', 'rerun', '101', '--failed', '-R', 'o/r']]);
+    const e = readEvents(repo.dir, id).find((x) => x.type === 'ci-rerun');
+    assert.deepEqual([e?.head, e?.runs, e?.jobs, e?.actor?.source], [sha, ['101'], ['201'], 'env'], JSON.stringify(e));
+    assert.deepEqual([loadJob(repo.dir, id).stage, loadJob(repo.dir, id).waitingOn], ['pr', 'pr-review']);
+    // Not parked on pr-review: refused, with no gh call.
+    setJob(repo.dir, id, { stage: 'build', state: 'running', waitingOn: null });
+    const calls = gh.calls().length;
+    const refused = await forgeAsync(repo.dir, ['pr', 'rerun', id], gh.env);
+    assert.equal(refused.status, 1, refused.stderr + refused.stdout);
+    assert.match(refused.stderr + refused.stdout, /is not waiting on pr-review; nothing re-run/);
+    assert.equal(gh.calls().length, calls);
+  } finally {
+    fs.rmSync(gh.dir, { recursive: true, force: true });
+    repo.cleanup();
+  }
+});
+
+test('forge pr merge refuses --now and a broken scope under the daemon, with no gh merge call',{ skip: process.platform === 'win32' }, async () => {
   const { repo, id } = await prRepo('merge under the daemon');
   const gh = fakeGh({ 'pr view': JSON.stringify(ghPr({ statusCheckRollup: [{ name: 'test', conclusion: 'SUCCESS' }] })), 'api graphql': '{"data":{}}', 'pr merge': '' });
   try {

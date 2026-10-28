@@ -113,6 +113,8 @@ export const API_CHANGES = [
   // POST /api/session (PostSessionBody, PostSessionResponse): the login exchange; every other /api route needs the
   // forge-<port> cookie or x-forge-token, 401 otherwise, and ?token= is gone.
   { id: 'session-login' },
+  // JobPr.failingChecks (PrFailingChecks) and .feedbackSinceRound; POST /api/jobs/:id/ci (PostJobCiBody, PostJobCiResponse).
+  { id: 'pr-review-actions' },
 ] as const;
 
 /**

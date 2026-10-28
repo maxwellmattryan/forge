@@ -221,6 +221,20 @@ export interface PostJobMergeBody {
   confirm: string;
 }
 
+/** POST /api/jobs/:id/ci body: a person's Re-run failed checks or Fix CI, pinned to the PR head the row showed. */
+export interface PostJobCiBody {
+  action: 'rerun' | 'fix-ci';
+  head: string;
+}
+
+/**
+ * POST /api/jobs/:id/ci reply: rerunFailedChecks (`rerun`: the runs and jobs GitHub accepted, the failing
+ * check names) or fixFailingChecks (`fix-ci`: the stored names the rework named) in lib/engine/pr/ci.ts.
+ */
+export type PostJobCiResponse =
+  | { action: 'rerun'; id: string; head: string; runs: string[]; jobs: string[]; checks: string[] }
+  | { action: 'fix-ci'; id: string; head: string; checks: string[] };
+
 /** POST /api/jobs/:id/budget body: `set` entries are `key=value` in `forge job budget --set` syntax; set is applied before ack. */
 export interface PostJobBudgetBody {
   ack?: boolean;
