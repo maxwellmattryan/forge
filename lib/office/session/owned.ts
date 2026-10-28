@@ -1,13 +1,13 @@
 // What a session answers for: whether its job's agents keep it (sessionAgents, which `forge daemon status`
-// reads without loading the supervisor), the reconciler's facts, and the one release
-// (lib/office/driver.ts releaseSession) its exit runs over every id it has had.
+// reads without loading the supervisor), the reconciler's facts, the one release
+// (lib/office/driver.ts releaseSession) its exit runs over every id it has had, and the resumes its working turns took up.
 import { defaults } from '#core/config/load.ts';
 import { AGENT_LEASE_MS, loadJob } from '#core/job/store.ts';
-import { INBOX_SCOPE, validJobId } from '#core/job/requests.ts';
+import { INBOX_SCOPE, RESUME_TAKEN_UP, closeIfOpen, sharedScope, validJobId } from '#core/job/requests.ts';
 import type { SessionFacts } from '../reconcile.ts';
 import { drivenBy, recordIds, releaseSession } from '../driver.ts';
 import type { SessionCore } from './contract.ts';
-import type { Config, JobAgent } from '#core/types.ts';
+import type { Config, ForgeRequest, JobAgent } from '#core/types.ts';
 
 /** What a job session's agents say about keeping it: sessionAgents. */
 export interface SessionAgents {
@@ -107,5 +107,24 @@ export function createOwned(core: SessionCore) {
     for (const message of r.errors) core.logEvent('error', { message });
   }
 
-  return { agents, computeKept, keptBy, facts, release };
+  /**
+   * A working turn written for `ids` has ended: each of them that is a `resume` for this job, still pending or claimed
+   * under one of this session's own ids, is closed `done`, so it no longer reads as a decision in flight. Read under the
+   * requests lock: another type, another session's claim and an ack already made are left as they are. The inbox,
+   * office and chat close nothing. Never throws.
+   */
+  function takeUp(ids: readonly string[]): void {
+    if (sharedScope(scope) || !validJobId(scope)) return;
+    const mine = recordIds(core.info);
+    const ours = (r: ForgeRequest) => r.type === 'resume' && r.job === scope && (r.status === 'pending' || (typeof r.session === 'string' && mine.includes(r.session)));
+    const closed: string[] = [];
+    for (const id of ids) {
+      try {
+        if (closeIfOpen(root, id, ours, { status: 'done', result: RESUME_TAKEN_UP })) closed.push(id);
+      } catch {}
+    }
+    if (closed.length) core.logEvent('requests-closed', { requests: closed });
+  }
+
+  return { agents, computeKept, keptBy, facts, release, takeUp };
 }
