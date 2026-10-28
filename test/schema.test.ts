@@ -241,6 +241,7 @@ const JOB_ROWS: Row[] = [
   },
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
+  { step: 'pr-wait-reasons', input: { id: 'x', pr: { number: 7, state: 'OPEN', checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } } }, fields: { 'pr.number': 7, 'pr.checks.state': 'failing' }, removed: ['pr.failingChecks', 'pr.feedbackSinceRound'], note: 'an older PR record has neither until its next sync' },
 ];
 
 const EVENT_ROWS: Row[] = [

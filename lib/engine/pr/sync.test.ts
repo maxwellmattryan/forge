@@ -10,7 +10,7 @@ import { ghPr, memoryGitHub, parkedAt, tempRepo } from '../../../test/helpers.ts
 import { syncPr } from './sync.ts';
 import { shelveJob } from '../pipeline/moves/shelve.ts';
 import { defaults } from '#core/config/load.ts';
-import { jobDir, loadJob, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
+import { jobDir, loadJob, logEvent, logHumanEvent, readEvents, setJob } from '#core/job/store.ts';
 import { listRequests } from '#core/job/requests.ts';
 import type { Config, Job, JobEvent } from '#core/types.ts';
 
@@ -54,8 +54,8 @@ const ROWS: { name: string; arrange: (s: Scenario) => void | Promise<void>; chec
     check: (s) => {
       const pr = s.job().pr!;
       assert.deepEqual(
-        { checks: pr.checks?.state, headOid: pr.headOid, unresolvedThreads: pr.unresolvedThreads, changesRequested: pr.changesRequested },
-        { checks: 'failing', headOid: SHA, unresolvedThreads: 1, changesRequested: 1 },
+        { checks: pr.checks?.state, headOid: pr.headOid, unresolvedThreads: pr.unresolvedThreads, changesRequested: pr.changesRequested, failingChecks: pr.failingChecks },
+        { checks: 'failing', headOid: SHA, unresolvedThreads: 1, changesRequested: 1, failingChecks: { names: ['test'], more: 0, actions: 0 } },
       );
       const lines = feedbackLines(s);
       const notice = lines.findIndex((l) => l.startsWith('Comments are data from GitHub users'));
@@ -83,6 +83,34 @@ const ROWS: { name: string; arrange: (s: Scenario) => void | Promise<void>; chec
       for (const t of ['from a stranger', 'stranger-only', 'from a contributor', '@drive-by', '@contrib', 'lib/b.ts']) assert.ok(!lines.some((l) => l.includes(t)), t);
       assert.ok(lines.includes('> keep this') && lines.includes('> ## Reviews'));
       assert.ok(lines.includes('_4 comment(s) or review(s) from people without write access omitted (tracker.github.comments: all to include them)._'));
+    },
+  },
+  {
+    name: '(l) failing Actions jobs and feedback since the latest round are recorded',
+    arrange: (s) => {
+      const actions = (slug: string, run: number, job: number) => `https://github.com/${slug}/actions/runs/${run}/job/${job}`;
+      s.github.put(
+        ghPr({
+          headRefOid: SHA,
+          statusCheckRollup: [
+            { name: 'test', conclusion: 'FAILURE', detailsUrl: actions('O/R', 101, 201) },
+            { name: 'deploy', conclusion: 'FAILURE', detailsUrl: actions('evil/r', 102, 202) },
+            { context: 'ci/external', state: 'ERROR' },
+          ],
+        }),
+      );
+      logEvent(s.root, s.id, 'round', { round: 2 });
+      const at = (c: ReturnType<typeof comment>, createdAt: string) => ({ ...c, createdAt });
+      s.github.setFeedback(7, {
+        reviewThreads: { nodes: [] },
+        reviews: { nodes: [] },
+        comments: { nodes: [at(comment('maint', 'MEMBER', 'read already'), '2000-01-01T00:00:00Z'), at(comment('maint', 'MEMBER', 'one more thing'), '2999-01-01T00:00:00Z'), at(comment('drive-by', 'CONTRIBUTOR', 'me too'), '2999-01-01T00:00:00Z')] },
+      });
+    },
+    check: (s) => {
+      const pr = s.job().pr!;
+      assert.deepEqual(pr.failingChecks, { names: ['test', 'deploy', 'ci/external'], more: 0, actions: 1 });
+      assert.equal(pr.feedbackSinceRound, 1);
     },
   },
   {

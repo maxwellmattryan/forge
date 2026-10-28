@@ -179,6 +179,9 @@ export function summarizeChecks(rollup: readonly unknown[]): PrChecks {
 const CHECK_NAME = /^[A-Za-z0-9 ._/(),-]{1,60}$/;
 const MAX_CHECK_NAMES = 5;
 
+/** CHECK_NAME's test, for a stored name read back from job.json, which a session may have edited. */
+export const isCheckName = (v: unknown): v is string => typeof v === 'string' && CHECK_NAME.test(v);
+
 /**
  * The failing checks' names (`name`, else `context`), trimmed, at most 5 that match CHECK_NAME;
  * `more` counts the ones dropped or beyond 5. Same failing set as summarizeChecks.

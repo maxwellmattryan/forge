@@ -18,7 +18,7 @@ import type { PrStateKey, RepoKey } from '../project/repo-order.ts';
 import { deferralStatus, pendingDeferral, readDeferrals } from '../release/interim.ts';
 import { deltaSummary, fetchCommit, isSha, measureHumanDelta, shouldMeasureDelta } from './delta.ts';
 import { findPr } from './adopt.ts';
-import { writeFeedback } from './feedback.ts';
+import { feedbackSince, writeFeedback } from './feedback.ts';
 import { linkSiblingsQuietly, syncMemberPrs } from './members.ts';
 import type { MemberSync } from './members.ts';
 
@@ -152,7 +152,10 @@ function ciRerunReason(cause: CiRerunCause, failing: { names: string[]; more: nu
     : `${CI_RERUN_PREFIX} ${checksText(failing)} failing ${at} after a CI rework with no new commit, and Forge could not re-run them. Local verify passes. A human decides`;
 }
 
-const parkedOnReview = (j: Pick<Job, 'stage' | 'state' | 'waitingOn'>) => j.stage === 'pr' && j.state === 'waiting' && j.waitingOn === 'pr-review';
+/** A failing run's repo is the PR's own: GitHub slugs compare case-insensitively. */
+const ownRepo = (runSlug: string, slug: string): boolean => runSlug.toLowerCase() === slug.toLowerCase();
+
+const parkedOnReview = (j:Pick<Job, 'stage' | 'state' | 'waitingOn'>) => j.stage === 'pr' && j.state === 'waiting' && j.waitingOn === 'pr-review';
 const latestFor = (events: JobEvent[], type: string, head: string): JobEvent | undefined => events.findLast((e) => e.type === type && e.head === head);
 /** An event's ids, read defensively: events.jsonl is agent-appendable, and anything else counts as none, which leans toward parking. */
 const runIds = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && RUN_ID.test(x)) : []);
@@ -187,7 +190,7 @@ async function ciRerun(
     return pr.failingRuns.some((r) => jobs.has(r.job)) ? 'waiting' : parkRerun(root, job, head, 'still-failing', pr.failingChecks);
   }
   // Only the PR's own repo, and every call passes -R slug: a detailsUrl elsewhere never picks the repo.
-  const own = pr.failingRuns.filter((r) => r.slug.toLowerCase() === slug.toLowerCase());
+  const own = pr.failingRuns.filter((r) => ownRepo(r.slug, slug));
   const accepted: string[] = [];
   for (const run of [...new Set(own.map((r) => r.run))].slice(0, MAX_RERUNS)) {
     try {
@@ -415,6 +418,9 @@ export async function syncPrDetailed(
     conflicts: pr.mergeable === 'CONFLICTING',
     unresolvedThreads: feedback.threads.length,
     changesRequested: feedback.reviews.filter((r) => r.state === 'CHANGES_REQUESTED').length,
+    // Why the PR waits, for the dashboard's PR row: what fails (and how much of it Forge could re-run), and new feedback.
+    failingChecks: { names: pr.failingChecks.names, more: pr.failingChecks.more, actions: pr.failingRuns.filter((r) => ownRepo(r.slug, slug)).length },
+    feedbackSinceRound: feedbackSince(feedback, roundBoundary(readEvents(root, id))),
     mergedAt: pr.mergedAt,
     lastSyncedAt: now(),
   };
@@ -466,6 +472,12 @@ export async function syncPrDetailed(
     if ((await startCiRework(root, config, after, github, slug, pr, opts.narrow)) === false) enqueuePrFeedbackGate(root, config, after, feedback.trusted);
   }
   return { result: integrate ? { id, pr: synced, integrate: true } : reopen ? { id, pr: synced, reopen: true } : { id, pr: synced }, members, baseRef: pr.baseRefName };
+}
+
+/** When the job last acted on its PR: the latest round, PR open or PR update, or null when it has none. Feedback after it is new. */
+function roundBoundary(events: JobEvent[]): string | null {
+  const e = events.findLast((x) => (x.type === 'round' || x.type === 'pr-opened' || x.type === 'pr-updated') && typeof x.ts === 'string');
+  return e ? e.ts : null;
 }
 
 /** The pool spawns the job's session to open the deferred PRs. A fixed text, as for integrate. */
