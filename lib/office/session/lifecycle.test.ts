@@ -12,7 +12,7 @@ import path from 'node:path';
 import { fakeClaude, repoTemplate, waitFor, withLease, type FakeClaudeChild } from '../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { createJob, loadJob, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, ackRequest, claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { UUID, sessionFiles } from '#core/job/session-files.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { appendMeter } from '#engine/metrics/meter.ts';
@@ -430,6 +430,45 @@ test('a failed turn backs off, and a limit waits for its reset', async (t) => {
       assert.deepEqual(r.s.route(r.cfg, pending), { eligible: ['r1'], fresh: false }, `${row.name}: no turn while it waits`);
     }
   }
+});
+
+// A working turn closes the resumes it was written for, open or claimed under its own id; nothing else.
+test('a job session closes the resumes its working turn took up', { todo: true }, async (t) => {
+  const TAKEN_UP = "its job session's turn took it up";
+  const r = rig(t, { job: true });
+  r.s.spawn(r.cfg);
+  const [c] = r.children;
+  const add = (type: string, from = 'dashboard') => enqueue(r.root, r.cfg, { type, job: r.scope, from }).id;
+  const req = (id: string) => listRequests(r.root).find((x) => x.id === id)!;
+  const turn = (ids: string[], ev: ClaudeEvent = { kind: 'turn-ended', ok: true }) => (r.s.writeTurn(ids), c.emit(ev));
+  // The reported sequence: the dashboard's resume, then it again beside the assistant's hand-off, as `eligible` lists them.
+  const first = add('resume');
+  turn([first]);
+  const handoff = add('resume', 'daemon:_assistant-1');
+  turn([first, handoff]);
+  for (const id of [first, handoff]) assert.deepEqual([req(id).status, req(id).result], ['done', TAKEN_UP], id);
+  const [resume, approve, theirs, rejected, mine] = [add('resume'), add('approve'), add('resume'), add('resume'), add('resume')];
+  claimRequest(r.root, theirs, crypto.randomUUID());
+  ackRequest(r.root, rejected, { status: 'rejected', result: 'not now' });
+  claimRequest(r.root, mine, r.record().sessionId);
+  r.s.writeTurn([resume, approve, theirs, rejected, mine]);
+  const late = add('resume');
+  c.emit({ kind: 'turn-ended', ok: true });
+  const ids = [resume, approve, theirs, rejected, mine, late];
+  assert.deepEqual(ids.map((id) => req(id).status), ['done', 'pending', 'in-progress', 'rejected', 'done', 'pending']);
+  assert.equal(req(rejected).result, 'not now', 'an ack already made wins');
+  turn([late], failed('boom'));
+  assert.equal(req(late).status, 'pending', 'a failed turn closes nothing');
+  turn([late]);
+  assert.equal(req(late).status, 'done', 'the next working turn written for it closes it');
+  assert.deepEqual(r.event('requests-closed').map((l) => l.requests), [[first], [handoff], [resume, mine], [late]]);
+
+  const inbox = rig(t);
+  inbox.s.spawn(inbox.cfg);
+  const stray = enqueue(inbox.root, inbox.cfg, { type: 'resume', job: 'no-such-job', from: 'dashboard' }).id;
+  inbox.s.writeTurn([stray]);
+  inbox.children[0].emit({ kind: 'turn-ended', ok: true });
+  assert.deepEqual([listRequests(inbox.root).find((x) => x.id === stray)?.status, inbox.event('requests-closed').length], ['pending', 0], 'the inbox closes nothing');
 });
 
 /** The --max-budget-usd values in argv, in order. */
