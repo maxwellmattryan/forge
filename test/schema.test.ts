@@ -51,6 +51,7 @@ const OWNER = { session: 'S-old', host: 'laptop.local', since: '2026-10-01T10:00
 const AGENTS = { builder: { runs: 2, status: 'done', agentId: 'a1', startedAt: '2026-10-01T10:00:00.000Z', endedAt: '2026-10-01T10:02:00.000Z', round: 1, importedThrough: { a1: '2026-10-01T10:02:00.000Z' } } };
 const run = (round: number, attempt: number, ok: boolean, sha: string | null = null) => ({ round, attempt, sha, ok, at: null, file: `verify/round-${round}.md` });
 const FOREMAN = { login: null, source: 'foreman' };
+const CTX = '33333333-3333-4333-8333-333333333333';
 const UNKNOWN = { login: null, source: 'unknown' };
 const ONLY_VERSION = 'only bumps the version: the new keys come from defaults()';
 
@@ -241,6 +242,7 @@ const JOB_ROWS: Row[] = [
   },
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
+  { step: 'context-sessions', input: { id: 'x', state: 'running', round: 2 }, fields: { contexts: [], round: 2 }, note: 'a job from before context sessions has none, so its role runs start a new one' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -296,6 +298,7 @@ const EVENT_ROWS: Row[] = [
   { step: 'retro-scope-event', input: { ts: 't', type: 'retro-scope', mandate: 'm1' }, fields: { type: 'retro-scope', ts: 't', mandate: 'm1' }, note: "a mandate retro's scope reads as written" },
   { step: 'actor-source-launch', input: { ts: 't', type: 'daemon-mode', mode: 'auto', actor: { login: 'al', source: 'launch' } }, fields: { type: 'daemon-mode', ts: 't', mode: 'auto', actor: { login: 'al', source: 'launch' } }, note: 'the launch flag\'s daemon-mode event keeps source launch' },
   { step: 'ci-rerun-events', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, fields: { type: 'ci-rerun', ts: 't', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['verify (node 22.18.0, shard 2/2)'] }, note: 'a CI re-run reads as written; ci-rerun-failed {head, cause, checks} is the same identity step' },
+  { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
 ];
 
 const MACHINE_ROWS: Row[] = [

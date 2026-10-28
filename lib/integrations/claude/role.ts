@@ -30,6 +30,10 @@ export interface RoleOutcome {
   sessionId: string | null;
   /** An ok result's first non-empty line (at most 280 characters). */
   summary: string | null;
+  /** An ok result's text (its last 4000 characters), null otherwise: a context session's reply must be exactly READY. */
+  text: string | null;
+  /** The stream's first main-loop request's tokens (the `first-request` event), null when none carried a usage. */
+  firstRequest: { input: number; cacheRead: number; cacheWrite: number } | null;
   /** The result line's cumulative cost, null without a result or a cost on it. */
   cost: SessionCost | null;
   failure: RoleFailure | null;
@@ -95,6 +99,7 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
   let started = false;
   let init = false;
   let sessionId: string | null = null;
+  let firstRequest: RoleOutcome['firstRequest'] = null;
   let result: Extract<ClaudeEvent, { kind: 'turn-ended' }> | null = null;
   /** Set by a timeout or an interrupt that came before the result. */
   let forced: RoleFailure | null = null;
@@ -133,6 +138,8 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
       init,
       sessionId,
       summary: r?.ok ? (r.summary ?? null) : null,
+      text: r?.ok ? (r.text ?? null) : null,
+      firstRequest,
       cost: r?.cost ?? null,
       failure,
       denied,
@@ -176,6 +183,9 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
         return o.onLine(forgeLine('forge-stdin-error', { message: e.message }));
       case 'turn-started':
         init = true;
+        return;
+      case 'first-request':
+        firstRequest ??= { input: e.input, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite };
         return;
       case 'session-id':
         if (sessionId !== null) return;

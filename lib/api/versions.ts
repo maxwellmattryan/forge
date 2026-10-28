@@ -113,6 +113,9 @@ export const API_CHANGES = [
   // POST /api/session (PostSessionBody, PostSessionResponse): the login exchange; every other /api route needs the
   // forge-<port> cookie or x-forge-token, 401 otherwise, and ?token= is gone.
   { id: 'session-login' },
+  // Job.contexts (ContextSession): the context sessions `forge job agent run` started; ContextMark as `context` on a
+  // role run's agent-end event, and the `context-session` event with its usage under role `context`.
+  { id: 'context-sessions' },
 ] as const;
 
 /**

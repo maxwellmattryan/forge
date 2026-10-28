@@ -128,6 +128,27 @@ test('componentsFromDiff is not settable through job set', async () => {
   }
 });
 
+test('contexts is not settable through job set', async () => {
+  const repo = tempRepo();
+  try {
+    const config = defaults();
+    const id = createJob(repo.dir, config, { title: 'forked' }).id;
+    const file = path.join(jobDir(repo.dir, id), 'job.json');
+    const before = fs.readFileSync(file, 'utf8');
+    // A planted id would make the next role run fork a conversation nobody recorded.
+    for (const field of ['contexts=[]', 'contexts.0.id=33333333-3333-4333-8333-333333333333']) {
+      await assert.rejects(quietly(() => jobCmd(repo.dir, config, 'set', [id], { field: [field] })), (e: unknown) => {
+        assert.ok(e instanceof ForgeError, `${field}: not a ForgeError`);
+        assert.equal(e.message, '--field contexts is not settable; use forge job agent run', field);
+        return true;
+      });
+      assert.equal(fs.readFileSync(file, 'utf8'), before, `${field}: job.json unchanged`);
+    }
+  } finally {
+    repo.cleanup();
+  }
+});
+
 test('components is not settable once forge verify has recomputed it', async () => {
   const repo = tempRepo();
   try {

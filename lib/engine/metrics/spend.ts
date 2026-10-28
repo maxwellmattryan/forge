@@ -75,9 +75,12 @@ function utcDay(ts: unknown): string | null {
   return Number.isNaN(t) ? null : new Date(t).toISOString().slice(0, 10);
 }
 
-/** An agent-end that carries a usage object: a metered run, what the spend ledger and the reconciler's progress mark count. */
+/**
+ * An agent-end, or a role run's context-session (role `context`), that carries a usage object: a metered run, what the
+ * spend ledger and the reconciler's progress mark count.
+ */
 export function hasUsage(e: Pick<JobEvent, 'type'> & { usage?: unknown }): boolean {
-  return e.type === 'agent-end' && Boolean(e.usage) && typeof e.usage === 'object';
+  return (e.type === 'agent-end' || e.type === 'context-session') && Boolean(e.usage) && typeof e.usage === 'object';
 }
 
 const addTo = (b: SpendBucket, add: Omit<SpendBucket, 'runs' | 'tokens'>, runs: number, tokens: number): void => {

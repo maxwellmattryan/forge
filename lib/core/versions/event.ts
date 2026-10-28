@@ -49,6 +49,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // v14 adds `ci-rerun` {head, runs, jobs, checks} and `ci-rerun-failed` {head, cause, checks}; an older Forge reads them as
   // generic events.
   { id: 'ci-rerun-events', up: (e) => e },
+  // v15 adds the `context-session` event ({role: 'context', session, round, agent, model, status, reason, usage}) and
+  // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
+  // and ignores the field.
+  { id: 'context-session-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

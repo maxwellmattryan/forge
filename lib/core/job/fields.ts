@@ -55,6 +55,8 @@ export const LOCKED_FIELDS: Record<string, string> = {
   componentsFromDiff: 'forge verify',
   // Likewise its finding that changed files sit outside every component: clearing it would hand back a component's commands.
   componentsUnmatched: 'forge verify',
+  // A planted context id would make the next role run resume (fork) a conversation nobody recorded.
+  contexts: 'forge job agent run',
 };
 
 // Kinds step routes differently: a retro job's review panel is fixed at code and docs, and an eval

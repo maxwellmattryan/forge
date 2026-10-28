@@ -294,6 +294,8 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * user's own settings and the `--plugin-dir` plugin load, as for a subagent of a session at the main checkout.
  * `appendSystemPromptFile`, when a string, follows the effort words as `--append-system-prompt-file <path>`:
  * the trusted prefix (lib/engine/guard/prompt-prefix.ts), an absolute path with no NUL, CR or LF, or this throws.
+ * `fork` puts `--fork-session` straight after `--resume <id>` (a context session's fork, lib/engine/workspace/context-session.ts),
+ * and throws without `session.resume`: a fork of nothing would start a fresh conversation under a resumed one's name.
  */
 export function roleArgv(vars: {
   executable: string;
@@ -307,7 +309,9 @@ export function roleArgv(vars: {
   deny: readonly string[];
   session: { id: string; resume: boolean };
   appendSystemPromptFile?: string | null;
+  fork?: boolean;
 }): string[] {
+  if (vars.fork && vars.session?.resume !== true) throw new ForgeError("a role child's --fork-session needs --resume: fork only a session it resumes");
   if (typeof vars.agent !== 'string' || !ROLE_AGENT.test(vars.agent)) throw new ForgeError(`a role child's agent must match ${ROLE_AGENT.source} (got ${JSON.stringify(String(vars.agent).slice(0, 80))})`);
   const prompt = vars.appendSystemPromptFile;
   if (prompt !== undefined && prompt !== null && (typeof prompt !== 'string' || !path.isAbsolute(prompt) || /[\0\r\n]/.test(prompt)))
@@ -341,6 +345,7 @@ export function roleArgv(vars: {
     scopedTools(vars.allowedTools, vars.writeRoots),
     vars.session.resume ? '--resume' : '--session-id',
     vars.session.id,
+    ...(vars.fork ? ['--fork-session'] : []),
     '--disallowedTools',
     vars.deny.join(','),
     ...PROMPT_TOOL,

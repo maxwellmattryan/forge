@@ -128,12 +128,28 @@ test("claude's stream-json lines become domain events", () => {
     {
       name: "context: the last main-loop call's, not a later subagent's",
       feed: (s) => s.stdout([main(100, 2000, 300), main(10, 5000, 20), sub, ok].map(line).join('')),
-      events: [logged(main(100, 2000, 300)), logged(main(10, 5000, 20)), logged(sub), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 5030 }],
+      events: [logged(main(100, 2000, 300)), { kind: 'first-request', input: 100, cacheRead: 2000, cacheWrite: 300 }, logged(main(10, 5000, 20)), logged(sub), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 5030 }],
+    },
+    {
+      // A fork's first request tells a cache hit from a miss: only the first main-loop usage counts, never a subagent's or a later turn's.
+      name: 'first request: once per stream, from the first main-loop usage',
+      feed: (s) => s.stdout([sub, { type: 'assistant', parent_tool_use_id: null, message: {} }, main(2, 60000, 100), ok, main(5, 9, 9), ok].map(line).join('')),
+      events: [
+        logged(sub),
+        logged({ type: 'assistant', parent_tool_use_id: null, message: {} }),
+        logged(main(2, 60000, 100)),
+        { kind: 'first-request', input: 2, cacheRead: 60000, cacheWrite: 100 },
+        logged(ok),
+        { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 60102 },
+        logged(main(5, 9, 9)),
+        logged(ok),
+        { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 23 },
+      ],
     },
     {
       name: 'context: a non-finite or negative count reads as 0, on a failed turn too',
       feed: (s) => s.stdout('{"type":"assistant","parent_tool_use_id":null,"message":{"usage":{"input_tokens":1e400,"cache_read_input_tokens":-3,"cache_creation_input_tokens":7,"output_tokens":50}}}\n' + line(errorResult('boom'))),
-      events: [logged(main(Infinity, -3, 7)), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost: null, context: 7 }],
+      events: [logged(main(Infinity, -3, 7)), { kind: 'first-request', input: 0, cacheRead: 0, cacheWrite: 7 }, logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost: null, context: 7 }],
     },
     {
       name: 'context: none without a main-loop usage',
@@ -143,7 +159,7 @@ test("claude's stream-json lines become domain events", () => {
     {
       name: 'context: cleared after each result',
       feed: (s) => s.stdout([main(1, 2, 3), ok, ok].map(line).join('')),
-      events: [logged(main(1, 2, 3)), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 6 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }],
+      events: [logged(main(1, 2, 3)), { kind: 'first-request', input: 1, cacheRead: 2, cacheWrite: 3 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 6 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }],
     },
     {
       name: 'the dollar cap after a rejected rate limit',

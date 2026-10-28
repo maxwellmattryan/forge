@@ -222,16 +222,22 @@ export function withLock<T>(lockDir: string, fn: () => T, opts: { timeoutMs?: nu
   }
 }
 
-/** withLock for async work: the same mkdir lock, waiting without blocking the event loop. */
-export async function withLockAsync<T>(lockDir: string, fn: () => Promise<T>, opts: { timeoutMs?: number } = {}): Promise<T> {
+/**
+ * withLock for async work: the same mkdir lock, waiting without blocking the event loop. An aborted `signal`
+ * stops the wait (a ForgeError, nothing held); once the lock is held it is `fn`'s to watch.
+ */
+export async function withLockAsync<T>(lockDir: string, fn: () => Promise<T>, opts: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? 10_000;
   const start = Date.now();
   const w = newWait();
+  const stopped = () => new ForgeError(`stopped waiting for lock ${lockDir}`);
+  if (opts.signal?.aborted) throw stopped();
   fs.mkdirSync(path.dirname(lockDir), { recursive: true });
   let token: string | null;
   while ((token = attemptLock(lockDir, w)) === null) {
     if (Date.now() - start > timeoutMs) throw lockTimeout(lockDir, w);
     await new Promise((r) => setTimeout(r, 50));
+    if (opts.signal?.aborted) throw stopped();
   }
   try {
     return await fn();

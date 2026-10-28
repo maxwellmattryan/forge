@@ -36,6 +36,22 @@ test('repo spend reads the CLI copy', (t) => {
   );
 });
 
+test('context sessions join the ledger', (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const config = usdConfig();
+  const job = createJob(r.dir, config, { title: 'forked' });
+  const usage = (usd: number) => ({ input: usd, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: usd });
+  logEvent(r.dir, job.id, 'agent-end', { role: 'reviewer:code', model: 'usd-model', usage: usage(3) });
+  logEvent(r.dir, job.id, 'context-session', { role: 'context', session: '33333333-3333-4333-8333-333333333333', round: 1, agent: 'forge:reviewer', model: 'usd-model', status: 'ready', reason: null, usage: usage(5) });
+  // A failed context with no usage counts nothing.
+  logEvent(r.dir, job.id, 'context-session', { role: 'context', status: 'failed', reason: 'exit', model: 'usd-model', usage: null });
+  const rows = ledgerRows(spendLedger(r.dir, config, { write: false }), { by: 'role' });
+  const of = (role: string) => rows.find((row) => row.key[0] === role);
+  assert.deepEqual([of('context')?.totals.runs, of('context')?.totals.usd], [1, 5]);
+  assert.deepEqual([of('reviewer:code')?.totals.runs, of('reviewer:code')?.totals.usd], [1, 3]);
+});
+
 const D = '2026-10-20';
 const AT = Date.parse(`${D}T12:00:00.000Z`);
 

@@ -43,6 +43,8 @@ const EXTERNAL = new Set(['exit', 'spawn']);
 const staleStep = (msg: string) => new ForgeError(`${msg}; nothing was started: read forge job step again`, 'stale_step');
 const described = (a: StepAction) => `forge job step returns ${a.action} (${a.rule})${a.action === 'spawn' ? ` for ${a.role}` : ''}`;
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+/** The outcome of a launch that never started a child. */
+const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
 
 /** A sidecar's cumulative cost, or null for anything the runner did not write (a missing, planted or malformed file). */
 function sidecarCum(file: string): MeterCum | null {
@@ -204,10 +206,10 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       ensureRoleRunDir(root, files);
       fd = openAppend(files.log);
     } catch (e) {
-      return { ok: false, started: false, init: false, sessionId: null, summary: null, cost: null, failure: { class: 'spawn', reason: `the run log can't be opened: ${(e as Error).message}`, resetsAt: null }, denied: 0, exit: null, wallMs: 0 };
+      return notRun('spawn', `the run log can't be opened: ${(e as Error).message}`);
     }
     try {
-      if (interrupted) return { ok: false, started: false, init: false, sessionId: null, summary: null, cost: null, failure: { class: 'interrupted', reason: `the runner got ${interrupted}`, resetsAt: null }, denied: 0, exit: null, wallMs: 0 };
+      if (interrupted) return notRun('interrupted', `the runner got ${interrupted}`);
       current = runRoleChild(claudeAdapter(), {
         argv,
         // The path that was checked, not job.worktree again: a link swapped since would move the cwd.

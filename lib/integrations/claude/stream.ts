@@ -289,6 +289,8 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   let rateLimit: RateLimitInfo | null = null;
   /** The context of the last main-loop assistant line since the last result; null while none carried a usage. */
   let context: number | null = null;
+  /** Whether this stream's `first-request` event is out: once per stream, never per turn. */
+  let firstSent = false;
 
   function onLine(line: string): void {
     let ev: any = null;
@@ -310,12 +312,19 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   /**
    * One API call's context: its input, cache-read and cache-creation tokens, each finite and >= 0 or else 0.
    * Only a main-loop line counts: a subagent's (a non-empty parent_tool_use_id) runs in its own context.
+   * The stream's first such line also emits `first-request`: whether a fork's opening call read its context from the cache.
    */
   function onAssistant(ev: Record<string, any>): void {
     if (typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id) return;
     const usage = record(ev.message).usage;
     if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return;
-    context = costCount(usage.input_tokens) + costCount(usage.cache_read_input_tokens) + costCount(usage.cache_creation_input_tokens);
+    const input = costCount(usage.input_tokens);
+    const cacheRead = costCount(usage.cache_read_input_tokens);
+    const cacheWrite = costCount(usage.cache_creation_input_tokens);
+    context = input + cacheRead + cacheWrite;
+    if (firstSent) return;
+    firstSent = true;
+    emit({ kind: 'first-request', input, cacheRead, cacheWrite });
   }
 
   function onSystem(ev: Record<string, any>): void {

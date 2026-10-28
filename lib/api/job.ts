@@ -287,6 +287,42 @@ export interface JobRepo {
   interim?: InterimStrategy | null;
 }
 
+/** One context session a role run forked or tried to: `forge job agent run` (lib/engine/workspace/context-session.ts). */
+export interface ContextSession {
+  /** The context child's session id (a uuid). */
+  id: string;
+  round: number;
+  /** forge:<role> */
+  agent: string;
+  /** The spawn's model, `inherit` when none. */
+  model: string;
+  effort: string | null;
+  /** The trusted prefix file passed, or null. */
+  prefix: string | null;
+  status: 'ready' | 'failed';
+  /** failed: a failure class or `not ready`. */
+  reason: string | null;
+  inputs: { path: string; sha256: string }[];
+  startedAt: string;
+  endedAt: string;
+  /** Its end, then each fork's launch. */
+  lastReadAt: string;
+  /** Its first request's input + cache read + cache write; null when none carried a usage. */
+  startPrefix: number | null;
+  usage: { tokens: number; input: number; output: number; cacheRead: number; cacheWrite: number } | null;
+  unmeasured?: true;
+}
+
+/** How an eligible role run used a context session, on its `agent-end` event and `forge job agent run`'s JSON. */
+export interface ContextMark {
+  mode: 'fork' | 'cold';
+  session: string | null;
+  /** A fixed cold reason, null on a fork. */
+  reason: string | null;
+  /** The run's first request's cache read, null when none carried a usage. */
+  firstRead: number | null;
+}
+
 /** A reviewer's settled verdict for a round: `verdicts` in lib/cli/commands/job/review.ts (via roundVerdicts in lib/core/job/store.ts). */
 export type Verdict = 'PASS' | 'CHANGES' | 'MALFORMED';
 
@@ -378,6 +414,8 @@ export interface Job {
    * merge or close on GitHub), and only while it stays done or cancelled: only a person's grant moves it back to work.
    */
   finishedWhileShelved: boolean;
+  /** The context sessions role runs started, newest last, at most 20: only `forge job agent run` writes them. */
+  contexts: ContextSession[];
 }
 
 /** A shelved job's record: shelveJob in lib/engine/pipeline/moves/shelve.ts, cleanShelf in lib/core/job/schema.ts. */

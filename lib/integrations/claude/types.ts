@@ -33,6 +33,12 @@ export type ClaudeEvent =
   | { kind: 'session-id'; id: string }
   /** The permission mode claude reported, capped at 40 characters. */
   | { kind: 'permission-mode'; mode: string }
+  /**
+   * The stream's first main-loop API call (never a subagent's): its input, cache-read and cache-creation tokens, each
+   * finite and >= 0 or else 0. Sent once per stream; a role run's context session (lib/engine/workspace/context-session.ts)
+   * reads it to tell a fork that hit the prompt cache from one that missed it.
+   */
+  | { kind: 'first-request'; input: number; cacheRead: number; cacheWrite: number }
   /** How many background tasks claude says are running. */
   | { kind: 'background'; count: number }
   /** A tool call waiting on a human. `input` is the call's JSON, or null when it can't be serialised; `tool` is null when unusable. */

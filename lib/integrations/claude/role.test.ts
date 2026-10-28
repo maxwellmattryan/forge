@@ -33,12 +33,18 @@ test('runRoleChild writes the brief once and ends the child after its result', a
   assert.equal(c.turns, 0, 'no fixed turn');
   init(c);
   c.emit({ kind: 'log', stream: 'stdout', line: '{"type":"assistant"}' });
+  // Only the stream's first request is kept: a context session's fork reads its cache hit there.
+  c.emit({ kind: 'first-request', input: 2, cacheRead: 60000, cacheWrite: 100 });
+  c.emit({ kind: 'first-request', input: 9, cacheRead: 9, cacheWrite: 9 });
   assert.equal(c.inputEnded, false, 'stdin stays open until the result, for permission answers');
-  c.emit(ok);
+  c.emit({ ...ok, text: 'VERIFY: 2 yes\nthe rest' });
   assert.equal(c.inputEnded, true, 'stdin closes after the result');
   c.exit(0, null);
   const out = await run.done;
-  assert.deepEqual({ ...out, wallMs: 0 }, { ok: true, started: true, init: true, sessionId: SID, summary: 'VERIFY: 2 yes', cost, failure: null, denied: 0, exit: { code: 0, signal: null }, wallMs: 0 });
+  assert.deepEqual(
+    { ...out, wallMs: 0 },
+    { ok: true, started: true, init: true, sessionId: SID, summary: 'VERIFY: 2 yes', text: 'VERIFY: 2 yes\nthe rest', firstRequest: { input: 2, cacheRead: 60000, cacheWrite: 100 }, cost, failure: null, denied: 0, exit: { code: 0, signal: null }, wallMs: 0 },
+  );
   assert.deepEqual([lines, ids], [['{"type":"assistant"}'], [SID]]);
   assert.deepEqual(c.signals, [], 'a child that exits on its own is never signalled');
 });
