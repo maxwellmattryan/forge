@@ -8,6 +8,7 @@
      Opening a job opens its pane, and StatusBar closes the popover. Titles, reasons and request text are untrusted and
      render as text; the PR link goes through safeUrl. -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import DepChips from '../DepChips.svelte';
   import Icon from '../Icon.svelte';
   import InboxCard from '../InboxCard.svelte';
@@ -20,7 +21,7 @@
   import { safeUrl } from '../../lib/markdown.ts';
   import { ago } from '../../lib/util.ts';
   import type { ApiState, PostJobCiBody, StateJob } from '../../lib/types.ts';
-  import { postPrCi, prActions } from '../../lib/pr-actions.ts';
+  import { feedbackCount, postPrCi, prActions } from '../../lib/pr-actions.ts';
   import { toast } from '../../lib/toast.svelte.ts';
   import { cardRef } from '../../lib/board.ts';
   import { inboxGroups, requestSubject } from '../../lib/inbox.ts';
@@ -38,19 +39,30 @@
   const drafts = $derived(data.drafts ?? []);
   // The same source PermissionPrompts reads, so the section renders exactly when it lists something.
   const prompts = $derived(pendingPrompts(S.data?.daemons ?? null).length);
-  // An answered prompt, a decided milestone draft or the last shelved job leaving unmounts with its buttons: focus back on the popover, not the body.
+  // An answered prompt, a decided milestone draft, the last shelved job or a PR row leaving unmounts with its buttons: focus back on the popover, not the body.
   $effect(() => {
     void prompts;
     void drafts.length;
     void groups.shelved.length;
+    void groups.prs.length;
     keepFocus();
   });
 
   // The PR row's CI posts in flight, by job: every CI button in that row is disabled until its post answers.
   let busy = $state<Record<string, boolean>>({});
 
+  // The pressed button disabled itself while its post ran, and Fix CI's row leaves once the job moves to build: focus goes back to
+  // the button when it is still here, else to the popover, so the keyboard keeps its place (ShelfSection's settleFocus).
+  async function settleFocus(button: HTMLButtonElement): Promise<void> {
+    await tick();
+    const at = document.activeElement;
+    if (at && at !== document.body) return;
+    if (button.isConnected) button.focus();
+    else keepFocus();
+  }
+
   /** Posts a CI action at the head the row shows; false when there is none or one is already in flight. */
-  async function postCi(j: StateJob, action: PostJobCiBody['action']): Promise<boolean> {
+  async function postCi(j: StateJob, action: PostJobCiBody['action'], button: HTMLButtonElement): Promise<boolean> {
     const head = j.pr?.headOid;
     if (busy[j.id] || typeof head !== 'string') return false;
     busy[j.id] = true;
@@ -60,22 +72,23 @@
     } finally {
       busy[j.id] = false;
       await refresh();
+      await settleFocus(button);
     }
   }
 
   const failure = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
-  async function rerun(j: StateJob): Promise<void> {
+  async function rerun(j: StateJob, button: HTMLButtonElement): Promise<void> {
     try {
-      if (await postCi(j, 'rerun')) toast($t('inbox.rerunStarted'));
+      if (await postCi(j, 'rerun', button)) toast($t('inbox.rerunStarted'));
     } catch (err) {
       toast($t('inbox.rerunFailed', { error: failure(err) }), true);
     }
   }
 
-  async function fixCi(j: StateJob): Promise<void> {
+  async function fixCi(j: StateJob, button: HTMLButtonElement): Promise<void> {
     try {
-      if (await postCi(j, 'fix-ci')) toast($t('inbox.fixCiStarted'));
+      if (await postCi(j, 'fix-ci', button)) toast($t('inbox.fixCiStarted'));
     } catch (err) {
       toast($t('inbox.fixCiFailed', { error: failure(err) }), true);
     }
@@ -106,17 +119,18 @@
       <ul class="plate flat needs-list">
         {#each groups.prs as j (j.id)}
           {@const u = safeUrl(j.pr?.url)}
+          {@const fresh = feedbackCount(j.pr)}
           <li class="needs-row">
             <button class="h card block w-full text-left break-words hover:text-gleam" onclick={() => openDrawer(j.id)}>{j.title}</button>
             <div class="flex flex-wrap items-center gap-2">
               <PrChip pr={j.pr} />
-              <span class="text-muted">{j.pr?.unresolvedThreads ? $t('inbox.threads', { count: j.pr.unresolvedThreads }) : $t('inbox.noThreads')}{j.pr?.feedbackSinceRound ? $t('inbox.newFeedback', { count: j.pr.feedbackSinceRound }) : ''}{j.pr?.behindBy ? $t('inbox.behind', { count: j.pr.behindBy }) : ''}</span>
+              <span class="text-muted">{j.pr?.unresolvedThreads ? $t('inbox.threads', { count: j.pr.unresolvedThreads }) : $t('inbox.noThreads')}{fresh ? $t('inbox.newFeedback', { count: fresh }) : ''}{j.pr?.behindBy ? $t('inbox.behind', { count: j.pr.behindBy }) : ''}</span>
               {#if u}<a class="btn sm" href={u} target="_blank" rel="noopener"><Icon name="pull-request" />{$t('inbox.openPr')}</a>{/if}
               {#each prActions(j.pr) as a (a)}
                 {#if a === 'rerun'}
-                  <button class="btn sm" disabled={busy[j.id]} onclick={() => rerun(j)}>{$t('inbox.rerunChecks')}</button>
+                  <button class="btn sm" disabled={busy[j.id]} aria-busy={busy[j.id]} onclick={(e) => rerun(j, e.currentTarget)}>{$t('inbox.rerunChecks')}</button>
                 {:else if a === 'fix-ci'}
-                  <button class="btn sm" disabled={busy[j.id]} onclick={() => fixCi(j)}>{$t('inbox.fixCi')}</button>
+                  <button class="btn sm" disabled={busy[j.id]} aria-busy={busy[j.id]} onclick={(e) => fixCi(j, e.currentTarget)}>{$t('inbox.fixCi')}</button>
                 {:else}
                   <button class="btn sm" onclick={() => addressFeedback(j)}>{$t('inbox.addressFeedback')}</button>
                 {/if}

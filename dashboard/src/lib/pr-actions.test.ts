@@ -2,7 +2,7 @@
 // and its CI buttons post the action with the head the row showed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { postPrCi, prActions } from './pr-actions.ts';
+import { feedbackCount, postPrCi, prActions } from './pr-actions.ts';
 import { setProject } from './project.ts';
 import type { Job } from './types.ts';
 
@@ -32,6 +32,18 @@ test('prActions', () => {
     ['a negative or fractional count', pr({ checks: checks('passing'), unresolvedThreads: -1, feedbackSinceRound: 0.5 }), []],
   ];
   for (const [name, p, want] of rows) assert.deepEqual(prActions(p), want, name);
+});
+
+test('feedbackCount counts only a positive whole number, as prActions does', () => {
+  const rows: [string, Job['pr'] | null | undefined, number][] = [
+    ['new comments', pr({ feedbackSinceRound: 3 }), 3],
+    ['none', pr({ feedbackSinceRound: 0 }), 0],
+    ['negative', pr({ feedbackSinceRound: -1 }), 0],
+    ['fractional', pr({ feedbackSinceRound: 0.5 }), 0],
+    ['not recorded', pr({ feedbackSinceRound: undefined }), 0],
+    ['no PR', null, 0],
+  ];
+  for (const [name, p, want] of rows) assert.equal(feedbackCount(p), want, name);
 });
 
 test('postPrCi posts the action and the head', async () => {

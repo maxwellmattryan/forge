@@ -8,6 +8,9 @@ export type PrAction = 'rerun' | 'fix-ci' | 'feedback';
 const SHA = /^[0-9a-f]{40}$/;
 const count = (n: unknown): number => (typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : 0);
 
+/** The comments since the latest round that the row's muted line shows: the same guard `prActions` uses, so the line and the Address the PR feedback button agree. */
+export const feedbackCount = (pr: Job['pr'] | null | undefined): number => count(pr?.feedbackSinceRound);
+
 /**
  * The row's actions, following why the open PR waits: failing checks at a known head offer Re-run (when
  * any is a GitHub Actions job in the PR's repo, or sync has not recorded that yet) and Fix CI; threads or
@@ -20,7 +23,7 @@ export function prActions(pr: Job['pr'] | null | undefined): PrAction[] {
     if (pr.failingChecks === undefined || count(pr.failingChecks.actions) > 0) out.push('rerun');
     out.push('fix-ci');
   }
-  if (count(pr.unresolvedThreads) > 0 || count(pr.feedbackSinceRound) > 0) out.push('feedback');
+  if (count(pr.unresolvedThreads) > 0 || feedbackCount(pr) > 0) out.push('feedback');
   return out;
 }
 
