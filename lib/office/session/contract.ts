@@ -42,6 +42,8 @@ export interface DaemonOptions {
   modeConfirmMs?: number;
   /** A turn's limit in ms, over daemon.turnTimeoutMinutes (tests). */
   turnTimeoutMs?: number;
+  /** A permission prompt's timeout in ms, over daemon.permissionTimeoutMinutes (tests). */
+  permissionTimeoutMs?: number;
   /** How often a wanted pool reconciles (lib/office/reconcile.ts); 0 never does on a timer. */
   reconcileMs?: number;
   /** The host platform; the pool refuses to start on native Windows (lib/core/os/platform.ts). */
@@ -70,6 +72,8 @@ export interface SessionOptions {
   modeConfirmMs: number;
   /** null: daemon.turnTimeoutMinutes decides. */
   turnTimeoutMs: number | null;
+  /** null: daemon.permissionTimeoutMinutes decides. */
+  permissionTimeoutMs: number | null;
   env: NodeJS.ProcessEnv;
   openLog: (file: string) => LogSink;
   readConfig: (root: string, opts?: { text?: string | null }) => { config: Config };
@@ -87,6 +91,7 @@ export function sessionOptions(opts: DaemonOptions = {}): SessionOptions {
     retryMaxMs: opts.retryMaxMs ?? 60 * 60_000,
     modeConfirmMs: opts.modeConfirmMs ?? 15_000,
     turnTimeoutMs: opts.turnTimeoutMs ?? null,
+    permissionTimeoutMs: opts.permissionTimeoutMs ?? null,
     env: opts.env ?? process.env,
     // fd-based, so a symlink planted as <scope>.log is refused rather than followed.
     openLog: opts.openLog ?? ((file: string) => fs.createWriteStream(file, { fd: openAppend(file) })),

@@ -2,7 +2,8 @@
 // the next state: it reads this tab's own click until the POST answers, then the request queue /api/state serves, so it
 // says only what is true (sending, queued, being applied) and goes when the request leaves the queue. Pure, so node:test
 // can pin it.
-import type { ForgeRequest, RequestType } from './types.ts';
+import { inboxActions, inboxKind, specLinkPending } from './inbox.ts';
+import type { ForgeRequest, Job, RequestType } from './types.ts';
 
 /** A decision this tab sent: the pressed button's label, then the queued request's id and server time once the POST answers. */
 export interface SentDecision {
@@ -18,6 +19,10 @@ export interface DecisionView {
   label: string | null;
   type: RequestType | null;
   phase: DecisionPhase;
+  /** The request's `from` (cli, dashboard, daemon:...); null for this tab's click. */
+  from: string | null;
+  /** The request's `createdAt`; null for this tab's click. */
+  at: string | null;
 }
 
 /** The request types that decide a job's gate: JOB_REQUEST_TYPES in lib/core/job/requests.ts. */
@@ -49,16 +54,18 @@ export function pruneSent(sent: Record<string, SentDecision>, requests: readonly
   return { sent: resolved.length ? kept : sent, resolved };
 }
 
-/** A job's decision in flight: this tab's own click first, else the newest open decision request for the job. Null for none. */
-export function decisionInFlight(job: string, sent: SentDecision | null | undefined, requests: readonly ForgeRequest[] | null | undefined): DecisionView | null {
+/** A job's decision in flight: this tab's own click first, else the newest open decision request for the job that its gate can answer. Null for none. */
+export function decisionInFlight(job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'issues' | 'noIssue'>, sent: SentDecision | null | undefined, requests: readonly ForgeRequest[] | null | undefined): DecisionView | null {
   const list = requests ?? [];
   if (sent) {
-    if (sent.id === null) return { label: sent.label, type: null, phase: 'sending' };
+    if (sent.id === null) return { label: sent.label, type: null, phase: 'sending', from: null, at: null };
     const r = list.find((x) => x.id === sent.id);
     // Not listed yet: no state has been served since the POST, or this one already left (pruneSent drops it on the next poll).
-    return { label: sent.label, type: r?.type ?? null, phase: r && open(r) ? phaseOf(r) : 'queued' };
+    return { label: sent.label, type: r?.type ?? null, phase: r && open(r) ? phaseOf(r) : 'queued', from: null, at: null };
   }
-  const mine = list.filter((r) => r.job === job && open(r) && DECISION_TYPES.includes(r.type));
+  // A resume only answers a gate whose own buttons send one; a stale hand-off can't hide a gate it can't answer.
+  const takesResume = inboxActions(inboxKind(job), { linkPending: specLinkPending(job) }).some((a) => a.type === 'resume');
+  const mine = list.filter((r) => r.job === job.id && open(r) && DECISION_TYPES.includes(r.type) && (r.type !== 'resume' || takesResume));
   const r = mine.reduce<ForgeRequest | null>((a, b) => (a && a.createdAt >= b.createdAt ? a : b), null);
-  return r ? { label: null, type: r.type, phase: phaseOf(r) } : null;
+  return r ? { label: null, type: r.type, phase: phaseOf(r), from: r.from, at: r.createdAt } : null;
 }

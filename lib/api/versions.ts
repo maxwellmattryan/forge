@@ -115,6 +115,9 @@ export const API_CHANGES = [
   { id: 'session-login' },
   // JobPr.failingChecks (PrFailingChecks) and .feedbackSinceRound; POST /api/jobs/:id/ci (PostJobCiBody, PostJobCiResponse).
   { id: 'pr-review-actions' },
+  // DaemonSessionState.timedOut (DaemonTimedOutPrompt): the session's last 10 prompts denied because nobody answered
+  // them within daemon.permissionTimeoutMinutes, newest first.
+  { id: 'permission-timeout' },
 ] as const;
 
 /**

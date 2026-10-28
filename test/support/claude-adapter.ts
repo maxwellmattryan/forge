@@ -3,7 +3,7 @@
 // signals), so no test writes claude's stream-json; lib/integrations/claude/stream.test.ts covers that.
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { briefLine, chatMessageLine } from '#integrations/claude/stream.ts';
-import type { ClaudeAdapter, ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
+import type { ClaudeAdapter, ClaudeChild, ClaudeEvent, DenyWhy } from '#integrations/claude/types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 export interface FakeClaudeChild extends ClaudeChild {
@@ -22,7 +22,7 @@ export interface FakeClaudeChild extends ClaudeChild {
   briefs: string[];
   /** Verdict retries written (writeVerdictRetry). */
   verdictRetries: number;
-  answers: { requestId: string; decision: PermissionDecision; why?: 'unattended' }[];
+  answers: { requestId: string; decision: PermissionDecision; why?: DenyWhy }[];
   /** Mode switches asked, with ids `fake-mode-<n>`. */
   modes: { requestId: string; mode: DaemonPermissionMode }[];
   signals: NodeJS.Signals[];

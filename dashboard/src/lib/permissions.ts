@@ -1,7 +1,7 @@
-// Permission prompts from daemon sessions: the pure half of PermissionPrompts.svelte and POST /api/daemon/permission.
+// Permission prompts from daemon sessions: the pure half of PermissionPrompts.svelte, TimedOutPrompts.svelte and POST /api/daemon/permission.
 // Every prompt field but id and at is session output, i.e. untrusted text: these return plain strings rendered as text.
 import { projectApi } from './project.ts';
-import type { DaemonPermissionPrompt, DaemonPoolState, DaemonSessionState, PermissionDecision } from './types.ts';
+import type { DaemonPermissionPrompt, DaemonPoolState, DaemonSessionState, DaemonTimedOutPrompt, PermissionDecision } from './types.ts';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
@@ -28,6 +28,36 @@ export function readPrompt(v: unknown): DaemonPermissionPrompt | null {
     sessionDirs: strs(p.sessionDirs),
     at: typeof p.at === 'string' ? p.at : '',
   };
+}
+
+/** A prompt the supervisor denied because nobody answered it in time, and the session that asked it. */
+export interface TimedOutPrompt {
+  scope: string;
+  prompt: DaemonTimedOutPrompt;
+}
+
+/** A timed-out prompt as /api/state or SSE delivers it: readPrompt plus `deniedAt`; null without an id. */
+export function readTimedOut(v: unknown): DaemonTimedOutPrompt | null {
+  const p = readPrompt(v);
+  if (!p) return null;
+  const deniedAt = obj(v).deniedAt;
+  return { ...p, deniedAt: typeof deniedAt === 'string' ? deniedAt : '' };
+}
+
+const newestDeniedFirst = (a: TimedOutPrompt, b: TimedOutPrompt): number => (a.prompt.deniedAt > b.prompt.deniedAt ? -1 : a.prompt.deniedAt < b.prompt.deniedAt ? 1 : 0);
+
+/** Every session's timed-out prompts (the inbox's, the office's, then each job's), newest denied first. An older server sends no `timedOut`: none. */
+export function timedOutPrompts(pool: Partial<DaemonPoolState> | null | undefined): TimedOutPrompt[] {
+  const p = obj(pool);
+  const out: TimedOutPrompt[] = [];
+  for (const s of [obj(p.inbox), obj(p.office), ...Object.values(obj(p.jobs)).map(obj)]) {
+    if (typeof s.scope !== 'string' || !Array.isArray(s.timedOut)) continue;
+    for (const raw of s.timedOut) {
+      const prompt = readTimedOut(raw);
+      if (prompt) out.push({ scope: s.scope, prompt });
+    }
+  }
+  return out.sort(newestDeniedFirst);
 }
 
 const oldestFirst = (a: PendingPrompt, b: PendingPrompt): number => (a.prompt.at < b.prompt.at ? -1 : a.prompt.at > b.prompt.at ? 1 : 0);

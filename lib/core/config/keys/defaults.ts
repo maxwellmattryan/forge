@@ -272,6 +272,9 @@ export function defaults(): Config {
       idleStopMinutes: 30,
       // A turn still running after this long is stopped and its work requeued; null never stops one.
       turnTimeoutMinutes: 60,
+      // A permission prompt nobody answers after this long is denied, and the agent goes on without the call;
+      // null keeps a prompt waiting for a person until its child exits.
+      permissionTimeoutMinutes: null,
       // A job session whose last turn held more context than this stops at a safe moment and starts its
       // next spawn fresh: 58 of 97 job session logs here passed 200k; the largest reached ~645k.
       freshAfterTokens: 200000,
