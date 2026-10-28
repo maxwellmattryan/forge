@@ -3,9 +3,10 @@
 // account's usage limits hold however many projects run. A free slot goes to the waiting job with
 // the oldest pending request on the machine (request ids start with Date.now(), so they compare
 // across projects). Also the one place a pool session's child is started and handed work, what a spawn of a
-// scope gets (effort, model, Forge's browser), and what kind of session a scope is: only job sessions count against `daemon.maxConcurrent` and the machine cap; the inbox,
-// the office and the chats never do, and neither do the gate runs (lib/office/foreman/run.ts), which are no
-// sessions. docs/architecture/daemon.md describes it.
+// scope gets (effort, model, Forge's browser), and what kind of session a scope is: only job sessions count
+// against `daemon.maxConcurrent` and the machine cap; the inbox, the office and the chats never do, and
+// neither do the gate runs (lib/office/foreman/run.ts), which are no sessions. docs/architecture/daemon.md
+// describes it.
 import path from 'node:path';
 import { INBOX_SCOPE, OFFICE_SCOPE, isChatScope, sharedScope } from '#core/job/requests.ts';
 import { resolveEffort, validEffort, validModel } from '#core/config/load.ts';
