@@ -77,6 +77,16 @@ test('the security and secrets reasons', () => {
   assert.match(unfinished, /^push held: the secret scan could not finish in 1 repo \[heads [0-9a-f]{16}\]$/);
   assert.notEqual(unfinished, secretsHoldReason({ findings: [] }, 'warn', head, [lib({ findings: [], error: 'base gone' }, 'lib', 'c'.repeat(40))]), 'a new head, a new reason');
   assert.match(secretsHoldReason({ findings: [], error: 'x' }, 'warn', head, [lib({ findings: [], error: 'x' })])!, / in 2 repos \[heads /, 'the root and a member');
+  // A scan that could not finish does not hide what the others reported: an approval of the stalled root alone must not pass a member's secret.
+  const rootStalled = secretsHoldReason({ findings: [], error: 'base gone' }, 'warn', head)!;
+  const memberFound = secretsHoldReason({ findings: [], error: 'base gone' }, 'warn', head, [lib({ findings: [finding('sha256:1')] })])!;
+  assert.match(memberFound, /^push held: the secret scan could not finish \[head a{12}\], and the secret scan reported 1 possible secrets \[fp [0-9a-f]{16}\]$/);
+  assert.notEqual(memberFound, rootStalled, 'a root error plus member findings is not the root error alone');
+  assert.notEqual(memberFound, secretsHoldReason({ findings: [], error: 'base gone' }, 'warn', head, [lib({ findings: [finding('sha256:2')] })]), 'other findings, another reason');
+  const bothStalled = secretsHoldReason({ findings: [finding('sha256:1')] }, 'warn', head, [lib({ findings: [], error: 'base gone' })])!;
+  assert.match(bothStalled, /^push held: the secret scan could not finish in 1 repo \[heads [0-9a-f]{16}\], and the secret scan reported 1 possible secrets \[fp [0-9a-f]{16}\]$/, "a member's stalled scan keeps the root's findings");
+  assert.notEqual(bothStalled, unfinished, "and they are not the stalled scan alone");
+  assert.match(memberFound, /^[A-Za-z0-9 ._:/@=,+\-[\]"]{1,400}$/, "inside PR13's reason class");
 });
 
 test("a held push is approved only by a person's approve at exactly its reason", () => {

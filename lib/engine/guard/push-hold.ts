@@ -116,21 +116,24 @@ const shortHead = (head: string): string => String(head).replace(/[^0-9a-f]/g, '
 
 /**
  * The secrets hold's reason under `verifySecrets: warn` (block mode refuses these before the push),
- * over the root's scan and every member's: a scan that could not finish, bound to the head (to each
- * repo and its head when a member's too), else the findings the scans reported, bound to their
- * fingerprints (a member's together with its repo). A root-only reason has the same text as ever.
+ * over the root's scan and every member's. Two parts, each present when it applies and both together
+ * when both do (an approval of one must not pass the other): a scan that could not finish, bound to
+ * the head (to each repo and its head when a member's too), and the findings the scans reported,
+ * bound to their fingerprints (a member's together with its repo). A root-only reason has the same
+ * text as ever.
  */
 export function secretsHoldReason(scan: Pick<SecretScan, 'findings' | 'error'>, mode: SecretMode, head: string, members: RepoScan[] = []): string | null {
   if (mode !== 'warn') return null;
   const unfinished = members.filter((m) => m.scan.error);
-  if (unfinished.length) {
-    const keys = [...(scan.error ? [`\0${head}\0`] : []), ...unfinished.map((m) => `${m.repo}\0${m.head}\0`)];
-    return `${PUSH_HELD_PREFIX}the secret scan could not finish in ${keys.length} ${keys.length === 1 ? 'repo' : 'repos'} [heads ${digest16(keys)}]`;
-  }
-  if (scan.error) return `${PUSH_HELD_PREFIX}the secret scan could not finish [head ${shortHead(head)}]`;
+  const keys = [...(scan.error ? [`\0${head}\0`] : []), ...unfinished.map((m) => `${m.repo}\0${m.head}\0`)];
+  const stalled = !unfinished.length
+    ? (scan.error ? `the secret scan could not finish [head ${shortHead(head)}]` : null)
+    : `the secret scan could not finish in ${keys.length} ${keys.length === 1 ? 'repo' : 'repos'} [heads ${digest16(keys)}]`;
   const prints = [...new Set([...scan.findings.map((f) => `${f.fingerprint}\0`), ...members.flatMap((m) => m.scan.findings.map((f) => `${m.repo}\0${f.fingerprint}\0`))])];
   const total = scan.findings.length + members.reduce((n, m) => n + m.scan.findings.length, 0);
-  return total ? `${PUSH_HELD_PREFIX}the secret scan reported ${total} possible secrets [fp ${digest16(prints)}]` : null;
+  const reported = total ? `the secret scan reported ${total} possible secrets [fp ${digest16(prints)}]` : null;
+  const parts = [stalled, reported].filter((p): p is string => p !== null);
+  return parts.length ? `${PUSH_HELD_PREFIX}${parts.join(', and ')}` : null;
 }
 
 /**
