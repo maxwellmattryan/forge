@@ -40,41 +40,58 @@ export interface PassScheduler {
   after(job: Pick<Job, 'mandate' | 'state'> | null): void;
   /** One tick, under this tick's config: starts a pass child when one is due, the foreman is on and none runs. */
   check(c: Pick<Config, 'foreman'>, now?: number): void;
+  /** Aborts a running pass child's signal now, without waiting: the process `exit` handler's last resort (the pool's killSync). */
+  abort(): void;
+  /** No pass starts again and a running one's signal is aborted; settles once that pass has ended, with nothing logged and no `done` for it. */
+  close(): Promise<void>;
 }
 
 /**
  * The pool's Office pass schedule: one child at a time (`run`), at start, when a mandate file changes,
  * after a mandate job settles and every foreman.cadence minutes. When the child ends, `done` runs (the
  * pool ticks, so the direct request it queued turns the office at once), and a failure is logged once
- * per distinct message.
+ * per distinct message. `run`'s signal aborts when the schedule is closed (or aborted).
  */
-export function createPassScheduler(root: string, o: { run: (root: string) => Promise<string | null>; done: () => void; log: (message: string) => void }): PassScheduler {
+export function createPassScheduler(root: string, o: { run: (root: string, signal: AbortSignal) => Promise<string | null>; done: () => void; log: (message: string) => void }): PassScheduler {
+  const stop = new AbortController();
+  let closed = false;
   let passing = false;
   let wanted = false;
   let last = 0;
   let print: string | null = null;
   let lastError: string | null = null;
+  /** The running pass, from `run` to the end of its handler: what close() waits for. */
+  let inFlight: Promise<void> | null = null;
   return {
     want: () => void (wanted = true),
     after: (job) => void (passWantedAfter(job) && (wanted = true)),
     check(c, now = Date.now()) {
-      if (c.foreman?.enabled !== true || passing) return;
+      if (closed || c.foreman?.enabled !== true || passing) return;
       const p = mandatesPrint(root);
       if (print !== null && p !== print) wanted = true;
       print = p;
       if (!passDue({ now, last, cadenceMs: cadenceMs(c), wanted })) return;
       wanted = false;
       passing = true;
-      void o
-        .run(root)
+      inFlight = o
+        .run(root, stop.signal)
         .catch((e: unknown) => (e as Error)?.message ?? String(e))
         .then((err) => {
           passing = false;
           last = Date.now();
+          inFlight = null;
+          // A pass the close stopped: its failure is the kill, and the pool it would tick is gone.
+          if (closed) return;
           if (err !== null && err !== lastError) o.log(`office pass failed: ${err}`);
           lastError = err;
           o.done();
         });
+    },
+    abort: () => stop.abort(),
+    close() {
+      closed = true;
+      stop.abort();
+      return inFlight ?? Promise.resolve();
     },
   };
 }
