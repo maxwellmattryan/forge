@@ -3,9 +3,9 @@
      itself one button that can't hold a link: there the chip is a span carrying `data-gh-href`, pointer-only like DepChips. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { prChipModel } from '../lib/job-state.ts';
-  import { safeUrl } from '../lib/markdown.ts';
-  import type { JobPr } from '../lib/types.ts';
+  import { prChipModel } from '../lib/jobs/state.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import type { JobPr } from '../lib/core/types.ts';
 
   let { pr, repo, inButton = false }: { pr: (Partial<Omit<JobPr, 'url'>> & { url?: string | null }) | null | undefined; repo?: string; inButton?: boolean } = $props();
   const model = $derived(prChipModel(pr, repo));

@@ -5,8 +5,8 @@
      finished draws its ring closed once, and the ring goes when the cooling ends; under reduced motion none is drawn.
      A screen reader hears one label, e.g. "Stage 5 of 9: Verify". -->
 <script lang="ts">
-  import { stepPosition, type StageStep } from '../lib/board.ts';
-  import { t } from '../lib/locale.ts';
+  import { stepPosition, type StageStep } from '../lib/jobs/board.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { steps, stage, active = false, fresh = false }: { steps: StageStep[]; stage: string; active?: boolean; fresh?: boolean } = $props();
   /** The step that just finished: the last past one. */

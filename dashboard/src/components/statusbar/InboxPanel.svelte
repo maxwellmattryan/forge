@@ -3,9 +3,9 @@
      Session output is untrusted and renders through SessionLog's own rules. -->
 <script lang="ts">
   import SessionLog from '../SessionLog.svelte';
-  import type { PoolModel } from '../../lib/daemon.ts';
-  import { INBOX_SCOPE } from '../../lib/types.ts';
-  import { t } from '../../lib/locale.ts';
+  import type { PoolModel } from '../../lib/sessions/daemon.ts';
+  import { INBOX_SCOPE } from '../../lib/core/types.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let { model }: { model: PoolModel | null } = $props();
 </script>

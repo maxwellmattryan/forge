@@ -1,10 +1,10 @@
 <!-- The Overview's stacked bars: one column per UTC day, stacked by project in its series colour, each column titled with
      its day and every project's value; then the legend table with each project's swatch, total, share and any error
-     reading its stats. `empty` replaces the bars when every day is 0. Built from src/lib/overview.ts stackedSeries. -->
+     reading its stats. `empty` replaces the bars when every day is 0. Built from src/lib/metrics/overview.ts stackedSeries. -->
 <script lang="ts">
-  import type { StackColumn, Stacked } from '../lib/overview.ts';
-  import { pct } from '../lib/util.ts';
-  import { t } from '../lib/locale.ts';
+  import type { StackColumn, Stacked } from '../lib/metrics/overview.ts';
+  import { pct } from '../lib/core/util.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { series, label, format, empty }: { series: Stacked; label: string; format: (n: number) => string; empty: string } = $props();
 

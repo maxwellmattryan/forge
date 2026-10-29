@@ -1,11 +1,11 @@
 <!-- Settings › General: the dashboard's appearance, language and keyboard, kept per browser. -->
 <script lang="ts">
   import Select from '../Select.svelte';
-  import { CATALOGS, locale, setLocale, t } from '../../lib/locale.ts';
-  import { THEME_CHOICES, chooseTheme, currentGrain, currentScreen, setGrain, setScreen, themeChoice, type ThemeChoice } from '../../lib/theme.ts';
-  import { pref } from '../../lib/prefs.ts';
-  import { settingsShortcutLabel } from '../../lib/settings.ts';
-  import { slideMarker } from '../../lib/marker.ts';
+  import { CATALOGS, locale, setLocale, t } from '../../lib/text/locale.ts';
+  import { THEME_CHOICES, chooseTheme, currentGrain, currentScreen, setGrain, setScreen, themeChoice, type ThemeChoice } from '../../lib/ui/theme.ts';
+  import { pref } from '../../lib/settings/prefs.ts';
+  import { settingsShortcutLabel } from '../../lib/settings/modal.ts';
+  import { slideMarker } from '../../lib/ui/marker.ts';
 
   let choice = $state<ThemeChoice>(themeChoice(pref.get('theme', '')));
   let grain = $state(currentGrain());

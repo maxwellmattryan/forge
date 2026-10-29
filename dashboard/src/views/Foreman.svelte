@@ -3,7 +3,7 @@
 <script lang="ts">
   import ChatsPanel from '../components/chats/ChatsPanel.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import { t } from '../lib/locale.ts';
+  import { t } from '../lib/text/locale.ts';
 </script>
 
 <PageHeader title={$t('foreman.title')}>

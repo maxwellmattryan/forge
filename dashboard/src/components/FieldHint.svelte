@@ -8,7 +8,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Tooltip from './Tooltip.svelte';
-  import { t } from '../lib/locale.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { id, label, text }: { id: string; label: string; text: string } = $props();
 

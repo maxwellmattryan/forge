@@ -4,7 +4,7 @@
   import Loading from '../Loading.svelte';
   import PageHeader from '../PageHeader.svelte';
   import Skeleton from '../Skeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   // Cards per column (plan, build, ship and queued vary) and a title width per card.
   const COLUMNS = $derived([

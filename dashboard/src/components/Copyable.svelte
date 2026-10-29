@@ -2,8 +2,8 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Tooltip from './Tooltip.svelte';
-  import { t } from '../lib/locale.ts';
-  import { toast } from '../lib/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
 
   let { text, class: cls = '' }: { text: string; class?: string } = $props();
 

@@ -5,12 +5,12 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import IconButton from './IconButton.svelte';
-  import { keepFocus } from '../lib/menu.ts';
-  import type { DaemonSessionState } from '../lib/types.ts';
-  import { postDaemon, scopeSession, sessionControls, sessionToggle } from '../lib/daemon.ts';
-  import { S, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { keepFocus } from '../lib/ui/overlay/menu.ts';
+  import type { DaemonSessionState } from '../lib/core/types.ts';
+  import { postDaemon, scopeSession, sessionControls, sessionToggle } from '../lib/sessions/daemon.ts';
+  import { S, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { scope, live = null, onacted }: { scope: string; live?: Partial<DaemonSessionState> | null; onacted?: () => void } = $props();
 

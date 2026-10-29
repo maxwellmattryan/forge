@@ -13,12 +13,12 @@
   import OverviewGraphSkeleton from '../components/skeletons/OverviewGraphSkeleton.svelte';
   import Select from '../components/Select.svelte';
   import StackedBars from '../components/StackedBars.svelte';
-  import { S, setOverviewWindow } from '../lib/app.svelte.ts';
-  import { OVERVIEW_WINDOWS, overviewCards, stackedSeries, type OverviewCard } from '../lib/overview.ts';
-  import { pref } from '../lib/prefs.ts';
-  import { ago, num, usd } from '../lib/util.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { S, setOverviewWindow } from '../lib/core/app.svelte.ts';
+  import { OVERVIEW_WINDOWS, overviewCards, stackedSeries, type OverviewCard } from '../lib/metrics/overview.ts';
+  import { pref } from '../lib/settings/prefs.ts';
+  import { ago, num, usd } from '../lib/core/util.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   const cards = $derived(overviewCards(S.machine));
   const shipped = $derived(S.overview ? stackedSeries(S.overview, 'shipped') : null);

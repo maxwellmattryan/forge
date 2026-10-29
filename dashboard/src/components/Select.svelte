@@ -8,17 +8,17 @@
      `group` sit under its name; an `action` entry calls onchange but never becomes the value, and
      its icon takes the check column it never needs, so its label lines up with the others'. Focus never leaves the
      button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
-     see one control. src/lib/select.ts decides what each key does, src/lib/menu.ts placeMenu where the list opens, and
+     see one control. src/lib/ui/select.ts decides what each key does, src/lib/ui/overlay/menu.ts placeMenu where the list opens, and
      dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
      moves the button or unmounting close it without a change. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
-  import type { IconName } from '../lib/icons.ts';
-  import { CLOSED, selectKey, selectedIndex, openAt, type SelectOption, type SelectState } from '../lib/select.ts';
-  import { placeMenu } from '../lib/menu.ts';
-  import { FOCUSABLE, dismissal } from '../lib/popover.ts';
-  import { t } from '../lib/locale.ts';
+  import type { IconName } from '../lib/ui/icons.ts';
+  import { CLOSED, selectKey, selectedIndex, openAt, type SelectOption, type SelectState } from '../lib/ui/select.ts';
+  import { placeMenu } from '../lib/ui/overlay/menu.ts';
+  import { FOCUSABLE, dismissal } from '../lib/ui/overlay/popover.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let {
     id,
@@ -72,7 +72,7 @@
 
   let trigger = $state<HTMLButtonElement>();
   let list = $state<HTMLUListElement>();
-  // Raw: src/lib/select.ts returns the state it was given for a key it ignores, and a proxy would never compare equal to it.
+  // Raw: src/lib/ui/select.ts returns the state it was given for a key it ignores, and a proxy would never compare equal to it.
   let st = $state.raw<SelectState>(CLOSED);
   let at = $state<{ left: number; top: number }>({ left: 0, top: 0 });
   let minWidth = $state(0);

@@ -2,7 +2,7 @@
      reader as "Loading…" (or `label`). `class` lays the children out as the real content would be. -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { t } from '../lib/locale.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { label, class: extra = '', children }: { label?: string; class?: string; children: Snippet } = $props();
 </script>

@@ -3,9 +3,9 @@
      always has: as the flex item, the span's line box sets the state row's height, so dropping it would shift the card. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { budgetChipModel, unattendedDefault } from '../lib/budget.ts';
-  import { S } from '../lib/app.svelte.ts';
-  import type { Job } from '../lib/types.ts';
+  import { budgetChipModel, unattendedDefault } from '../lib/metrics/budget.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import type { Job } from '../lib/core/types.ts';
 
   let { job }: { job: Partial<Job> | null | undefined } = $props();
   const chip = $derived(budgetChipModel(job as Job, S.data?.config?.pipeline?.budget, unattendedDefault(S.data?.config)));

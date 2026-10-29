@@ -2,7 +2,7 @@
      Content only: the caller supplies the <Loading> root. -->
 <script lang="ts">
   import Skeleton from '../Skeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   const rows = [
     { job: '70%', port: '3rem' },

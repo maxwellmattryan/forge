@@ -5,12 +5,12 @@
      Reasons and notes are agent-written job state: they render as text, never as markup. An error toasts the server's message. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { api } from '../lib/util.ts';
-  import { refresh } from '../lib/app.svelte.ts';
-  import { parseRepoProposals, pendingRepos, postRepoDecision, proposalTone } from '../lib/repo-proposals.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import type { RepoProposal } from '../lib/types.ts';
+  import { api } from '../lib/core/util.ts';
+  import { refresh } from '../lib/core/app.svelte.ts';
+  import { parseRepoProposals, pendingRepos, postRepoDecision, proposalTone } from '../lib/gates/repo-proposals.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import type { RepoProposal } from '../lib/core/types.ts';
 
   let { id, note = $bindable(''), buttons = false, shown = $bindable([]) }: { id: string; note?: string; buttons?: boolean; shown?: string[] } = $props();
 

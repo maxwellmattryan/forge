@@ -1,13 +1,13 @@
 <!-- The Agents tab's runs panel for one role: every ended agent run, oldest first, with its billing split and, when
      recorded, the estimated context composition at its last request, each as a stacked bar and a legend of tokens and
      shares. Bars are decorative (the legends carry every figure), and tool and MCP server names render as text. Built
-     from src/lib/agent-runs.ts. -->
+     from src/lib/metrics/agent-runs.ts. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { billingParts, compositionParts, runDuration, runsTotal, statusTone, type BarPart } from '../lib/agent-runs.ts';
-  import type { AgentRun } from '../lib/types.ts';
-  import { dur, pct, tokensShort } from '../lib/util.ts';
-  import { t } from '../lib/locale.ts';
+  import { billingParts, compositionParts, runDuration, runsTotal, statusTone, type BarPart } from '../lib/metrics/agent-runs.ts';
+  import type { AgentRun } from '../lib/core/types.ts';
+  import { dur, pct, tokensShort } from '../lib/core/util.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { runs, running }: { runs: AgentRun[]; running: boolean } = $props();
   const total = $derived(runsTotal(runs));

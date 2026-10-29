@@ -9,12 +9,12 @@
   import { tick } from 'svelte';
   import Chip from './Chip.svelte';
   import ReportCard from './ReportCard.svelte';
-  import { STATE_TONE, inIntake, mandateActions, postMandateStatus, type MandateStatusAction } from '../lib/foreman.ts';
-  import { usd } from '../lib/util.ts';
-  import { S, loadMandates, openDrawer, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import type { MandateRow, StateJob } from '../lib/types.ts';
+  import { STATE_TONE, inIntake, mandateActions, postMandateStatus, type MandateStatusAction } from '../lib/office/foreman.ts';
+  import { usd } from '../lib/core/util.ts';
+  import { S, loadMandates, openDrawer, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import type { MandateRow, StateJob } from '../lib/core/types.ts';
 
   let { m, jobs, onedit }: { m: MandateRow; jobs: StateJob[]; onedit?: () => void } = $props();
 

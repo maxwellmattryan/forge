@@ -8,7 +8,7 @@ export const MAP_START = '<!-- forge:map:start (generated from each file\'s head
 export const MAP_END = '<!-- forge:map:end -->';
 
 /** The repo-relative folders whose AGENTS.md maps this writes. */
-export const MAP_ROOTS = ['lib'] as const;
+export const MAP_ROOTS = ['lib', 'dashboard/src/lib'] as const;
 
 const SOURCE = /\.(ts|mjs)$/;
 

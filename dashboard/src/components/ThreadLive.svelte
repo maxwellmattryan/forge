@@ -5,12 +5,12 @@
 <script lang="ts">
   import Chip from './Chip.svelte';
   import LiveDot from './LiveDot.svelte';
-  import { activityLine, newestActivity } from '../lib/agent-activity.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import type { Activity } from '../lib/live.ts';
-  import type { AgentActivity } from '../lib/types.ts';
-  import { ago, usd } from '../lib/util.ts';
-  import { t } from '../lib/locale.ts';
+  import { activityLine, newestActivity } from '../lib/sessions/agent-activity.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import type { Activity } from '../lib/sessions/live.ts';
+  import type { AgentActivity } from '../lib/core/types.ts';
+  import { ago, usd } from '../lib/core/util.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { agents, session, cost, onopen }: { agents: AgentActivity[]; session: Activity | null; cost: number | null | undefined; onopen: () => void } = $props();
   const top = $derived(newestActivity(agents));

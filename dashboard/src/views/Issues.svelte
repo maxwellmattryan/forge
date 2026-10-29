@@ -9,11 +9,11 @@
   import IssuesTableSkeleton from '../components/skeletons/IssuesTableSkeleton.svelte';
   import Skeleton from '../components/Skeleton.svelte';
   import TriageMissing from '../components/TriageMissing.svelte';
-  import { readiness } from '../lib/backlog.ts';
-  import { canStart, refLabel } from '../lib/issue-view.ts';
-  import { safeUrl } from '../lib/markdown.ts';
-  import { S, openDrawer, openIssue, refreshBacklog, req } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { readiness } from '../lib/project/backlog.ts';
+  import { canStart, refLabel } from '../lib/project/issue-view.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import { S, openDrawer, openIssue, refreshBacklog, req } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   const b = $derived(S.backlog);
 

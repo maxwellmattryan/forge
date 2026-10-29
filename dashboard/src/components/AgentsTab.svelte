@@ -9,12 +9,12 @@
   import Empty from './Empty.svelte';
   import Icon from './Icon.svelte';
   import SessionLog from './SessionLog.svelte';
-  import { roundAgents } from '../lib/agent-activity.ts';
-  import { statusTone } from '../lib/agent-runs.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import type { JobDetail } from '../lib/types.ts';
-  import { dur, tokensShort } from '../lib/util.ts';
-  import { t } from '../lib/locale.ts';
+  import { roundAgents } from '../lib/sessions/agent-activity.ts';
+  import { statusTone } from '../lib/metrics/agent-runs.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import type { JobDetail } from '../lib/core/types.ts';
+  import { dur, tokensShort } from '../lib/core/util.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job, detail, active }: { job: string; detail: Pick<JobDetail, 'agents'>; active: boolean } = $props();
   const rows = $derived(roundAgents(detail, ticker.now));

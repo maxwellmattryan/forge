@@ -8,14 +8,14 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import Chip from './Chip.svelte';
-  import { md } from '../lib/markdown.ts';
-  import { draftCardActions, draftDecisionBody, fetchDraft, postDraftDecision, wavesOf } from '../lib/drafts.ts';
-  import { gateOwnerBadge } from '../lib/inbox.ts';
-  import { errorText } from '../lib/util.ts';
-  import { refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import type { DraftGate, MandateDraftResponse, PostMandateDraftBody } from '../lib/types.ts';
+  import { md } from '../lib/text/markdown.ts';
+  import { draftCardActions, draftDecisionBody, fetchDraft, postDraftDecision, wavesOf } from '../lib/office/drafts.ts';
+  import { gateOwnerBadge } from '../lib/gates/inbox.ts';
+  import { errorText } from '../lib/core/util.ts';
+  import { refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import type { DraftGate, MandateDraftResponse, PostMandateDraftBody } from '../lib/core/types.ts';
 
   let { gate }: { gate: DraftGate } = $props();
 

@@ -29,7 +29,9 @@ interface Root {
   allowed: Record<string, number>;
 }
 
-const ROOTS: Root[] = [];
+const ROOTS: Root[] = [
+  { root: 'dashboard/src/lib', entry: /\.ts$/, filesAtRoot: false, small: [], registries: [], allowed: { 'core/app.svelte.ts': 675 } },
+];
 
 /** A folder under a root: its root-relative path (`''` for the root, else ending in `/`) and its names, subfolders ending in `/`. */
 interface Dir { path: string; entries: string[] }

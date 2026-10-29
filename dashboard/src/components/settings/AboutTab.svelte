@@ -2,9 +2,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Banner from '../Banner.svelte';
-  import { t } from '../../lib/locale.ts';
-  import { safeUrl } from '../../lib/markdown.ts';
-  import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
+  import { safeUrl } from '../../lib/text/markdown.ts';
+  import type { SettingsSession } from '../../lib/settings/session.svelte.ts';
 
   let { session }: { session: SettingsSession } = $props();
 

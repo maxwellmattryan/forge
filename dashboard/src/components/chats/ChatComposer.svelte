@@ -6,13 +6,13 @@
      In place of the box: a note while the daemon is disabled in config, a note with Start daemon while it is stopped, and
      the archived note for an archived chat. It exports focus(), which the panel calls after New chat. -->
 <script lang="ts">
-  import { sendChatMessage } from '../../lib/chats.ts';
-  import { postDaemon } from '../../lib/daemon.ts';
-  import { CHAT_MESSAGE_MAX } from '../../lib/types.ts';
-  import type { ChatDetail, DaemonSessionState } from '../../lib/types.ts';
-  import { S, refresh } from '../../lib/app.svelte.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import { t } from '../../lib/locale.ts';
+  import { sendChatMessage } from '../../lib/office/chats.ts';
+  import { postDaemon } from '../../lib/sessions/daemon.ts';
+  import { CHAT_MESSAGE_MAX } from '../../lib/core/types.ts';
+  import type { ChatDetail, DaemonSessionState } from '../../lib/core/types.ts';
+  import { S, refresh } from '../../lib/core/app.svelte.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let {
     id,

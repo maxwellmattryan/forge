@@ -14,15 +14,15 @@
   import Skeleton from './Skeleton.svelte';
   import StateChip from './StateChip.svelte';
   import TriageMissing from './TriageMissing.svelte';
-  import { S, closeDrawer, openDrawer, req } from '../lib/app.svelte.ts';
-  import { readiness } from '../lib/backlog.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { DEFAULT_DRAWER_TAB } from '../lib/drawer.ts';
-  import { canStart, issueJobs, issuePanel, refLabel } from '../lib/issue-view.ts';
-  import { STAGE_LABEL } from '../lib/labels.ts';
-  import { t } from '../lib/locale.ts';
-  import { md, safeUrl } from '../lib/markdown.ts';
-  import { ago, usd } from '../lib/util.ts';
+  import { S, closeDrawer, openDrawer, req } from '../lib/core/app.svelte.ts';
+  import { readiness } from '../lib/project/backlog.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { DEFAULT_DRAWER_TAB } from '../lib/jobs/drawer.ts';
+  import { canStart, issueJobs, issuePanel, refLabel } from '../lib/project/issue-view.ts';
+  import { STAGE_LABEL } from '../lib/core/labels.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { md, safeUrl } from '../lib/text/markdown.ts';
+  import { ago, usd } from '../lib/core/util.ts';
 
   /** The shell's: the issue title takes focus through it on open. */
   let { focusTitle }: { focusTitle: Attachment<HTMLElement> } = $props();

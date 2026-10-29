@@ -5,8 +5,8 @@
 <script lang="ts">
   import OfficePanel from '../components/OfficePanel.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import { OFFICE_PAGE } from '../lib/office-layout.ts';
-  import { t } from '../lib/locale.ts';
+  import { OFFICE_PAGE } from '../lib/office/layout.ts';
+  import { t } from '../lib/text/locale.ts';
 </script>
 
 <div class={OFFICE_PAGE}>

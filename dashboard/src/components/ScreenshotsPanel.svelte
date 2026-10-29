@@ -1,9 +1,9 @@
 <!-- The drawer's Screenshots card: a tile per file in the job's screenshots/ dir, each opening the image in a new tab;
      nothing without files. Names are agent-chosen, so they render as text and the URLs go through safeUrl. -->
 <script lang="ts">
-  import { screenshotTiles } from '../lib/screenshots.ts';
-  import { safeUrl } from '../lib/markdown.ts';
-  import { t } from '../lib/locale.ts';
+  import { screenshotTiles } from '../lib/jobs/screenshots.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { jobId, files }: { jobId: string; files: string[] } = $props();
   const tiles = $derived(screenshotTiles(jobId, files));

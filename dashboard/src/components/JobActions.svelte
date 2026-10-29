@@ -11,14 +11,14 @@
   import IssueLinkActions from './IssueLinkActions.svelte';
   import RepoProposalActions from './RepoProposalActions.svelte';
   import LiveDot from './LiveDot.svelte';
-  import { decisionInFlight } from '../lib/decision.ts';
-  import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/inbox.ts';
-  import { budgetApprove, type BudgetApproveOutcome } from '../lib/budget.ts';
-  import { S, req } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import { ago } from '../lib/util.ts';
-  import type { Job } from '../lib/types.ts';
+  import { decisionInFlight } from '../lib/gates/decision.ts';
+  import { inboxActions, inboxKind, notePlaceholder, showsNote, specLinkPending, type InboxAction } from '../lib/gates/inbox.ts';
+  import { budgetApprove, type BudgetApproveOutcome } from '../lib/metrics/budget.ts';
+  import { S, req } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { ago } from '../lib/core/util.ts';
+  import type { Job } from '../lib/core/types.ts';
 
   let { job: j, noteId }: { job: Pick<Job, 'id' | 'state' | 'waitingOn' | 'reason' | 'issues' | 'noIssue'>; noteId: string } = $props();
   const kind = $derived(inboxKind(j));

@@ -11,13 +11,13 @@
   import Chip from '../Chip.svelte';
   import Icon from '../Icon.svelte';
   import PermissionPrompts from '../PermissionPrompts.svelte';
-  import { OFFICE_SCOPE } from '../../lib/types.ts';
-  import type { ForemanIndicator } from '../../lib/statusbar.ts';
-  import { gateRunRows, gateRunsHeader, type GateRunShown } from '../../lib/gate-runs.ts';
-  import { clock } from '../../lib/util.ts';
-  import { S, openDrawer } from '../../lib/app.svelte.ts';
-  import { closePopover } from '../../lib/popover.svelte.ts';
-  import { t } from '../../lib/locale.ts';
+  import { OFFICE_SCOPE } from '../../lib/core/types.ts';
+  import type { ForemanIndicator } from '../../lib/shell/statusbar.ts';
+  import { gateRunRows, gateRunsHeader, type GateRunShown } from '../../lib/office/gate-runs.ts';
+  import { clock } from '../../lib/core/util.ts';
+  import { S, openDrawer } from '../../lib/core/app.svelte.ts';
+  import { closePopover } from '../../lib/ui/overlay/popover.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let { foreman }: { foreman: ForemanIndicator } = $props();
 

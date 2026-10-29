@@ -4,10 +4,10 @@
 <script lang="ts">
   import Chip from './Chip.svelte';
   import LiveDot from './LiveDot.svelte';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import type { Activity, ActivityKind } from '../lib/live.ts';
-  import { ago } from '../lib/util.ts';
-  import { t } from '../lib/locale.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import type { Activity, ActivityKind } from '../lib/sessions/live.ts';
+  import { ago } from '../lib/core/util.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { activity, extra = '' }: { activity: Activity; extra?: string } = $props();
   const stateText = $derived<Record<ActivityKind, string>>({ working: $t('live.working'), asking: $t('live.asking'), waiting: $t('live.waiting'), idle: $t('live.idle'), off: '' });

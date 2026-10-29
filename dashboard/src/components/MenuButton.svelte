@@ -3,16 +3,16 @@
      Foreman popover's body, the Agents tab panel) clips it, while staying a DOM descendant of them, so their own
      contains() checks still count it as inside. Manual mode keeps dismissal here instead of the browser's light dismiss,
      which would race App's window Escape handler: Escape closes only this panel and refocuses the button; a press outside
-     or focus leaving both closes it (src/lib/popover.ts dismissal decides the focus); a resize, a scroll that moves the button,
-     or the button unmounting closes it too. src/lib/menu.ts placeMenu decides where it opens. With `iconOnly` the button's
+     or focus leaving both closes it (src/lib/ui/overlay/popover.ts dismissal decides the focus); a resize, a scroll that moves the button,
+     or the button unmounting closes it too. src/lib/ui/overlay/menu.ts placeMenu decides where it opens. With `iconOnly` the button's
      name shows in a Tooltip (hidden while the panel is open) instead of a native title. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
   import Tooltip from './Tooltip.svelte';
-  import type { IconName } from '../lib/icons.ts';
-  import { placeMenu } from '../lib/menu.ts';
-  import { FOCUSABLE, dismissal } from '../lib/popover.ts';
+  import type { IconName } from '../lib/ui/icons.ts';
+  import { placeMenu } from '../lib/ui/overlay/menu.ts';
+  import { FOCUSABLE, dismissal } from '../lib/ui/overlay/popover.ts';
 
   let {
     label,

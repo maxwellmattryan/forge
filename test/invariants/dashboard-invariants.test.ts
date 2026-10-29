@@ -10,9 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { CLOSE, endOf, literals, markup, soleCall, tags } from '../svelte-markup.ts';
 import { builtCss } from '../built-css.ts';
 import { DIST, noDist } from '../dist.ts';
-import { isPlural, mergeCatalogs } from '../../dashboard/src/lib/i18n.ts';
-import { TONE_CLASS } from '../../dashboard/src/lib/util.ts';
-import { THEMES } from '../../dashboard/src/lib/theme.ts';
+import { isPlural, mergeCatalogs } from '../../dashboard/src/lib/text/i18n.ts';
+import { TONE_CLASS } from '../../dashboard/src/lib/core/util.ts';
+import { THEMES } from '../../dashboard/src/lib/ui/theme.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const DASHBOARD = path.join(ROOT, 'dashboard');
@@ -36,7 +36,7 @@ const sources = () =>
     .sort();
 const componentFiles = () => sources().filter((f) => f.endsWith('.svelte'));
 /** The escape-first HTML builders; their output is the only raw HTML the app renders. */
-const BUILDERS = { md: 'markdown' };
+const BUILDERS = { md: 'text/markdown' };
 
 function htmlProblems(file: string, text: string) {
   const problems: string[] = [];
@@ -49,7 +49,7 @@ function htmlProblems(file: string, text: string) {
       continue;
     }
     const lib = BUILDERS[name as keyof typeof BUILDERS];
-    const imp = new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(?:\\.\\.?\\/)+lib\\/${lib}\\.ts'`);
+    const imp = new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*'(?:\\.\\.?\\/)+lib\\/${lib.replace(/\//g, '\\/')}\\.ts'`);
     if (!imp.test(text)) problems.push(`${file}: ${name} must be imported from lib/${lib}.ts`);
     calls.push(name);
   }
@@ -67,12 +67,16 @@ test('{@html} receives only escape-first builders', () => {
 });
 
 test('the {@html} guard rejects anything but one whole builder call', () => {
-  const head = `<script lang="ts">\n  import { md } from '../lib/markdown.ts';\n</script>\n`;
+  const head = `<script lang="ts">\n  import { md } from '../lib/text/markdown.ts';\n</script>\n`;
   assert.deepEqual(htmlProblems('ok.svelte', `${head}{@html md(x)}{@html md(a.b, { c: '}' })}`).problems, []);
   for (const bad of ['{@html md(x) + raw}', '{@html md(x) || raw}', '{@html md(x)(raw)}', '{@html cond ? md(x) : raw}', '{@html raw}', '{@html md(x)']) {
     assert.equal(htmlProblems('bad.svelte', head + bad).problems.length, 1, bad);
   }
-  assert.equal(htmlProblems('bad.svelte', '{@html md(x)}').problems.length, 1, 'md must come from lib/markdown.ts');
+  assert.equal(htmlProblems('bad.svelte', '{@html md(x)}').problems.length, 1, 'md must come from lib/text/markdown.ts');
+  for (const from of ['../lib/markdown.ts', '../lib/ui/markdown.ts']) {
+    const shim = `<script lang="ts">\n  import { md } from '${from}';\n</script>\n{@html md(x)}`;
+    assert.deepEqual(htmlProblems('bad.svelte', shim).problems, ['bad.svelte: md must be imported from lib/text/markdown.ts'], `md from ${from}`);
+  }
   const builder = `<script lang="ts">\n  import { budgetPanel } from '../lib/budget.ts';\n</script>\n{@html budgetPanel(j)}`;
   assert.equal(htmlProblems('bad.svelte', builder).problems.length, 1, 'only md() is a builder, whatever lib a call comes from');
 });
@@ -149,8 +153,8 @@ function urlProblems(file: string, text: string) {
       else if (r.via === 'safeUrl') viaSafeUrl = true;
     }
   }
-  if (viaSafeUrl && !/import\s*\{[^}]*\bsafeUrl\b[^}]*\}\s*from\s*'(?:\.\.?\/)+lib\/markdown\.ts'/.test(text)) {
-    problems.push(`${file}: safeUrl must be imported from lib/markdown.ts`);
+  if (viaSafeUrl && !/import\s*\{[^}]*\bsafeUrl\b[^}]*\}\s*from\s*'(?:\.\.?\/)+lib\/text\/markdown\.ts'/.test(text)) {
+    problems.push(`${file}: safeUrl must be imported from lib/text/markdown.ts`);
   }
   return { problems, checked };
 }
@@ -175,7 +179,7 @@ test('dynamic URLs go through safeUrl', () => {
 });
 
 test('the URL guard rejects shorthand, spreads and unchecked src/action/formaction/xlink:href', () => {
-  const imp = `  import { safeUrl } from '../lib/markdown.ts';\n`;
+  const imp = `  import { safeUrl } from '../lib/text/markdown.ts';\n`;
   const head = `<script lang="ts">\n${imp}  const href = $derived(safeUrl(job.url));\n</script>\n`;
   const ok = [
     '<a {href}>x</a>',
@@ -207,6 +211,10 @@ test('the URL guard rejects shorthand, spreads and unchecked src/action/formacti
     `<script lang="ts">\n  const href = $derived(safeUrl(job.url));\n</script>\n<a {href}>x</a>`,
   ];
   for (const m of bad) assert.ok(urlProblems('bad.svelte', m).problems.length > 0, m);
+  for (const from of ['../lib/markdown.ts', '../lib/ui/markdown.ts']) {
+    const shim = `<script lang="ts">\n  import { safeUrl } from '${from}';\n</script>\n<a href={safeUrl(u)}>x</a>`;
+    assert.deepEqual(urlProblems('bad.svelte', shim).problems, ['bad.svelte: safeUrl must be imported from lib/text/markdown.ts'], `safeUrl from ${from}`);
+  }
 });
 
 // ---------- 2. i18n: every user-facing string comes from messages/en/ through $t('literal.key') ----------

@@ -1,10 +1,10 @@
 <!-- A board card's `after <ref title | id>` chips, one per dependency, each truncated to the card's width with the full id in its title. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { depChipTitle, depLabel, depLinks } from '../lib/deps.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
-  import type { Job } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { depChipTitle, depLabel, depLinks } from '../lib/jobs/deps.ts';
+  import { S, openDrawer } from '../lib/core/app.svelte.ts';
+  import type { Job } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: Partial<Job> } = $props();
   const links = $derived(depLinks(job, S.data?.jobs ?? []));

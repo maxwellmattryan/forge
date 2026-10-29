@@ -6,11 +6,11 @@
      Progress shows the same figures. Every value is a number or a date and renders as Svelte text. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { WAIT_LABEL } from '../lib/labels.ts';
-  import { cardDate, figureView, gateCounts, shownCard } from '../lib/report-card.ts';
-  import { num, pct } from '../lib/util.ts';
-  import { t } from '../lib/locale.ts';
-  import type { CardFigure, MandateRow } from '../lib/types.ts';
+  import { WAIT_LABEL } from '../lib/core/labels.ts';
+  import { cardDate, figureView, gateCounts, shownCard } from '../lib/office/report-card.ts';
+  import { num, pct } from '../lib/core/util.ts';
+  import { t } from '../lib/text/locale.ts';
+  import type { CardFigure, MandateRow } from '../lib/core/types.ts';
 
   let { m }: { m: MandateRow } = $props();
 

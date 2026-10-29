@@ -6,11 +6,11 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import ProjectSwitcher from './ProjectSwitcher.svelte';
-  import { S } from '../lib/app.svelte.ts';
-  import { GENERAL_NAV, PROJECT_NAV, navCounts, type GlobalViewId, type ViewId } from '../lib/nav.ts';
-  import { railTipOn } from '../lib/rail-tip.svelte.ts';
-  import { slideMarker } from '../lib/marker.ts';
-  import { t } from '../lib/locale.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import { GENERAL_NAV, PROJECT_NAV, navCounts, type GlobalViewId, type ViewId } from '../lib/shell/nav.ts';
+  import { railTipOn } from '../lib/shell/rail-tip.svelte.ts';
+  import { slideMarker } from '../lib/ui/marker.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { mobile = false, compact = false }: { mobile?: boolean; compact?: boolean } = $props();
   const project = $derived(S.selected);

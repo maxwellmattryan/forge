@@ -5,7 +5,7 @@
   import PageHeader from '../PageHeader.svelte';
   import AnalyticsPeriodMeterSkeleton from './AnalyticsPeriodMeterSkeleton.svelte';
   import AnalyticsStatsSkeleton from './AnalyticsStatsSkeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 </script>
 
 <Loading>

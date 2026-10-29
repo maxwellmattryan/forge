@@ -4,7 +4,7 @@
      Foreman's replies as LogItem rows, with forge CLI calls tagged as CLI actions. Every block and every top-level reply
      item has its time and a Copy button named for what it copies. It follows the newest entry while the pane is at the
      bottom, with Jump to latest when scrolled up. The log itself is not announced; one sr-only status region says when the
-     Foreman starts replying (the session goes busy) and when it has replied (back to idle). The data is createChatLog (src/lib/chat-log.ts):
+     Foreman starts replying (the session goes busy) and when it has replied (back to idle). The data is createChatLog (src/lib/logs/chat-log.ts):
      paged from the start, then caught up on each `line` of the chat's session stream; its `state` frames, GET
      /api/chats/<id> on mount, after a prompt is answered and every 15 s while the session works, and a send's reply drive
      the session state. Owner text renders only through md() or as text; session lines follow LogItem's rules. -->
@@ -17,19 +17,19 @@
   import PermissionPrompts from '../PermissionPrompts.svelte';
   import ChatComposer from './ChatComposer.svelte';
   import ChatHeader from './ChatHeader.svelte';
-  import { createChatLog } from '../../lib/chat-log.ts';
-  import { buildChatView, cliAction, copyText, fetchChat, type ChatBlock, type ChatEntry } from '../../lib/chats.ts';
-  import { mergeSessionState } from '../../lib/daemon.ts';
-  import { md } from '../../lib/markdown.ts';
-  import { renderable } from '../../lib/md-view.ts';
-  import { mdView } from '../../lib/md-view.svelte.ts';
-  import { atBottom, MAX_ENTRIES } from '../../lib/session-log.ts';
-  import type { Item } from '../../lib/session-parse.ts';
-  import { chatScope } from '../../lib/types.ts';
-  import type { Chat, ChatDetail, DaemonSessionState } from '../../lib/types.ts';
-  import { clock } from '../../lib/util.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import { t } from '../../lib/locale.ts';
+  import { createChatLog } from '../../lib/logs/chat-log.ts';
+  import { buildChatView, cliAction, copyText, fetchChat, type ChatBlock, type ChatEntry } from '../../lib/office/chats.ts';
+  import { mergeSessionState } from '../../lib/sessions/daemon.ts';
+  import { md } from '../../lib/text/markdown.ts';
+  import { renderable } from '../../lib/text/md-view.ts';
+  import { mdView } from '../../lib/text/md-view.svelte.ts';
+  import { atBottom, MAX_ENTRIES } from '../../lib/logs/session-log.ts';
+  import type { Item } from '../../lib/logs/session-parse.ts';
+  import { chatScope } from '../../lib/core/types.ts';
+  import type { Chat, ChatDetail, DaemonSessionState } from '../../lib/core/types.ts';
+  import { clock } from '../../lib/core/util.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let {
     chat,

@@ -4,12 +4,12 @@
   import Banner from '../Banner.svelte';
   import Chip from '../Chip.svelte';
   import ConfigFieldRow from './ConfigFieldRow.svelte';
-  import { S, refresh } from '../../lib/app.svelte.ts';
-  import { fieldsFor } from '../../lib/config-form.ts';
-  import { t } from '../../lib/locale.ts';
-  import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import type { ConfigSection } from '../../lib/types.ts';
+  import { S, refresh } from '../../lib/core/app.svelte.ts';
+  import { fieldsFor } from '../../lib/settings/config-form.ts';
+  import { t } from '../../lib/text/locale.ts';
+  import type { SettingsSession } from '../../lib/settings/session.svelte.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import type { ConfigSection } from '../../lib/core/types.ts';
 
   let { session, section, goto }: { session: SettingsSession; section: ConfigSection; goto: (key: string) => void } = $props();
 

@@ -2,7 +2,7 @@
      in bands. Content only: the caller supplies the <Loading> root. -->
 <script lang="ts">
   import Skeleton from '../Skeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   const bands = [2, 3, 2];
 </script>

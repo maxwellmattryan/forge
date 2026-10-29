@@ -1,24 +1,24 @@
 <!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text, sends a /forge-style command or
      opens a project (`project <name>`; with no project selected that is all it does).
      A centred sheet at md and up, a full-width sheet at the top below. It starts from the text typed into the status bar's
-     input, with the caret at the end. src/lib/command.ts holds the grammar and mapping. -->
+     input, with the caret at the end. src/lib/shell/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import Chip from './Chip.svelte';
   import CloseButton from './CloseButton.svelte';
   import Icon from './Icon.svelte';
   import StateChip from './StateChip.svelte';
-  import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/app.svelte.ts';
-  import { canRunCommand, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/command.ts';
-  import { clearScope, palette } from '../lib/palette.svelte.ts';
-  import { buildRequest } from '../lib/requests.ts';
-  import { switchHash } from '../lib/routes.ts';
-  import { lockScroll } from '../lib/scroll-lock.ts';
-  import { switcherEntries } from '../lib/switcher.ts';
-  import { TABBABLE, wrapFocus } from '../lib/settings.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import { EXIT, fade, pop } from '../lib/motion.ts';
+  import { S, createJob, loadBacklog, openDrawer, postRequest, refresh } from '../lib/core/app.svelte.ts';
+  import { canRunCommand, commandQueuedMessage, commandRequest, createdMessage, emptyReason, parseCommand, scopedJob, suggest, type CommandCtx, type Suggestion, type Verb } from '../lib/shell/command.ts';
+  import { clearScope, palette } from '../lib/shell/palette.svelte.ts';
+  import { buildRequest } from '../lib/core/requests.ts';
+  import { switchHash } from '../lib/shell/routes.ts';
+  import { lockScroll } from '../lib/ui/overlay/scroll-lock.ts';
+  import { switcherEntries } from '../lib/shell/switcher.ts';
+  import { TABBABLE, wrapFocus } from '../lib/settings/modal.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { EXIT, fade, pop } from '../lib/ui/motion.ts';
 
   let { onclose }: { onclose: () => void } = $props();
 

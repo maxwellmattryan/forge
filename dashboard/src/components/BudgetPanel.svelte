@@ -1,10 +1,10 @@
 <!-- A job's budget, one row per limit: used / limit with a bar in the row's tone. The drawer's Budget card has a heading
      and the checked line; `compact` (the budget gate's inbox card) is the rows alone. -->
 <script lang="ts">
-  import { budgetPanelModel, unattendedDefault } from '../lib/budget.ts';
-  import { S } from '../lib/app.svelte.ts';
-  import type { Job } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { budgetPanelModel, unattendedDefault } from '../lib/metrics/budget.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import type { Job } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job, compact = false }: { job: Partial<Job> | null | undefined; compact?: boolean } = $props();
   const model = $derived(budgetPanelModel(job as Job, S.data?.config?.pipeline?.budget, { compact, jobDefault: unattendedDefault(S.data?.config) }));

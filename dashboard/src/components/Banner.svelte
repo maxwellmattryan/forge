@@ -1,7 +1,7 @@
 <!-- A warning banner: lost connection, newer API, missing config or a load error. Drawn as an ember plate: it waits on you. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { t } from '../lib/locale.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { msg }: { msg: string } = $props();
 </script>

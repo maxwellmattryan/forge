@@ -8,15 +8,15 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import PrChip from '../PrChip.svelte';
-  import { postShelf, shelfActionReady, shelfBody, shelfPress, shelfRows, shelfSummary } from '../../lib/shelf.ts';
-  import type { JobLike } from '../../lib/job-state.ts';
-  import type { ShelfAction } from '../../lib/types.ts';
-  import { openDrawer, refresh } from '../../lib/app.svelte.ts';
-  import { keepFocus } from '../../lib/popover.svelte.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import { ticker } from '../../lib/clock.svelte.ts';
-  import { ago } from '../../lib/util.ts';
-  import { t } from '../../lib/locale.ts';
+  import { postShelf, shelfActionReady, shelfBody, shelfPress, shelfRows, shelfSummary } from '../../lib/gates/shelf.ts';
+  import type { JobLike } from '../../lib/jobs/state.ts';
+  import type { ShelfAction } from '../../lib/core/types.ts';
+  import { openDrawer, refresh } from '../../lib/core/app.svelte.ts';
+  import { keepFocus } from '../../lib/ui/overlay/popover.svelte.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import { ticker } from '../../lib/core/clock.svelte.ts';
+  import { ago } from '../../lib/core/util.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let { jobs }: { jobs: JobLike[] } = $props();
   const rows = $derived(shelfRows(jobs));

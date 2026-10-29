@@ -3,7 +3,7 @@
   import Loading from '../Loading.svelte';
   import Skeleton from '../Skeleton.svelte';
   import OverviewGraphSkeleton from './OverviewGraphSkeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   const names = ['9rem', '7rem', '11rem', '8rem'];
   const latest = ['75%', '60%', '85%', '50%'];

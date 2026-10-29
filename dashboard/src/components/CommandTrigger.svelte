@@ -1,9 +1,9 @@
 <!-- "Command for this job" in the drawer header: opens the command palette scoped to `job`. The status bar holds the
-     palette's other triggers; src/lib/palette.svelte.ts holds the open state and focus return. -->
+     palette's other triggers; src/lib/shell/palette.svelte.ts holds the open state and focus return. -->
 <script lang="ts">
   import Icon from './Icon.svelte';
-  import { openPalette } from '../lib/palette.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { openPalette } from '../lib/shell/palette.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: string | null } = $props();
 
