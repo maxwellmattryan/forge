@@ -1,8 +1,61 @@
 // The machine cap's slot gate over fake members: the cap, which waiter a free slot goes to, that a pool
-// held only by its own cap never blocks another, which idle sessions a reclaim stops, and the pokes.
-import { describe, it } from 'node:test';
+// held only by its own cap never blocks another, which idle sessions a reclaim stops, and the pokes; and
+// which session spawns get Forge's browser.
+import test, { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { counted, createMachineSlots, sessionKind, type MachineSlots, type SlotMember } from './slots.ts';
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { tempRepo } from '../../test/helpers.ts';
+import { defaults } from '#core/config/load.ts';
+import { createJob, updateJob } from '#core/job/store.ts';
+import { browserMcpConfig } from '#integrations/claude/browser.ts';
+import { counted, createMachineSlots, sessionBrowser, sessionKind, type MachineSlots, type SlotMember } from './slots.ts';
+
+test('sessionBrowser gives the browser only to a job whose spec needs UI proof', (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const root = repo.dir;
+  const UI_SPEC = '# Spec\n\n## Acceptance criteria\n- [ ] AC1 — the list renders · Proven by: screenshots/ac1-list-375.png\n';
+  const job = (spec: string | null, port: number | null) => {
+    const { id } = createJob(root, defaults(), { title: `job ${spec === null ? 'no spec' : 'spec'} ${port}` });
+    if (spec !== null) fs.writeFileSync(path.join(root, '.forge', 'jobs', id, 'spec.md'), spec);
+    updateJob(root, id, (j) => {
+      j.port = port;
+    });
+    return id;
+  };
+  // The machine's npx, found on an absolute PATH entry only: the session's PATH, here a scratch dir holding one.
+  const bin = path.join(root, '.git', 'scratch-bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, process.platform === 'win32' ? 'npx.cmd' : 'npx'), '', { mode: 0o755 });
+  const env = { PATH: bin };
+  const ui = job(UI_SPEC, 7412);
+  const want = browserMcpConfig({ root, port: 7412, outputDir: path.join(root, '.forge', 'jobs', ui, 'screenshots'), env });
+  assert.equal(typeof want, 'string');
+  assert.equal(sessionBrowser(root, ui, env), want);
+  assert.equal(sessionBrowser(root, ui, { PATH: '' }), null, 'no npx on the PATH: no browser');
+  const none: [string, string][] = [
+    ['the inbox', '_inbox'],
+    ['the office', '_office'],
+    ['a chat', '_chat-0123456789ab'],
+    ['no spec.md', job(null, 7412)],
+    ['no UI AC', job('# Spec\n\n## Acceptance criteria\n- [ ] AC1 — the API answers · Proven by: a test\n', 7412)],
+    ['a null port', job(UI_SPEC, null)],
+    ['an unreadable job', 'no-such-job'],
+  ];
+  if (process.platform !== 'win32') {
+    // A planted link or FIFO is no spec: it never steers or stalls a spawn.
+    const linked = job(null, 7412);
+    const outside = path.join(root, 'ui-spec.md');
+    fs.writeFileSync(outside, UI_SPEC);
+    fs.symlinkSync(outside, path.join(root, '.forge', 'jobs', linked, 'spec.md'));
+    const fifo = job(null, 7412);
+    execFileSync('mkfifo', [path.join(root, '.forge', 'jobs', fifo, 'spec.md')]);
+    none.push(['a linked spec.md', linked], ['a FIFO spec.md', fifo]);
+  }
+  for (const [name, scope] of none) assert.equal(sessionBrowser(root, scope, env), null, name);
+});
 
 interface Fake extends SlotMember {
   name: string;

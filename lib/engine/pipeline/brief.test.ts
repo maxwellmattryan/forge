@@ -1,7 +1,7 @@
 // The brief's line helpers that need no job: withPrefixLine, the brief a role run with a trusted prefix gets, a
-// context session's brief and its forks' Context line, and assistantBrief's escalation line for a park NP1b wrote (a
-// prompt nobody answered in time), built from the job's reason alone and only for a reason parsePromptTimeoutReason
-// accepts.
+// context session's brief and its forks' Context line, needsBrowser, and assistantBrief's escalation line for a park
+// NP1b wrote (a prompt nobody answered in time), built from the job's reason alone and only for a reason
+// parsePromptTimeoutReason accepts.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { normalizeJob } from '#core/job/schema.ts';
 import { jobDir } from '#core/job/store.ts';
 import type { GateClass } from '#core/types.ts';
 import { briefLine } from '#integrations/claude/stream.ts';
-import { CONTEXT_READ_LINE, INSTRUCTIONS_LINE, PREFIX_INSTRUCTIONS_LINE, REPLY_LINE, UNTRUSTED_LINE, assistantBrief, contextBrief, withContextLine, withPrefixLine } from './brief.ts';
+import { CONTEXT_READ_LINE, INSTRUCTIONS_LINE, PREFIX_INSTRUCTIONS_LINE, REPLY_LINE, UNTRUSTED_LINE, assistantBrief, contextBrief, needsBrowser, withContextLine, withPrefixLine } from './brief.ts';
 import { promptTimeoutReason } from './step/generic.ts';
 
 const ROOT = path.join(path.sep, 'repo');
@@ -67,6 +67,29 @@ test('context brief and context line', () => {
   assert.match(rest, /already in your context and current: don't Read them again, except those in changed$/);
   assert.deepEqual([...out.slice(0, at - 1), ...out.slice(at)], role, 'every other line stays, in order');
   assert.equal(withContextLine('Job id: j\nReply with your one-line contract.', 'c-1', inputs, []), null, 'no untrusted line, no fork brief');
+});
+
+test('only UI roles of a spec with a UI AC get the browser', () => {
+  const ui = ['AC3', 'AC7'];
+  const rows: [{ role: string; lens?: string }, boolean][] = [
+    [{ role: 'builder' }, true],
+    [{ role: 'designer' }, true],
+    ...['ui', 'ux', 'accessibility', 'design'].map((lens): [{ role: string; lens?: string }, boolean] => [{ role: `reviewer:${lens}`, lens }, true]),
+    [{ role: 'reviewer:ui' }, true],
+    [{ role: 'reviewer:web:ui', lens: 'web:ui' }, true],
+    [{ role: 'reviewer:code', lens: 'code' }, false],
+    [{ role: 'reviewer:security', lens: 'security' }, false],
+    [{ role: 'reviewer' }, false],
+    [{ role: 'planner' }, false],
+    [{ role: 'spec-writer' }, false],
+    [{ role: 'approver' }, false],
+    [{ role: 'integrator' }, false],
+    [{ role: 'judge' }, false],
+  ];
+  for (const [spawn, want] of rows) {
+    assert.equal(needsBrowser(spawn, ui), want, JSON.stringify(spawn));
+    assert.equal(needsBrowser(spawn, []), false, `${JSON.stringify(spawn)} with no UI AC`);
+  }
 });
 
 test('the escalation brief names a timed-out tool and that no human saw it', () => {

@@ -15,7 +15,7 @@ import { sessionOptions, type DaemonOptions, type Session, type SessionContext, 
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
 import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
-import { sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
+import { sessionBrowser, sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
 import { createGateRunner } from './foreman/run.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
 import { loadJob, logHumanEvent } from '#core/job/store.ts';
@@ -149,6 +149,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     // Read at every spawn and never pushed to a running session: a change applies at its next spawn.
     effort: (scope, c) => sessionEffort(root, scope, c),
     model: (scope, c) => sessionModel(scope, c),
+    browser: (scope) => sessionBrowser(root, scope),
   };
   /** Decides gate requests in code, one forge:assistant child per run; its runs count against no cap and end with a poke. */
   const gates = createGateRunner(root, { ctx, o });

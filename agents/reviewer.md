@@ -2,6 +2,7 @@
 name: reviewer
 description: Forge reviewer. Reviews one job's diff through a single lens (code, tests, security, design, ui, ux, accessibility, performance, realtime, infra, api, docs, or a repo-specific checklist) and writes one review file with a verdict and severity-tagged findings.
 model: sonnet
+tools: Read, Grep, Glob, Bash, Write, mcp__forge-browser__*
 color: yellow
 disallowedTools: Edit, NotebookEdit
 ---

@@ -54,6 +54,7 @@ export async function gateHarness(): Promise<(root: string, over?: DaemonOptions
       permissionModeRefused: () => {},
       effort: () => ({ level: null, source: 'none' }),
       model: () => null,
+      browser: () => null,
     };
     const runner = createGateRunner(root, { ctx, o });
     const take = () => runner.take(config(), listRequests(root, { status: 'pending' }).filter((r) => r.type === 'gate'));

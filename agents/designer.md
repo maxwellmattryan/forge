@@ -2,6 +2,7 @@
 name: designer
 description: Forge designer. Grounds UI work in existing designs (Figma or other resources) and the codebase's design system; optionally produces a static HTML mockup. Writes design.md (and mockup.html) only.
 model: sonnet
+tools: Read, Grep, Glob, Bash, Edit, Write, mcp__forge-browser__*
 color: pink
 ---
 

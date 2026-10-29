@@ -1,10 +1,15 @@
-// buildArgv's file-tool rewrite, dollar cap and deny tail, roleArgv, absRule, and the session env's billing scrub, in-process.
+// buildArgv's file-tool rewrite, dollar cap, browser config and deny tail, roleArgv, absRule, and the session env's billing scrub, in-process.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { defaults } from '#core/config/keys/defaults.ts';
 import { DENY_TOOLS, PROMPT_TOOL, absRule, billingOf, buildArgv, roleArgv, sessionEnv } from './argv.ts';
+import { BROWSER_ALLOWED, BROWSER_DENIED } from './browser.ts';
 
 const session = { id: '00000000-0000-4000-8000-000000000000', resume: false };
 const allowedOf = (argv: string[]) => argv[argv.indexOf('--allowedTools') + 1];
+const deniedOf = (argv: string[]) => argv[argv.indexOf('--disallowedTools') + 1];
+/** What browserMcpConfig builds, in shape: argv.ts only checks it is a JSON object. */
+const BROWSER_JSON = JSON.stringify({ mcpServers: { 'forge-browser': { type: 'stdio', command: '/usr/bin/npx', args: ['-y', '--prefix', '/r/.forge/runtime/browser'], env: { PATH: '/usr/bin' } } } });
 
 test('buildArgv scopes the file tools to the write roots', () => {
   const roots = ['/r/.forge/jobs', '/w'];
@@ -71,6 +76,33 @@ test('a system prompt to append goes once, before the deny tail', () => {
   assert.deepEqual([...agent.slice(0, a), ...agent.slice(a + 2)], plain, 'nothing else changes');
 });
 
+test("Forge's browser config goes once, before the deny tail", () => {
+  // The default command, as a job session spawns it: no user setting source, no MCP server of the user's.
+  const template = defaults().daemon.command;
+  const vars = { pluginRoot: '/p', session, allowedTools: ['Agent', 'Read'], maxBudgetUsd: 5 };
+  const plain = buildArgv(template, vars);
+  const at = plain.indexOf('--setting-sources');
+  assert.deepEqual(plain.slice(at, at + 3), ['--setting-sources', 'project,local', '--strict-mcp-config'], 'the default loads no user settings or MCP servers');
+  assert.ok(!plain.includes('--mcp-config'));
+  assert.deepEqual(buildArgv(template, { ...vars, mcpConfig: null }), plain, 'null changes nothing');
+  const json = BROWSER_JSON;
+  const argv = buildArgv(template, { ...vars, agent: 'forge:assistant', mcpConfig: json });
+  const m = argv.indexOf('--mcp-config');
+  assert.deepEqual([argv[m + 1], argv.filter((w) => w === '--mcp-config').length, argv.filter((w) => w === json).length], [json, 1, 1]);
+  assert.ok(m > argv.indexOf('--max-budget-usd') && m > argv.indexOf('--agent') && m < argv.indexOf('--disallowedTools'), 'after the template words, before the deny tail');
+  // The server's code-running tool is denied with it, after the deny tail's own rules, and with nothing else changed.
+  const base = buildArgv(template, { ...vars, agent: 'forge:assistant' });
+  assert.ok(!deniedOf(base).includes('browser_run_code_unsafe'), 'no browser: nothing to deny');
+  assert.deepEqual(deniedOf(argv).split(',').slice(-BROWSER_DENIED.length), [...BROWSER_DENIED]);
+  assert.deepEqual(
+    [...argv.slice(0, m), ...argv.slice(m + 2)],
+    base.map((w, i) => (base[i - 1] === '--disallowedTools' ? [w, ...BROWSER_DENIED].join(',') : w)),
+    'nothing else changes',
+  );
+  assert.ok(!allowedOf(argv).includes('mcp__'), 'a session is allowed no MCP tool: every browser call prompts a person');
+  assert.throws(() => buildArgv(template, { ...vars, mcpConfig: 'config.json' }), /--mcp-config value must be a JSON object/);
+});
+
 test("the dollar cap is Forge's, once", () => {
   const caps = (argv: string[]) => argv.flatMap((w, i) => (w === '--max-budget-usd' ? [argv[i + 1]] : w.startsWith('--max-budget-usd=') ? [w] : []));
   const rows: { name: string; template?: string; usd: number | null | undefined; want: string[] }[] = [
@@ -111,12 +143,16 @@ test("the office model is Forge's, once", () => {
 
 test("roleArgv builds a role child's command line", () => {
   const uuid = session.id;
+  const browser = BROWSER_JSON;
   const deny = ['Edit(//r/.forge/config.yml)', 'Edit(//r/CLAUDE.md)'];
-  const base = { executable: '/opt/claude', pluginRoot: '/p lugin', agent: 'forge:verifier', model: 'haiku', effort: 'low' as const, permissionMode: 'default', allowedTools: ['Agent', 'Read', 'Edit', 'Write(~/**)', 'Bash(forge:*)'], writeRoots: ['/r/.forge/jobs', '/w'], deny, session };
+  const base = { executable: '/opt/claude', pluginRoot: '/p lugin', agent: 'forge:verifier', tools: ['Read', 'Write'], model: 'haiku', effort: 'low' as const, permissionMode: 'default', allowedTools: ['Agent', 'Read', 'Edit', 'Write(~/**)', 'Bash(forge:*)'], writeRoots: ['/r/.forge/jobs', '/w'], deny, session };
   type Vars = Parameters<typeof roleArgv>[0];
-  // Only the user's settings and the plugin load: the worktree's CLAUDE.md, .claude/settings*.json and .mcp.json are branch-written data.
-  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier', '--setting-sources', 'user', '--strict-mcp-config'];
+  // Only the plugin loads: no setting source (neither the user's plugins and hooks nor the worktree's branch-written
+  // CLAUDE.md and .claude/settings*.json), no .mcp.json, no skills, and only the agent's own built-in tools.
+  const head = ['/opt/claude', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--plugin-dir', '/p lugin', '--agent', 'forge:verifier', '--setting-sources', '', '--strict-mcp-config', '--disable-slash-commands', '--tools', 'Read,Write'];
   const tail = (mode: string, sid: string[]) => ['--permission-mode', mode, '--allowedTools', 'Agent,Read,Bash(forge:*),Edit(//r/.forge/jobs/**),Edit(//w/**)', ...sid, '--disallowedTools', deny.join(','), '--permission-prompt-tool', 'stdio'];
+  /** `tail`'s --allowedTools gains the browser's page tools and its --disallowedTools the code-running tool. */
+  const withBrowser = (words: string[]) => words.map((w, i) => (i === 3 ? [w, ...BROWSER_ALLOWED].join(',') : i === 7 ? [w, ...BROWSER_DENIED].join(',') : w));
   const rows: { name: string; vars?: Partial<Vars>; want?: string[]; throws?: RegExp }[] = [
     { name: 'every flag', want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
     { name: 'a resume', vars: { session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid])] },
@@ -144,6 +180,24 @@ test("roleArgv builds a role child's command line", () => {
     { name: 'a fork', vars: { fork: true, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid, '--fork-session'])] },
     { name: 'fork false changes nothing', vars: { fork: false, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid])] },
     { name: 'a fork without a resume', vars: { fork: true }, throws: /--fork-session needs --resume/ },
+    // The agent's tool list: built-in names only, so none becomes a flag, a second word or an MCP grant.
+    { name: "a builder's tools", vars: { agent: 'forge:builder', tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'], effort: null }, want: [...head.slice(0, 10), 'forge:builder', ...head.slice(11, 16), 'Read,Grep,Glob,Bash,Edit,Write', '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
+    { name: 'no tools', vars: { tools: [] }, throws: /tools must be built-in tool names/ },
+    ...['--dangerously-skip-permissions', 'Read Bash', 'mcp__x__*', 'Read,Bash', 'Bash(rm:*)', 'read', ''].map((t) => ({ name: `a tool named ${JSON.stringify(t)}`, vars: { tools: ['Read', t] }, throws: /tools must be built-in tool names/ })),
+    // The browser: its config before the mode, its named page tools last in --allowedTools (a role child has no one to ask, and the
+    // server also ships a tool that runs code in its own process) and that tool last in --disallowedTools.
+    {
+      name: 'the browser',
+      vars: { mcpConfig: browser },
+      want: [...head, '--model', 'haiku', '--effort', 'low', '--mcp-config', browser, ...withBrowser(tail('default', ['--session-id', uuid]))],
+    },
+    {
+      name: 'the browser after the system prompt file',
+      vars: { mcpConfig: browser, appendSystemPromptFile: '/p.md', model: null, effort: null },
+      want: [...head, '--append-system-prompt-file', '/p.md', '--mcp-config', browser, ...withBrowser(tail('default', ['--session-id', uuid]))],
+    },
+    { name: 'a null browser', vars: { mcpConfig: null }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
+    { name: 'a browser config that is a flag', vars: { mcpConfig: '--dangerously-skip-permissions' }, throws: /--mcp-config value must be a JSON object/ },
   ];
   for (const row of rows) {
     const vars = { ...base, ...row.vars } as Vars;
@@ -151,6 +205,11 @@ test("roleArgv builds a role child's command line", () => {
     else {
       const argv = roleArgv(vars);
       assert.deepEqual(argv, row.want, row.name);
+      const browserRun = typeof row.vars?.mcpConfig === 'string';
+      assert.equal(argv.includes('--mcp-config'), browserRun, `${row.name}: --mcp-config only with the browser`);
+      assert.equal(deniedOf(argv).split(',').includes(BROWSER_DENIED[0]), browserRun, `${row.name}: the code-running tool is denied with the browser only`);
+      assert.equal(allowedOf(argv).split(',').includes(BROWSER_ALLOWED[0]), browserRun, `${row.name}: page tools are allowed with the browser only`);
+      assert.ok(!allowedOf(argv).split(',').includes('mcp__forge-browser'), `${row.name}: never the server's blanket rule`);
       // #374 measured no effect from it under --agent.
       assert.ok(!argv.includes('--exclude-dynamic-system-prompt-sections'), row.name);
     }

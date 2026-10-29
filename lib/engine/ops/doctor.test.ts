@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { addProject } from '../project/machine-index.ts';
 import type { ServiceOptions } from '../project/login-service.ts';
-import { commandEnvCheck, commandPathCheck, daemonBillingCheck, doctor, envCopyCheck, instructionsPolicyCheck, requiredChecksCheck } from './doctor.ts';
+import { commandEnvCheck, commandPathCheck, daemonBillingCheck, daemonIsolationCheck, doctor, envCopyCheck, instructionsPolicyCheck, requiredChecksCheck } from './doctor.ts';
 import { buildBundle } from './bundle.ts';
 import { droppedVariables } from '../guard/command-env.ts';
 import { defaults } from '#core/config/load.ts';
@@ -82,6 +82,23 @@ test('daemon billing warns about provider switches', () => {
   const key = daemonBillingCheck(cfg(true), { ANTHROPIC_API_KEY: 'k' });
   assert.deepEqual({ ok: key?.ok, warn: key?.warn }, { ok: true, warn: undefined }, 'an API key alone is no warning');
   assert.match(daemonBillingCheck(cfg(true, 'api-key'), { ANTHROPIC_BASE_URL: 'http://proxy' })!.detail, /^ANTHROPIC_BASE_URL set: sessions bill that account or go through that endpoint/);
+});
+
+test('daemon isolation warns on a command that loads user settings', () => {
+  const lean = defaults().daemon.command;
+  const cfg = (enabled: boolean, command = lean) => ({ daemon: { ...defaults().daemon, enabled, command } }) as Pick<Config, 'daemon'>;
+  const detail = 'daemon.command loads your user settings, plugins, hooks or MCP servers into every session: add --setting-sources project,local --strict-mcp-config (docs/CONFIG.md "Daemon")';
+  const warns = {
+    'no --strict-mcp-config': lean.replace(' --strict-mcp-config', ''),
+    'no --setting-sources': lean.replace(' --setting-sources project,local', ''),
+    'user among the sources': lean.replace('project,local', 'user,project'),
+    'user in the = form': lean.replace('--setting-sources project,local', '--setting-sources=user'),
+  };
+  for (const [name, command] of Object.entries(warns)) assert.deepEqual(daemonIsolationCheck(cfg(true, command)), { name: 'daemon isolation', ok: true, warn: true, detail }, name);
+  assert.equal(daemonIsolationCheck(cfg(true)), null, 'the default command');
+  assert.equal(daemonIsolationCheck(cfg(true, lean.replace('project,local', "''"))), null, 'no source at all');
+  assert.equal(daemonIsolationCheck(cfg(false, warns['no --strict-mcp-config'])), null, 'daemon off');
+  assert.equal(daemonIsolationCheck(cfg(true, "claude 'unterminated")), null, 'a command that does not split is a config problem, not this row');
 });
 
 test('doctor reports the command PATH source and the variables commands do not get', () => {
