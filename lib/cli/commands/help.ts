@@ -163,7 +163,7 @@ export const CORE: HelpGroup[] = [
         command: 'pr gate',
         args: '<id>',
         summary:
-          "say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit",
+          "say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (the escalation park, which lists the approver's escalation and every gate reason, or a missing recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit",
         exits: [[1, 'no such job, or a likely secret in the gate section (code secret_found; nothing is edited)']],
       },
       {

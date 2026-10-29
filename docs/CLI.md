@@ -1093,7 +1093,7 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when the round's latest gate event lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
+**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
 
 | Exit | When |
 |---|---|
@@ -1142,7 +1142,7 @@ See [Effort](CONFIG.md#effort).
 | 4 | the repo budget holds new work |
 | 5 | gh failed (GitHub tracker) |
 
-**`forge job gate <id>`**: compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that says ESCALATE, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}
+**`forge job gate <id>`**: compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that said ESCALATE when forge job verdicts recorded it, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}
 
 | Exit | When |
 |---|---|
@@ -1387,7 +1387,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command) |
 
-**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD
+**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and whether each Summary says ESCALATE (escalate), which forge job gate reads instead of the files
 
 | Flag | Meaning |
 |---|---|
@@ -1761,7 +1761,7 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
-**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
+**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (the escalation park, which lists the approver's escalation and every gate reason, or a missing recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
 
 | Exit | When |
 |---|---|
