@@ -11,6 +11,7 @@ import { BIN, MILESTONE_DRAFT, forgeInProcess, initMilestoneRepo, parkedAt, read
 import { defaults, loadConfig } from '#core/config/load.ts';
 import { validateConfig } from '#core/config/validate.ts';
 import * as yaml from '#core/format/yaml.ts';
+import { deepMerge } from '#core/shape.ts';
 import { ackRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { jobDir, loadJob, logHumanEvent, logRepoEvent, readEvents, setJob } from '#core/job/store.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
@@ -337,7 +338,8 @@ const releaseScratch = repoTemplate((dir) => {
   execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: { ...process.env, FORGE_ROOT: dir }, stdio: 'pipe' });
   fs.rmSync(answers);
   const cfg = path.join(dir, '.forge', 'config.yml');
-  const parsed = yaml.parse(fs.readFileSync(cfg, 'utf8'));
+  // Over the defaults: init write leaves keys at their default out of the file.
+  const parsed = deepMerge(defaults(), yaml.parse(fs.readFileSync(cfg, 'utf8')));
   parsed.foreman.ship = 'release';
   parsed.release = { ...parsed.release, mechanism: 'tag', command: 'git tag v0.2.0' };
   fs.writeFileSync(cfg, yaml.stringify(parsed));

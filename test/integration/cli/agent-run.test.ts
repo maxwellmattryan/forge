@@ -9,7 +9,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { BIN, cliEnv, fakeBin, forgeAsync, forgeInProcess, jobAt, repoTemplate, waitFor, withLease } from '../../helpers.ts';
-import { loadConfig, trustDigest } from '#core/config/load.ts';
+import { defaults, loadConfig, trustDigest } from '#core/config/load.ts';
 import { jobFiles } from '#core/paths.ts';
 import { loadJob, logEvent, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
 import { recordKnown } from '#engine/guard/known-secrets.ts';
@@ -28,11 +28,12 @@ const USAGE_TOKENS = 150 + 30 + 2500 + 80;
 
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
-  fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: '../{repo}.wt' } }));
+  // daemon.command goes in the answers: init write leaves the default one out of the file.
+  const command = defaults().daemon.command;
+  assert.ok(command.includes('claude -p '));
+  fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: '../{repo}.wt' }, daemon: { command: command.replace('claude -p ', `${CLAUDE} -p `) } }));
   execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: cliEnv(dir), stdio: 'pipe' });
   fs.rmSync(answers);
-  const config = path.join(dir, '.forge', 'config.yml');
-  fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('  command: claude -p ', `  command: ${CLAUDE} -p `));
   execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
   execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
 });
