@@ -1,14 +1,14 @@
 // The brief's line helpers that need no job: withPrefixLine, the brief a role run with a trusted prefix gets, a
 // context session's brief and its forks' Context line, needsBrowser, and assistantBrief's escalation line for a park
 // NP1b wrote (a prompt nobody answered in time), built from the job's reason alone and only for a reason
-// parsePromptTimeoutReason accepts.
+// parsePromptTimeoutReason accepts; and the approver's and assistant's Gate reasons line, from the gate event alone.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { defaults } from '#core/config/load.ts';
 import { normalizeJob } from '#core/job/schema.ts';
 import { jobDir } from '#core/job/store.ts';
-import type { GateClass } from '#core/types.ts';
+import type { GateClass, JobEvent } from '#core/types.ts';
 import { briefLine } from '#integrations/claude/stream.ts';
 import { CONTEXT_READ_LINE, INSTRUCTIONS_LINE, PREFIX_INSTRUCTIONS_LINE, REPLY_LINE, UNTRUSTED_LINE, assistantBrief, contextBrief, needsBrowser, withContextLine, withPrefixLine } from './brief.ts';
 import { promptTimeoutReason } from './step/generic.ts';
@@ -17,6 +17,22 @@ const ROOT = path.join(path.sep, 'repo');
 const brief = (reason: string | null, gate: GateClass = 'escalation', security: string | null = null) =>
   assistantBrief(ROOT, defaults(), normalizeJob({ id: 'j', title: 'T', stage: 'build', state: 'waiting', waitingOn: gate, reason, round: 1 }), gate, ['billing'], [], [], null, security).split('\n');
 const promptLines = (lines: string[]) => lines.filter((l) => l.startsWith('Prompt timed out:'));
+
+test('approver and assistant briefs carry the gate reasons', () => {
+  // The approver's line, after the review only, is checked by the DC1 brief rows in test/step-rows.ts.
+  const LS = String.fromCharCode(0x2028);
+  const reasons = [{ rule: 'version', detail: 'version changed in 1 manifest', paths: [`package.json${LS}x`] }];
+  const gateEv = (r: unknown[] = reasons): JobEvent => ({ v: 1, ts: '2026-10-01T10:16:00.000Z', type: 'gate', round: 1, head: null, reasons: r });
+  const job = normalizeJob({ id: 'j', title: 'T', stage: 'pr', state: 'waiting', waitingOn: 'escalation', reason: 'escalation: version', round: 1 });
+  const lines = (gate: GateClass, events: JobEvent[]) => assistantBrief(ROOT, defaults(), job, gate, [], events).split('\n').filter((l) => l.startsWith('Gate reasons'));
+  const [line] = lines('escalation', [gateEv()]);
+  assert.ok(line.startsWith('Gate reasons (JSON): '), line);
+  assert.deepEqual(JSON.parse(line.slice('Gate reasons (JSON): '.length).split(' · ')[0]), reasons, "the Foreman assistant's brief at an escalation park");
+  assert.ok(!line.includes(LS), 'a separator in a branch path cannot start a line of the brief');
+  assert.deepEqual(lines('escalation', [gateEv([])]), ['Gate reasons: none']);
+  assert.deepEqual(lines('escalation', []), ['Gate reasons: none']);
+  assert.deepEqual(lines('spec-approval', [gateEv()]), [], 'no line at another gate');
+});
 
 test('withPrefixLine swaps or inserts the prefix line', () => {
   const head = ['Job id: j', 'Role: reviewer · lens code', 'Round: 1', 'Output: /x/review/code.md', 'Effort: high'];

@@ -32,6 +32,8 @@ export const RULES = [
   'VF1', 'VF2', 'VF2b', 'VF3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV5b', 'RV6', 'RV7', 'RV8', 'RV8b', 'RV8c', 'RV8d', 'RV9', 'RV10', 'RV11',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC9', 'DC9b', 'DC10', 'DC11',
+  // The gate reasons, once per review, before the approver (DC12) and in pr for a job decided without them (PR19).
+  'DC12',
   // The recall eval before the approver when the diff changes reviewer prompts.
   'RC1',
   'IG1', 'IG2', 'IG2b', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG7b', 'IG8', 'IG9', 'IG10', 'IG10b', 'IG10c', 'IG11', 'IG12', 'IG13',

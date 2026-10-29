@@ -1213,6 +1213,27 @@ export const rows: Row[] = [
   { name: 'DC9b a round with no recorded review still integrates (reviewCurrent null)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: null }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC9b a HEAD that follows the reviewed head integrates (reviewCurrent true)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: true }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC1 under auto-merge a PR rework goes back to the approver', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'decide', round: 2, pr: OPEN_PR }), files: ['spec'] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
+  // ---- DC12: the gate reasons, once per review, before anything decides (AC5)
+  { name: 'DC12 a job entering decide after a review with no gate event since computes one', fx: { job: freshDecide(), files: ['spec'], events: [tr(15, { stage: 'review' }, { stage: 'decide' })], gate: null }, want: { ...run('job', 'gate', 'j'), rule: 'DC12' } },
+  { name: 'DC12 a gate event before the latest review does not count', fx: { job: freshDecide(), files: ['spec'], events: [ev('gate', 10, { round: 1, head: null, reasons: [] }), tr(15, { stage: 'review' }, { stage: 'decide' })] }, want: { rule: 'DC12' } },
+  { name: 'DC12 runs before RC1', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, gate: null }, want: { rule: 'DC12' } },
+  { name: 'DC12 runs before DC10', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }), gate: null }, want: { rule: 'DC12' } },
+  { name: 'DC1 with a gate event after the review, the approver spawns', fx: { job: freshDecide(), files: ['spec'], events: [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('gate', 16, { round: 1, head: null, reasons: [{ rule: 'runbook', detail: 'x' }] })] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
+  ...(
+    [
+      ['the gate event since the review', [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('gate', 16, { round: 1, head: null, reasons: [{ rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] }] })], 'Gate reasons (JSON): [{"rule":"version","detail":"version changed in 1 manifest","paths":["package.json"]}]'],
+      ['an empty gate event', [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('gate', 16, { round: 1, head: null, reasons: [] })], 'Gate reasons: none'],
+    ] as const
+  ).map(([what, events, line]) => ({
+    name: `DC1 brief: the approver's Gate reasons line from ${what}`,
+    fx: { job: freshDecide(), files: ['spec'] as FixtureOpts['files'], events: [...events] },
+    want: { action: 'spawn', rule: 'DC1', role: 'approver' },
+    check: (a: any) => assert.ok(a.brief.split('\n').some((l: string) => l.startsWith(line)), a.brief),
+  })),
+  { name: 'DC4 an exhausted eval skips DC12', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'decide', round: 4, maxRounds: 3, verdicts: { 3: { code: 'CHANGES' } } }), evalTask: { rubric: 'rubric.md', reference: null }, gate: null }, want: { rule: 'DC4' } },
+  { name: 'DC12 an eval within its rounds computes the gate too', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'decide', round: 3, maxRounds: 3 }), gate: null }, want: { rule: 'DC12' } },
+  // AC7: a decision recorded eligible before the gate counted (or under a gate reason) never reaches PR4.
+  { name: 'PR5 an eligible decision under gate reasons never reaches PR4', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED, ev('pr-opened', 11), ev('gate', 12, { round: 1, head: null, reasons: [{ rule: 'acs', detail: 'unmapped: AC2' }] }), ...approvedAt(13, 'pr', 'escalation', 'escalation: acs')] }, want: { rule: 'PR5' } },
   // ---- Recall eval before the approver (RC1; the old RC2 park is PR17 now)
   { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
   { name: 'RC1 a diff touching reviewers/code.md runs it', fx: { job: freshDecide(), recall: { changed: ['lib/x.ts', 'reviewers/code.md'] } }, want: { action: 'procedure', reference: RECALL_MD } },

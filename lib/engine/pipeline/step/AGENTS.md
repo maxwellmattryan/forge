@@ -22,7 +22,7 @@
 | `recall.ts` | The recall eval's facts: decide runs it before the approver (RC1), the pr table holds the merge without a record (PR17), and the approver's `Reviewer recall:` line reads them too, so they live apart from both tables and the brief: pure functions of the StepInput. |
 | `rules.ts` | The rule IDs of `forge job step` and the shape of its tables. |
 | `stages/build.ts` | Build: open a round, hold it to the round limits, run the builder, then verify. |
-| `stages/decide.ts` | Decide: the approver (or, for an eval, the judge and the grade), then on to integrate and pr. |
+| `stages/decide.ts` | Decide: the gate reasons (DC12), then the approver (or, for an eval, the judge and the grade), then on to integrate and pr. |
 | `stages/design.ts` | Design: the designer writes design.md, the spec-writer folds its spec deltas in, then back to spec. |
 | `stages/intake.ts` | Intake (backlog): find an issue, create the worktree, adopt a PR, then plan or spec. |
 | `stages/integrate.ts` | Integrate: bring the branch up to date with its base, resolve conflicts per pr.conflicts, and review the resolution before the approver or the PR. |

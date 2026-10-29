@@ -1,8 +1,10 @@
-// Decide: the approver (or, for an eval, the judge and the grade), then on to integrate and pr. The
-// gates its decision opens (an ESCALATE, a before-merge runbook, protected paths, a missing recall
-// eval) hold the merge, not the push: the pr table checks them once the PR is open (PR15–PR17, PP1b).
+// Decide: the gate reasons (DC12), then the approver (or, for an eval, the judge and the grade), then
+// on to integrate and pr. What holds the merge (the approver's ESCALATE and the gate reasons, on one
+// escalation park, and a missing recall eval) holds it after the push: the pr table checks them once
+// the PR is open (PR15, PR17).
 import { autoMerge } from '#core/config/load.ts';
 import { pastTotalCeiling } from '../../moves/foreman-gates.ts';
+import { latestGate } from '../../moves/escalation.ts';
 import type { JobAgent, WaitingOn } from '#core/types.ts';
 import { park, procedure, run, spawn, toStage } from '../actions.ts';
 import { recallEvents, recallRecorded } from '../recall.ts';
@@ -48,6 +50,12 @@ export const DECIDE: Table<DecideCtx> = {
   rules: [
     // A commit after the review panel is unreviewed: nothing below may decide on it (reviewCurrent).
     { id: 'DC11', when: ({ x }) => x.reviewCurrent === false, then: ({ x }) => toStage(x, 'DC11', 'review', 'a commit after review is unreviewed: review the new head', { note: REVIEWED_HEAD_NOTE }) },
+    // The gate reasons of this review, as data the approver reads as facts: once per review, before anything decides.
+    {
+      id: 'DC12',
+      when: ({ x, f, exhausted }) => !exhausted && latestGate(x.events, f.reviewedAt) === null,
+      then: ({ x }) => run(x, 'DC12', ['job', 'gate', x.job.id], 'compute the gate reasons before the approver decides'),
+    },
     // Only without auto-merge: with it on, a PR or CI rework goes back through the approver (DC1), so
     // the decision PR4 merges on is recorded for the new head.
     { id: 'DC10', when: (c) => !evalJob(c) && isPrRework(c.x) && !autoMerge(c.x.config), then: ({ x }) => toStage(x, 'DC10', 'pr', 'the PR is open: nothing to decide') },
@@ -79,8 +87,8 @@ export const DECIDE: Table<DecideCtx> = {
     { id: 'DC5', when: (c) => evalJob(c) && !lastEvent(c.x, (e) => e.type === 'eval-graded'), then: ({ x }) => run(x, 'DC5', ['eval', 'grade', x.job.id], 'grade the eval task') },
     { id: 'DC6', when: evalJob, then: ({ x }) => toStage(x, 'DC6', 'done', 'the eval task is graded') },
     { id: 'DC3', when: ({ x, cleared }) => !x.decision.decision && !cleared('escalation'), then: ({ x }) => park(x, 'DC3', 'escalation', 'decision.md has no APPROVE/ESCALATE line') },
-    // An ESCALATE, a before-merge runbook and protected paths go on too: the PR opens, then the pr
-    // table holds the merge on them (PR15, PR16, PP1b).
+    // An ESCALATE and the gate reasons go on too: the PR opens, then the pr table holds the merge on
+    // them, all on one escalation park (PR15).
     // No loop: after integrate → decide with no wait since, this goes to pr. After a wait (or for an
     // older job that never integrated since review), integrate's IG3/IG5/IG10 reach pr, because the
     // decision or approval now counts there.
