@@ -2,7 +2,7 @@
 // `forge doctor` lives in lib/engine/ops/doctor.ts, which the dashboard's /api/doctor shares.
 import fs from 'node:fs';
 import path from 'node:path';
-import { defaults, stringifyConfig, validateConfig } from '#core/config/load.ts';
+import { configOverrides, defaults, stringifyConfig, validateConfig } from '#core/config/load.ts';
 import { configLock } from '#core/config/set.ts';
 import { listJobs, jobDir } from '#core/job/store.ts';
 import { paths, exists, jobFiles, stateFile, PLUGIN_ROOT } from '#core/paths.ts';
@@ -86,9 +86,12 @@ function protectReleaseGate(config: any): void {
 
 function writeInit(root: string, answers: any, force: boolean): { ok: true; written: string[]; warnings: string[] } {
   const p = paths(root);
+  // The existing file's own keys, migrated: every leaf it sets stays in the written file, even at its
+  // default. Never the answers, so an answer equal to the default is not written.
+  let keep: unknown;
   if (exists(p.config) && !force) {
-    const current = yaml.parse(readText(p.config)) ?? {};
-    answers = deepMerge(migrateConfig(current).config, answers);
+    keep = migrateConfig(yaml.parse(readText(p.config)) ?? {}).config;
+    answers = deepMerge(keep as Record<string, any>, answers);
   }
   const config = deepMerge(defaults(), answers);
   if (Array.isArray(answers?.review?.panel)) config.review.panel = answers.review.panel;
@@ -96,7 +99,7 @@ function writeInit(root: string, answers: any, force: boolean): { ok: true; writ
   const problems = validateConfig(config, root);
   if (problems.length) throw new ForgeError(`config would be invalid:\n- ${problems.join('\n- ')}`, 'config_invalid');
   fs.mkdirSync(p.dir, { recursive: true });
-  fs.writeFileSync(p.config, stringifyConfig(config));
+  fs.writeFileSync(p.config, stringifyConfig(configOverrides(config, keep)));
   const written = [path.relative(root, p.config)];
   const tpl = path.join(PLUGIN_ROOT, 'templates');
   const seeds: [string, string][] = [

@@ -13,7 +13,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BIN, FAKE_SCRIPT, SCRIPT_RELEASE, forgeInProcess, jobAt, repoTemplate, scriptCalls, setReleaseBlock } from '../../helpers.ts';
-import { loadConfig } from '#core/config/load.ts';
+import { defaults, loadConfig } from '#core/config/load.ts';
+import { deepMerge } from '#core/shape.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { claimRequest, issueForemanAuthority, listRequests } from '#core/job/requests.ts';
 import { readPlanFile, readState, releaseFiles } from '#engine/release/files.ts';
@@ -32,7 +33,8 @@ const COMMAND = 'git tag v0.2.0 && git push -q origin HEAD:refs/heads/main refs/
 /** Edits .forge/config.yml as a person would. */
 function editConfig(dir: string, edit: (c: any) => void): void {
   const file = path.join(dir, '.forge', 'config.yml');
-  const c = yaml.parse(fs.readFileSync(file, 'utf8'));
+  // Over the defaults: init write leaves keys at their default out of the file.
+  const c = deepMerge(defaults(), yaml.parse(fs.readFileSync(file, 'utf8')));
   edit(c);
   fs.writeFileSync(file, yaml.stringify(c));
 }
