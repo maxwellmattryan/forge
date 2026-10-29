@@ -10,8 +10,11 @@ import { fakeClaude, jobAt, repoTemplate, waitFor } from '../../../test/helpers.
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import { loadJob, readEvents } from '#core/job/store.ts';
-import { METER_VERSION, appendMeter, meterFile, readMeter } from '#engine/metrics/meter.ts';
-import type { SessionCost } from '#integrations/claude/types.ts';
+import { stateFile } from '#core/paths.ts';
+import { EVENT_SCHEMA_VERSION } from '#core/versions/event.ts';
+import { METER_VERSION, appendMeter, meterFile, readMeter, readSessionUsage, sessionUsageFile } from '#engine/metrics/meter.ts';
+import { createStream } from '#integrations/claude/stream.ts';
+import type { ClaudeEvent, SessionCost } from '#integrations/claude/types.ts';
 import { confineDigest } from './confine.ts';
 import { heldByBudget } from './holds.ts';
 import { officeCapLeft, officeCapRefusal } from './meter.ts';
@@ -139,6 +142,94 @@ function oversize(root: string, scope: string): void {
   fs.writeFileSync(file, '');
   fs.truncateSync(file, 64 * 1024 * 1024 + 1);
 }
+
+/** The turn-ended the session-usage fixture's stream decodes to: a main loop and a same-model subagent, one result. */
+function fixtureTurn(): Extract<ClaudeEvent, { kind: 'turn-ended' }> {
+  const fed: ClaudeEvent[] = [];
+  createStream(() => {}, (e) => void fed.push(e), 1 << 20).stdout(fs.readFileSync(path.resolve(import.meta.dirname, '..', '..', '..', 'test', 'fixtures', 'session-usage-stream.jsonl'), 'utf8'));
+  const ended = fed.find((e) => e.kind === 'turn-ended');
+  assert.ok(ended?.kind === 'turn-ended' && ended.usage, 'the fixture decodes to a turn with usage');
+  return ended;
+}
+const usageOf = (root: string, scope: string) => readEvents(root, scope).filter((e) => e.type === 'session-usage');
+const used = { model: 'claude-opus-5-5', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, numTurns: 1, durationMs: 10 };
+const withUsage = (usd: number) => ({ ...result(usd), usage: used });
+
+test("a job session's own turn usage becomes a session-usage event that stats prices", async (t) => {
+  const r = rig(t, 'job');
+  assert.equal(r.s.spawn(r.cfg), true);
+  r.s.writeTurn(['r1']);
+  r.children[0].emit(fixtureTurn());
+  const [meterRec] = readMeter(r.root, r.scope);
+  const events = usageOf(r.root, r.scope);
+  assert.equal(events.length, 1);
+  const { v, ts, type, ...payload } = events[0];
+  assert.deepEqual(payload, {
+    session: meterRec.sessionId,
+    turn: meterRec.turn,
+    model: 'claude-opus-5-5',
+    usage: { input: 120, output: 800, cacheRead: 40000, cacheWrite: 3000, totalTokens: 43920 },
+    numTurns: 3,
+    durationMs: 45000,
+    ok: true,
+  });
+  assert.equal(typeof meterRec.sessionId, 'string');
+  assert.deepEqual([v, type, typeof ts], [EVENT_SCHEMA_VERSION, 'session-usage', 'string']);
+  assert.equal(r.event('error').length, 0);
+
+  // An events path that can't be written logs the failure and never stops the session; the meter still records.
+  const broken = rig(t, 'job');
+  const eventsFile = stateFile(broken.root, broken.scope, 'events.jsonl');
+  fs.rmSync(eventsFile);
+  fs.mkdirSync(eventsFile);
+  assert.equal(broken.s.spawn(broken.cfg), true);
+  broken.s.writeTurn(['r1']);
+  broken.children[0].emit(withUsage(1));
+  assert.match(broken.event('error').at(-1)?.message ?? '', /^usage: /);
+  assert.equal(broken.s.status, 'idle');
+  assert.equal(broken.s.wanted, true);
+  assert.deepEqual(metered(broken.root, broken.scope), [1], 'its meter record is still written');
+});
+
+test('inbox and office turn usage goes to each project\'s own runtime ledger', async (t) => {
+  // Two sessions in two repos: each record lands under its own session's root.
+  const inbox = rig(t, INBOX_SCOPE);
+  const office = rig(t, OFFICE_SCOPE);
+  for (const s of [inbox, office]) {
+    assert.equal(s.s.spawn(s.cfg), true);
+    s.s.writeTurn(['r1']);
+    s.children[0].emit(withUsage(0.5));
+    s.children[0].emit(result(0.6));
+  }
+  const ledger = (root: string, scope: string) => fs.existsSync(sessionUsageFile(root, scope)) ? readSessionUsage(root, scope) : null;
+  assert.deepEqual(ledger(inbox.root, INBOX_SCOPE)?.map((u) => u.totalTokens), [10], 'one record: a result with no usage writes nothing');
+  assert.deepEqual(ledger(office.root, OFFICE_SCOPE)?.map((u) => u.totalTokens), [10]);
+  assert.equal(ledger(inbox.root, OFFICE_SCOPE), null, "the inbox's repo holds no office record");
+  assert.equal(ledger(office.root, INBOX_SCOPE), null, "the office's repo holds no inbox record");
+
+  // A chat records nothing.
+  const chat = rig(t, '_chat-0123456789ab');
+  assert.equal(chat.s.spawn(chat.cfg), true);
+  chat.s.writeChat('hello');
+  chat.children[0].emit(withUsage(0.1));
+  assert.equal(fs.existsSync(path.join(chat.root, '.forge', 'runtime', 'session-usage')), false);
+  assert.deepEqual(metered(chat.root, '_chat-0123456789ab'), [0.1], 'its meter still records');
+
+  // A ledger file planted as a link: the failure is logged, nothing is written through it, and the session goes on.
+  const planted = rig(t, INBOX_SCOPE);
+  const target = path.join(planted.root, 'elsewhere.jsonl');
+  fs.writeFileSync(target, '');
+  fs.mkdirSync(path.dirname(sessionUsageFile(planted.root, INBOX_SCOPE)), { recursive: true });
+  fs.symlinkSync(target, sessionUsageFile(planted.root, INBOX_SCOPE));
+  assert.equal(planted.s.spawn(planted.cfg), true);
+  planted.s.writeTurn(['r1']);
+  planted.children[0].emit(withUsage(0.5));
+  assert.match(planted.event('error').at(-1)?.message ?? '', /^usage: /);
+  assert.equal(fs.readFileSync(target, 'utf8'), '', 'nothing written through the link');
+  assert.equal(planted.s.status, 'idle');
+  assert.equal(planted.s.wanted, true);
+  assert.deepEqual(metered(planted.root, INBOX_SCOPE), [0.5], 'its meter record is still written');
+});
 
 test("metered spend past the job's limit parks the job and stops its session", async (t) => {
   const r = rig(t, 'job', { budget: { usd: 2 } });
