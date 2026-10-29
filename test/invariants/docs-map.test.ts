@@ -1,15 +1,16 @@
-// lib/ folder maps stay true: every lib/ source opens with the header comment `npm run docs:map` reads,
-// each AGENTS.md map under lib/ is what it writes, and header comments under lib/ and dashboard/src/
-// stay wrapped (docs/TESTING.md › Allowed source-text tests, entries 6 and 14).
+// Folder maps stay true: every source under lib/ and dashboard/src/lib/ opens with the header comment
+// `npm run docs:map` reads, each AGENTS.md map under those roots is what it writes, and header comments
+// under lib/ and dashboard/src/ stay wrapped (docs/TESTING.md › Allowed source-text tests, entries 6 and 14).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { MAP_END, MAP_START, headerSentence, mapFiles, renderMap, syncMap } from '../../scripts/docs-map.ts';
+import { MAP_END, MAP_ROOTS, MAP_START, headerSentence, mapFiles, renderMap, syncMap } from '../../scripts/docs-map.ts';
 
-const LIB = path.resolve(import.meta.dirname, '..', '..', 'lib');
-const DASHBOARD_SRC = path.resolve(import.meta.dirname, '..', '..', 'dashboard', 'src');
+const REPO = path.resolve(import.meta.dirname, '..', '..');
+const LIB = path.join(REPO, 'lib');
+const DASHBOARD_SRC = path.join(REPO, 'dashboard', 'src');
 // Absolute, not "past its neighbours": a relative rule flags every short last line. Reviewers flagged
 // 193, 164 and 185 columns in three jobs; 160 catches all three and leaves 7 files to rewrap, 140 23.
 const HEADER_WIDTH = 160;
@@ -68,20 +69,20 @@ test('header comment lines stay within 160 columns', () => {
   assert.deepEqual(offenders, [], `rewrap these header comment lines to ${HEADER_WIDTH} columns or fewer`);
 });
 
-test('every lib/ source file opens with a header comment', () => {
-  const bare = (fs.readdirSync(LIB, { recursive: true }) as string[])
-    .map((f) => f.split(path.sep).join('/'))
+test('every lib/ and dashboard/src/lib/ source file opens with a header comment', () => {
+  const bare = MAP_ROOTS.flatMap((root) => (fs.readdirSync(path.join(REPO, root), { recursive: true }) as string[])
+    .map((f) => `${root}/${f.split(path.sep).join('/')}`))
     .filter((f) => /\.(ts|mjs)$/.test(f) && !f.endsWith('.test.ts'))
-    .filter((f) => headerSentence(fs.readFileSync(path.join(LIB, f), 'utf8')) === null);
+    .filter((f) => headerSentence(fs.readFileSync(path.join(REPO, f), 'utf8')) === null);
   assert.deepEqual(bare, [], 'open each with a // comment whose first sentence says what the file holds');
 });
 
-test('lib/ folder maps are what npm run docs:map writes', () => {
-  const maps = mapFiles(LIB);
+test('folder maps are what npm run docs:map writes', () => {
+  const maps = MAP_ROOTS.flatMap((root) => mapFiles(path.join(REPO, root)));
   assert.ok(maps.includes(path.join(LIB, 'engine', 'pipeline', 'step', 'AGENTS.md')), 'lib/engine/pipeline/step/AGENTS.md is a map');
   for (const file of maps) {
     const text = fs.readFileSync(file, 'utf8');
-    assert.equal(syncMap(text, renderMap(path.dirname(file))), text, `${path.relative(LIB, file)} is stale: run npm run docs:map`);
+    assert.equal(syncMap(text, renderMap(path.dirname(file))), text, `${path.relative(REPO, file)} is stale: run npm run docs:map`);
   }
 });
 
@@ -93,6 +94,8 @@ test('docs:map reads header comments and stops at nested maps', () => {
   assert.equal(headerSentence('// First paragraph without a mark\n//\n// Second paragraph.'), 'First paragraph without a mark');
   assert.equal(headerSentence('// Dots `in.code. spans` stay. Then.'), 'Dots `in.code. spans` stay.');
   assert.equal(headerSentence('#!/usr/bin/env node\nimport x;'), null, 'a shebang alone is no header');
+  assert.equal(headerSentence('/// <reference types="vite/client" />\n// The locale layer. More.\n'), 'The locale layer.', 'a /// directive is skipped');
+  assert.equal(headerSentence('/// <reference types="vite/client" />\n'), null, 'a /// directive alone is no header');
   assert.equal(headerSentence("import x from './x.ts';\n// Too late."), null, 'a comment after the first import is no header');
   assert.equal(headerSentence(''), null);
 

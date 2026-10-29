@@ -1,11 +1,14 @@
-// `npm run docs:map`: regenerates the file table in every AGENTS.md under lib/ from the first sentence
-// of each file's header comment, so a folder map can't drift from the code it describes.
+// `npm run docs:map`: regenerates the file table in every AGENTS.md under lib/ and dashboard/src/lib/
+// from the first sentence of each file's header comment, so a folder map can't drift from the code it describes.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const MAP_START = '<!-- forge:map:start (generated from each file\'s header comment by npm run docs:map; edit those) -->';
 export const MAP_END = '<!-- forge:map:end -->';
+
+/** The repo-relative folders whose AGENTS.md maps this writes. */
+export const MAP_ROOTS = ['lib'] as const;
 
 const SOURCE = /\.(ts|mjs)$/;
 
@@ -29,11 +32,14 @@ function firstParagraph(lines: string[]): string {
   return para.join(' ').replace(/\s+/g, ' ');
 }
 
-/** The first sentence of a source file's leading `//` or `/* … *\/` comment, after any shebang; null without one. */
+/**
+ * The first sentence of a source file's leading `//` or `/* … *\/` comment, after any shebang and
+ * `/// <reference … />` directives; null without one.
+ */
 export function headerSentence(text: string): string | null {
   const lines = text.split('\n');
   let i = lines[0]?.startsWith('#!') ? 1 : 0;
-  while (i < lines.length && !lines[i]!.trim()) i++;
+  while (i < lines.length && (!lines[i]!.trim() || lines[i]!.trimStart().startsWith('/// <'))) i++;
   const first = lines[i]?.trimStart() ?? '';
   const body: string[] = [];
   if (first.startsWith('//')) {
@@ -116,7 +122,7 @@ export function mapFiles(libDir: string): string[] {
 function main(): void {
   const root = path.resolve(import.meta.dirname, '..');
   const updates: [string, string][] = [];
-  for (const file of mapFiles(path.join(root, 'lib'))) {
+  for (const file of MAP_ROOTS.flatMap((dir) => mapFiles(path.join(root, dir)))) {
     const rel = path.relative(root, file);
     try {
       const before = fs.readFileSync(file, 'utf8');
@@ -128,7 +134,7 @@ function main(): void {
     }
   }
   for (const [file, text] of updates) fs.writeFileSync(file, text);
-  process.stdout.write(updates.length ? `updated ${updates.map(([f]) => path.relative(root, f)).join(', ')}\n` : 'lib/ maps are up to date\n');
+  process.stdout.write(updates.length ? `updated ${updates.map(([f]) => path.relative(root, f)).join(', ')}\n` : 'folder maps are up to date\n');
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
