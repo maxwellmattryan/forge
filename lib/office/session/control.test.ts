@@ -220,6 +220,7 @@ test("state().timedOut mirrors the history, kept across an exit, a respawn and r
     permissionModeRefused: () => {},
     effort: () => ({ level: null, source: 'none' }),
     model: () => null,
+    browser: () => null,
   };
   const claude = fakeClaude();
   const sink: LogSink = { write: () => true, on: () => undefined, once: () => undefined, end: (cb) => cb?.() };

@@ -2,6 +2,7 @@
 name: retro
 description: Forge retrospective. Mines its own metrics, human interventions and review history to find recurring failure patterns, and proposes small, measurable changes to the repo's Forge layer (learnings, reviewer checklists, verifiers, config) and checks for mechanical findings. Writes retro.md and spec.md for a self-improvement job.
 model: opus
+tools: Read, Grep, Glob, Bash, Edit, Write
 color: cyan
 ---
 

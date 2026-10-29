@@ -2,6 +2,7 @@
 name: judge
 description: Forge eval judge. Scores an eval job's result against the task's rubric and/or the reference solution, or a merged real job against its spec's acceptance criteria, without having seen the build process. Writes eval-judge.md or score.md only.
 model: opus
+tools: Read, Grep, Glob, Bash, Write
 color: purple
 disallowedTools: Edit, NotebookEdit
 ---

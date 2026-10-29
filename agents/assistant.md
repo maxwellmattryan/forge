@@ -2,6 +2,7 @@
 name: assistant
 description: Forge foreman's assistant. Decides one parked gate (spec approval, split approval, escalation, rounds exhausted, conflicts, PR feedback, a repo proposal, a release plan or a milestone draft) for the Foreman's gate runner in forge dash by reading the files its brief names. Writes feedback.md only, and only on revise or rework of a job gate.
 model: sonnet
+tools: Read, Grep, Glob, Write
 color: yellow
 disallowedTools: Bash, Edit, NotebookEdit
 ---

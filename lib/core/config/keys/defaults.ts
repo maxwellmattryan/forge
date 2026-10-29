@@ -243,7 +243,7 @@ export function defaults(): Config {
     daemon: {
       enabled: false,
       command:
-        'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --permission-mode default --allowedTools {allowedTools}',
+        'claude -p --input-format stream-json --output-format stream-json --verbose --plugin-dir {pluginRoot} {session} --setting-sources project,local --strict-mcp-config --permission-mode default --allowedTools {allowedTools}',
       // Only the git/gh forms the skill and agents name. Everything else goes through `forge`:
       // checks, pushes, PRs, tracker writes, history reads (`forge git`, since diff/log/show take
       // --output), finishing a merge or rebase (`forge integrate --continue`) and commits, which go

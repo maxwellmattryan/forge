@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { validateConfig, worktreeRoot } from '#core/config/load.ts';
+import { daemonIsolationWarning } from '#core/config/trust.ts';
 import { dockerCheck } from '../environment/backing.ts';
 import { billingOf } from '#integrations/claude/argv.ts';
 import { deprecationChecks } from '#core/config/validators/deprecations.ts';
@@ -123,6 +124,17 @@ export function daemonBillingCheck(config: Pick<Config, 'daemon'>, env: NodeJS.P
     ? `${vars} set: sessions bill that account or go through that endpoint (daemon.auth: api-key)`
     : `${vars} set but ignored: sessions use your Claude login (daemon.auth: subscription)`;
   return billing.warn ? { name: 'daemon billing', ok: true, warn: true, detail } : { name: 'daemon billing', ok: true, detail };
+}
+
+/**
+ * The `daemon isolation` check: a warning when `daemon.command` loads the user's settings, plugins, hooks
+ * or MCP servers into every session (daemonIsolationWarning). Always ok: config is code, so a human adds
+ * the flags. Null with the daemon off or a lean command.
+ */
+export function daemonIsolationCheck(config: Pick<Config, 'daemon'>): DoctorCheck | null {
+  if (config?.daemon?.enabled !== true) return null;
+  const detail = daemonIsolationWarning(config);
+  return detail ? { name: 'daemon isolation', ok: true, warn: true, detail } : null;
 }
 
 /**
@@ -284,6 +296,8 @@ export async function doctor(root: string, config: Config, initialized: boolean,
   }
   const billing = initialized && config.daemon.enabled ? daemonBillingCheck(config) : null;
   if (billing) checks.push(billing);
+  const isolation = initialized && config.daemon.enabled ? daemonIsolationCheck(config) : null;
+  if (isolation) checks.push(isolation);
   const needsGh = config.pr.enabled || config.tracker.kind === 'github';
   if (needsGh) {
     const auth = hasBinary('gh') ? gh(undefined, ['auth', 'status'], { allowFail: true }) : null;

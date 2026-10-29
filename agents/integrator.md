@@ -2,6 +2,7 @@
 name: integrator
 description: Forge integrator. Brings a job branch up to date with its base branch and resolves merge conflicts while preserving both sides' intent. Used when the repo's conflict policy is "fix" or a human asks for conflicts to be fixed.
 model: sonnet
+tools: Read, Grep, Glob, Bash, Edit, Write
 color: orange
 ---
 

@@ -128,6 +128,8 @@ export interface SessionContext {
   effort(scope: string, c: Config): { level: Effort | null; source: EffortSource };
   /** The --model a spawn of `scope` gets under config `c` (the office session's foreman.model); null keeps daemon.command's. */
   model(scope: string, c: Config): string | null;
+  /** The --mcp-config a spawn of `scope` passes (Forge's browser, lib/office/slots.ts sessionBrowser), read at every spawn; null passes none. */
+  browser(scope: string): string | null;
 }
 
 /** What the supervisor records about each child it spawned. */

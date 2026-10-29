@@ -64,6 +64,8 @@ interface RigOpts {
   confined?: null;
   /** The session's scope, over `job` and the inbox. */
   scope?: string;
+  /** What ctx.browser returns at every spawn. */
+  browser?: string | null;
 }
 
 const MAX_LINE_BYTES = 123_456;
@@ -86,6 +88,7 @@ function rig(t: any, opts: RigOpts = {}) {
     fs.writeFileSync(f.info, JSON.stringify(opts.record));
   }
   const calls = { emit: [] as any[], fatal: [] as string[], untrusted: 0, refused: [] as any[], loadConfig: [] as any[], onExit: 0 };
+  const browserScopes: string[] = [];
   const ctx: SessionContext = {
     trusted: () => digest,
     confined: () => confined,
@@ -101,6 +104,7 @@ function rig(t: any, opts: RigOpts = {}) {
     permissionModeRefused: (s, mode, live) => void calls.refused.push({ scope: s, mode, live }),
     effort: () => ({ level: null, source: 'none' }),
     model: () => null,
+    browser: (s) => (browserScopes.push(s), opts.browser ?? null),
   };
   const claude = fakeClaude(opts.exitOnSignal === undefined ? {} : { exitOnSignal: opts.exitOnSignal });
   const mem = memorySink();
@@ -123,7 +127,7 @@ function rig(t: any, opts: RigOpts = {}) {
   const lineEvents = () => calls.emit.filter((e) => e.kind === 'line');
   const event = (name: string) => lineEvents().map((e) => JSON.parse(e.line)).filter((l) => l.type === 'forge-daemon' && l.event === name);
   const record = () => JSON.parse(fs.readFileSync(sessionFiles(root, scope).info, 'utf8'));
-  return { root, scope, digest, configFile, cfg, calls, children: claude.children, s, written: mem.written, lineEvents, event, record };
+  return { root, scope, digest, configFile, cfg, calls, browserScopes, children: claude.children, s, written: mem.written, lineEvents, event, record };
 }
 
 const pending = [{ id: 'r1', type: 'new', job: null, status: 'pending' }] as any[];
@@ -207,6 +211,17 @@ test('a session spawns, takes a turn and logs it', async (t) => {
   assert.equal(bc.paused, true, 'paused while the sink is full');
   full.drain();
   assert.equal(bc.paused, false, 'resumed after drain');
+  assert.ok(!c.argv.includes('--mcp-config'), 'no browser when the pool passes none');
+
+  // The pool's browser config, read at the spawn, goes to argv once.
+  const json = JSON.stringify({ mcpServers: { 'forge-browser': { type: 'stdio', command: 'npx', args: [] } } });
+  const w = rig(t, { job: true, browser: json });
+  assert.equal(w.s.spawn(w.cfg), true);
+  const wargv = w.children[0].argv;
+  assert.deepEqual([wargv[wargv.indexOf('--mcp-config') + 1], wargv.filter((x) => x === '--mcp-config').length], [json, 1]);
+  assert.ok(wargv[wargv.indexOf('--disallowedTools') + 1].split(',').includes('mcp__forge-browser__browser_run_code_unsafe'), "the server's code-running tool is denied");
+  assert.ok(!c.argv[c.argv.indexOf('--disallowedTools') + 1].includes('browser_run_code_unsafe'), 'and only with the browser');
+  assert.deepEqual(w.browserScopes, [w.scope]);
 });
 
 // B35, B36 (a prompt and its one answer), E4 (past 20 waiting), E5 (an input too large to show

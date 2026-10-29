@@ -1,4 +1,4 @@
-// The brief's line helpers that need no job: withPrefixLine, the brief a role run with a trusted prefix gets, and
+// The brief's line helpers that need no job: withPrefixLine, the brief a role run with a trusted prefix gets, needsBrowser, and
 // assistantBrief's escalation line for a park NP1b wrote (a prompt nobody answered in time), built from the job's
 // reason alone and only for a reason parsePromptTimeoutReason accepts.
 import test from 'node:test';
@@ -8,7 +8,7 @@ import { defaults } from '#core/config/load.ts';
 import { normalizeJob } from '#core/job/schema.ts';
 import { jobDir } from '#core/job/store.ts';
 import type { GateClass } from '#core/types.ts';
-import { INSTRUCTIONS_LINE, PREFIX_INSTRUCTIONS_LINE, REPLY_LINE, assistantBrief, withPrefixLine } from './brief.ts';
+import { INSTRUCTIONS_LINE, PREFIX_INSTRUCTIONS_LINE, REPLY_LINE, assistantBrief, needsBrowser, withPrefixLine } from './brief.ts';
 import { promptTimeoutReason } from './step/generic.ts';
 
 const ROOT = path.join(path.sep, 'repo');
@@ -38,6 +38,29 @@ test('withPrefixLine swaps or inserts the prefix line', () => {
     { name: 'empty', brief: [''], want: null },
   ];
   for (const row of rows) assert.equal(withPrefixLine(row.brief.join('\n')), row.want === null ? null : row.want.join('\n'), row.name);
+});
+
+test('only UI roles of a spec with a UI AC get the browser', () => {
+  const ui = ['AC3', 'AC7'];
+  const rows: [{ role: string; lens?: string }, boolean][] = [
+    [{ role: 'builder' }, true],
+    [{ role: 'designer' }, true],
+    ...['ui', 'ux', 'accessibility', 'design'].map((lens): [{ role: string; lens?: string }, boolean] => [{ role: `reviewer:${lens}`, lens }, true]),
+    [{ role: 'reviewer:ui' }, true],
+    [{ role: 'reviewer:web:ui', lens: 'web:ui' }, true],
+    [{ role: 'reviewer:code', lens: 'code' }, false],
+    [{ role: 'reviewer:security', lens: 'security' }, false],
+    [{ role: 'reviewer' }, false],
+    [{ role: 'planner' }, false],
+    [{ role: 'spec-writer' }, false],
+    [{ role: 'approver' }, false],
+    [{ role: 'integrator' }, false],
+    [{ role: 'judge' }, false],
+  ];
+  for (const [spawn, want] of rows) {
+    assert.equal(needsBrowser(spawn, ui), want, JSON.stringify(spawn));
+    assert.equal(needsBrowser(spawn, []), false, `${JSON.stringify(spawn)} with no UI AC`);
+  }
 });
 
 test('the escalation brief names a timed-out tool and that no human saw it', () => {

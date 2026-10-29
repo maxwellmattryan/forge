@@ -13,7 +13,9 @@ import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
 import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { rolePrefix } from '#engine/guard/prompt-prefix.ts';
-import { withPrefixLine } from '#engine/pipeline/brief.ts';
+import { needsBrowser, withPrefixLine } from '#engine/pipeline/brief.ts';
+import { agentTools } from '#engine/pipeline/roster.ts';
+import { browserMcpConfig } from '#integrations/claude/browser.ts';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import { commandPermissionMode, parseTemplate, roleArgv, sessionEnv } from '#integrations/claude/argv.ts';
 import { runRoleChild, type RoleFailure, type RoleOutcome, type RoleRun } from '#integrations/claude/role.ts';
@@ -23,7 +25,7 @@ import { assertEpoch, attachAgent, importCursor, leaseStatus, loadJob } from '#c
 import { UUID, ensureRoleRunDir, openAppend, readInfo, roleRunFiles } from '#core/job/session-files.ts';
 import { SCOPE_ENV, daemonScope } from '#core/job/requests.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
-import { PLUGIN_ROOT, paths } from '#core/paths.ts';
+import { PLUGIN_ROOT, jobDir, paths } from '#core/paths.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 import type { AgentUsage, Config, LoadedJob } from '#core/types.ts';
@@ -107,7 +109,8 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     throw new ForgeError(`job ${jobId} is not claimed by session ${session}; run: forge job claim ${jobId} --session ${session}`, 3);
   }
   // 4. The spawn step chose.
-  const sp = pickSpawn(step(loadStepInput(root, ctx.config, jobId)), index);
+  const input = loadStepInput(root, ctx.config, jobId);
+  const sp = pickSpawn(step(input), index);
   // 5. The config, read once: its digest and its parse come from the same bytes.
   let bytes: Buffer | null = null;
   try {
@@ -153,12 +156,24 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const trusted = env.FORGE_DAEMON === '1' ? (env[TRUST_ENV] as string) : digest;
   const childEnv = { ...sessionEnv(env, config.daemon.auth), ...confined.env, FORGE_ROOT: root, [TRUST_ENV]: trusted, [SCOPE_ENV]: jobId };
   // 10. The command line, the prefix on every launch; a resume only of a session id, never of an in-process subagent's.
+  // The agent's own tool list, built-ins only: MCP tools reach a child only through a server Forge declares.
+  const role = sp.agent.startsWith('forge:') ? sp.agent.slice('forge:'.length) : sp.agent;
+  const tools = agentTools(role);
+  if (!tools?.length) throw new ForgeError(`cannot start a role child: agents/${role}.md has no tools: list`);
+  const builtins = tools.filter((t) => !t.startsWith('mcp__'));
+  // Forge's browser, only for a UI role of a spec with a UI AC and a job with a dev-server port: from an integer, Forge paths and
+  // the child's own PATH. Null (no `npx` on its absolute PATH entries) runs the role without a browser.
+  const mcpConfig =
+    needsBrowser(sp, input.spec.uiAcs) && typeof job.port === 'number'
+      ? browserMcpConfig({ root, port: job.port, outputDir: path.join(jobDir(root, jobId), 'screenshots'), env: childEnv })
+      : null;
   const resumeId = typeof sp.resume === 'string' && UUID.test(sp.resume) ? sp.resume : null;
   const argvFor = (sessionId: string, resume: boolean) =>
     roleArgv({
       executable: parseTemplate(config.daemon.command)[0],
       pluginRoot: PLUGIN_ROOT,
       agent: sp.agent,
+      tools: builtins,
       model: sp.model,
       effort: sp.effort,
       permissionMode: commandPermissionMode(config.daemon.command),
@@ -167,6 +182,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       deny,
       session: { id: sessionId, resume },
       appendSystemPromptFile: prefix,
+      mcpConfig,
     });
   let sessionId = resumeId ?? crypto.randomUUID();
   let argv = argvFor(sessionId, resumeId !== null);

@@ -2,14 +2,20 @@
 // still caps its own job sessions at daemon.maxConcurrent; this caps them across projects, so the
 // account's usage limits hold however many projects run. A free slot goes to the waiting job with
 // the oldest pending request on the machine (request ids start with Date.now(), so they compare
-// across projects). Also the one place a pool session's child is started and handed work, and what kind of
-// session a scope is: only job sessions count against `daemon.maxConcurrent` and the machine cap; the inbox,
-// the office and the chats never do, and neither do the gate runs (lib/office/foreman/run.ts), which are no
-// sessions. docs/architecture/daemon.md describes it.
+// across projects). Also the one place a pool session's child is started and handed work, what a spawn of a
+// scope gets (effort, model, Forge's browser), and what kind of session a scope is: only job sessions count
+// against `daemon.maxConcurrent` and the machine cap; the inbox, the office and the chats never do, and
+// neither do the gate runs (lib/office/foreman/run.ts), which are no sessions. docs/architecture/daemon.md
+// describes it.
+import path from 'node:path';
 import { INBOX_SCOPE, OFFICE_SCOPE, isChatScope, sharedScope } from '#core/job/requests.ts';
 import { resolveEffort, validEffort, validModel } from '#core/config/load.ts';
 import { loadJob } from '#core/job/store.ts';
+import { jobDir } from '#core/paths.ts';
+import { AGENT_TEXT_MAX, readRegularText } from '#core/os/fs.ts';
 import { configForJob } from '#engine/evals/overlay.ts';
+import { specUiAcs } from '#engine/pipeline/acs.ts';
+import { browserMcpConfig } from '#integrations/claude/browser.ts';
 import type { Session } from './session/contract.ts';
 import type { Config, Effort, EffortSource, Job } from '#core/types.ts';
 
@@ -55,6 +61,25 @@ export function sessionEffort(root: string, scope: string, c: Config): { level: 
 
 /** The --model a spawn of `scope` gets: the office session's officeModel; every other session keeps daemon.command's. */
 export const sessionModel = (scope: string, c: Config): string | null => (scope === OFFICE_SCOPE ? officeModel(c) : null);
+
+/**
+ * The --mcp-config a spawn of `scope` gets: Forge's browser (browserMcpConfig) for a job session whose spec.md
+ * has a UI AC and whose job has a port, read at every spawn; null for the inbox, the office, a chat, a job
+ * with no spec, no UI AC, no port or an unreadable file, and a machine with no `npx` on `env`'s absolute PATH
+ * entries. Only a boolean and the CLI-written port come from job files, and spec.md is read as a regular
+ * file only, so a planted link or FIFO can't steer or stall the spawn.
+ */
+export function sessionBrowser(root: string, scope: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (sharedScope(scope)) return null;
+  try {
+    const job = loadJob(root, scope);
+    const spec = readRegularText(path.join(jobDir(root, scope), 'spec.md'), AGENT_TEXT_MAX);
+    if (spec === null || !specUiAcs(spec).length || typeof job.port !== 'number') return null;
+    return browserMcpConfig({ root, port: job.port, outputDir: path.join(jobDir(root, scope), 'screenshots'), env });
+  } catch {
+    return null;
+  }
+}
 
 /** Spawns `s` when no child runs, then hands it `eligible` as a turn (none for null: the eager inbox). False when the spawn was refused. */
 export function startWork(s: Session, c: Config, reason: string, eligible: string[] | null): boolean {
