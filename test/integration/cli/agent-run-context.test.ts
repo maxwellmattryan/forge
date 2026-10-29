@@ -8,6 +8,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BIN, cliEnv, forgeAsync, forgeInProcess, jobAt, repoTemplate, waitFor, withLease } from '../../helpers.ts';
 import { loadJob, logEvent, readEvents, updateJob } from '#core/job/store.ts';
+import { defaults } from '#core/config/load.ts';
 
 const CLAUDE = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'claude');
 const S = '11111111-1111-4111-8111-111111111111';
@@ -22,14 +23,18 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Three lenses on sonnet and security on opus, every one always on: one panel, two keys.
 const template = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
-  fs.writeFileSync(answers, JSON.stringify({ commands: { test: 'true' }, worktrees: { root: '../{repo}.wt' } }));
+  // daemon.command and the panel go in the answers: init write leaves default values out of the file.
+  const command = defaults().daemon.command;
+  assert.ok(command.includes('claude -p '));
+  const panel = LENSES.map((name) => ({ name, always: true, model: name === 'security' ? 'opus' : 'sonnet' }));
+  fs.writeFileSync(
+    answers,
+    JSON.stringify({ commands: { test: 'true' }, worktrees: { root: '../{repo}.wt' }, daemon: { command: command.replace('claude -p ', `${CLAUDE} -p `) }, review: { panel } }),
+  );
   execFileSync(process.execPath, [BIN, 'init', 'write', '--answers', answers], { cwd: dir, env: cliEnv(dir), stdio: 'pipe' });
   fs.rmSync(answers);
-  const config = path.join(dir, '.forge', 'config.yml');
-  const panel = LENSES.map((name) => `    - name: ${name}\n      always: true\n      model: ${name === 'security' ? 'opus' : 'sonnet'}\n`).join('');
-  const text = fs.readFileSync(config, 'utf8').replace('  command: claude -p ', `  command: ${CLAUDE} -p `).replace(/^ {2}panel:\n(?: {4}.*\n)+/m, `  panel:\n${panel}`);
-  assert.ok(text.includes('      model: opus\n'), 'the panel block was replaced');
-  fs.writeFileSync(config, text);
+  const text = fs.readFileSync(path.join(dir, '.forge', 'config.yml'), 'utf8');
+  assert.ok(text.includes('      model: opus\n'), 'the panel was written');
   execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'pipe' });
   execFileSync('git', ['commit', '-qm', 'forge'], { cwd: dir, stdio: 'pipe' });
 });
