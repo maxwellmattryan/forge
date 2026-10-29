@@ -5,13 +5,13 @@
      Only the decision is posted; the server builds what the session receives from claude's own request. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { ago } from '../lib/util.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/types.ts';
-  import type { DaemonSessionState, PermissionDecision } from '../lib/types.ts';
-  import { grantsMore, pendingPrompts, postPermission, promptInput, sessionPrompts } from '../lib/permissions.ts';
-  import { S, openDrawer, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { ago } from '../lib/core/util.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/core/types.ts';
+  import type { DaemonSessionState, PermissionDecision } from '../lib/core/types.ts';
+  import { grantsMore, pendingPrompts, postPermission, promptInput, sessionPrompts } from '../lib/sessions/permissions.ts';
+  import { S, openDrawer, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let {
     scope,

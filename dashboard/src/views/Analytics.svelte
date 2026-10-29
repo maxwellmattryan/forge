@@ -4,11 +4,11 @@
   import PeriodMeter from '../components/PeriodMeter.svelte';
   import Select from '../components/Select.svelte';
   import AnalyticsStatsSkeleton from '../components/skeletons/AnalyticsStatsSkeleton.svelte';
-  import { dur, num, pct, tokensShort, usd } from '../lib/util.ts';
-  import type { ApiState, UsageRow } from '../lib/types.ts';
-  import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/analytics.ts';
-  import { S, openDrawer, setWindow } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { dur, num, pct, tokensShort, usd } from '../lib/core/util.ts';
+  import type { ApiState, UsageRow } from '../lib/core/types.ts';
+  import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/metrics/analytics.ts';
+  import { S, openDrawer, setWindow } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   // App renders a view only once S.data is loaded.
   const data = $derived(S.data as ApiState);

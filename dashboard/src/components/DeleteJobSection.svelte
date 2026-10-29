@@ -3,11 +3,11 @@
      services and branch, and deletes its record for good. A job with a PR or an eval job gets the reason instead of the
      button, and any other refusal (a live session, split children, an active dependent) shows the server's message. -->
 <script lang="ts">
-  import { confirmMatches, deleteBlocker, postDeleteJob } from '../lib/delete-job.ts';
-  import { closeDrawer, refresh } from '../lib/app.svelte.ts';
-  import type { Job } from '../lib/types.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { confirmMatches, deleteBlocker, postDeleteJob } from '../lib/gates/delete-job.ts';
+  import { closeDrawer, refresh } from '../lib/core/app.svelte.ts';
+  import type { Job } from '../lib/core/types.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: Pick<Job, 'id' | 'kind' | 'pr'> } = $props();
   const blocker = $derived(deleteBlocker(job));

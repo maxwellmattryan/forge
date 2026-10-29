@@ -6,12 +6,12 @@
   import PageHeader from '../components/PageHeader.svelte';
   import Select from '../components/Select.svelte';
   import EvalsBodySkeleton from '../components/skeletons/EvalsBodySkeleton.svelte';
-  import { safeUrl } from '../lib/markdown.ts';
-  import { pct, tokensShort, usd } from '../lib/util.ts';
-  import type { ApiState } from '../lib/types.ts';
-  import { evalRunBody } from '../lib/requests.ts';
-  import { S, compareRuns, request } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import { pct, tokensShort, usd } from '../lib/core/util.ts';
+  import type { ApiState } from '../lib/core/types.ts';
+  import { evalRunBody } from '../lib/core/requests.ts';
+  import { S, compareRuns, request } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   // App renders a view only once S.data is loaded.
   const data = $derived(S.data as ApiState);

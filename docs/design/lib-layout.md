@@ -185,7 +185,7 @@ With the placement above, 15 imports point up a layer. `ALLOWED_EDGES` in `test/
 
 | Kind | Definition | Lives in |
 |---|---|---|
-| Unit | Imports one module and calls its functions in-process. No subprocess, no git repo, no network; temp files are fine. | Beside the module: `lib/core/job/store.test.ts`, `dashboard/src/lib/board.test.ts` |
+| Unit | Imports one module and calls its functions in-process. No subprocess, no git repo, no network; temp files are fine. | Beside the module: `lib/core/job/store.test.ts`, `dashboard/src/lib/jobs/board.test.ts` |
 | Integration | One entry point for real (a CLI command, an HTTP endpoint, a pool session, an adapter), with outside systems faked | `test/integration/<entry point>/` |
 | E2E | A whole flow across layers in a scratch git repo | `test/e2e/<flow>/` |
 | Invariants | Rules about the repository itself, not behaviour: workflow security, docs sync, the dashboard invariants, the layer and file-size tripwires | `test/invariants/` |

@@ -7,11 +7,11 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
-  import { S, closeDrawer } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import { PANE_DEFAULT, PANE_MIN, clampPaneWidth, paneKey, paneMax } from '../lib/drawer.ts';
-  import { pref } from '../lib/prefs.ts';
-  import { sidebarShown } from '../lib/sidebar.ts';
+  import { S, closeDrawer } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { PANE_DEFAULT, PANE_MIN, clampPaneWidth, paneKey, paneMax } from '../lib/jobs/drawer.ts';
+  import { pref } from '../lib/settings/prefs.ts';
+  import { sidebarShown } from '../lib/shell/sidebar.ts';
 
   let { open, label, children }: { open: boolean; label: string; children: Snippet<[Attachment<HTMLElement>]> } = $props();
 

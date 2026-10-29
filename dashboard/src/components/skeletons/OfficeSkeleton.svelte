@@ -1,13 +1,13 @@
 <!-- The Office view's shape while the project's first state loads (App.svelte): the header, then OfficePanel's columns
-     (lib/office-layout.ts) with the same headings: the mandates and directives on the left, the office session on the right. -->
+     (lib/office/layout.ts) with the same headings: the mandates and directives on the left, the office session on the right. -->
 <script lang="ts">
   import Loading from '../Loading.svelte';
   import PageHeader from '../PageHeader.svelte';
   import Skeleton from '../Skeleton.svelte';
   import ForemanDirectivesSkeleton from './ForemanDirectivesSkeleton.svelte';
   import ForemanMandatesSkeleton from './ForemanMandatesSkeleton.svelte';
-  import { OFFICE_GRID, OFFICE_LEFT, OFFICE_PAGE } from '../../lib/office-layout.ts';
-  import { t } from '../../lib/locale.ts';
+  import { OFFICE_GRID, OFFICE_LEFT, OFFICE_PAGE } from '../../lib/office/layout.ts';
+  import { t } from '../../lib/text/locale.ts';
 </script>
 
 <Loading class={OFFICE_PAGE}>

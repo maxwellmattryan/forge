@@ -4,11 +4,11 @@
   import { onMount, tick } from 'svelte';
   import Banner from '../Banner.svelte';
   import Chip from '../Chip.svelte';
-  import { fetchBundle } from '../../lib/app.svelte.ts';
-  import { doctorReport, failedCount, warnCount } from '../../lib/diagnostics.ts';
-  import { t } from '../../lib/locale.ts';
-  import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
+  import { fetchBundle } from '../../lib/core/app.svelte.ts';
+  import { doctorReport, failedCount, warnCount } from '../../lib/settings/diagnostics.ts';
+  import { t } from '../../lib/text/locale.ts';
+  import type { SettingsSession } from '../../lib/settings/session.svelte.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
 
   let { session }: { session: SettingsSession } = $props();
 

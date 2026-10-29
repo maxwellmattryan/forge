@@ -8,11 +8,11 @@
   import StateChip from '../components/StateChip.svelte';
   import ProjectEnvironmentsSkeleton from '../components/skeletons/ProjectEnvironmentsSkeleton.svelte';
   import ProjectGraphSkeleton from '../components/skeletons/ProjectGraphSkeleton.svelte';
-  import type { ApiState, Job } from '../lib/types.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
-  import { projectRows } from '../lib/environment.ts';
-  import { BACKING_KEY, edgeKey, highlight, jobOptions, layoutProject, type GraphNode } from '../lib/project-graph.ts';
-  import { t } from '../lib/locale.ts';
+  import type { ApiState, Job } from '../lib/core/types.ts';
+  import { S, openDrawer } from '../lib/core/app.svelte.ts';
+  import { projectRows } from '../lib/project/environment.ts';
+  import { BACKING_KEY, edgeKey, highlight, jobOptions, layoutProject, type GraphNode } from '../lib/project/graph.ts';
+  import { t } from '../lib/text/locale.ts';
 
   // App renders a view only once S.data is loaded.
   const data = $derived(S.data as ApiState);

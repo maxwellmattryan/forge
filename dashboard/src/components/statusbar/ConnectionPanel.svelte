@@ -2,12 +2,12 @@
      error when offline or outdated, and Retry now. The error text names the server's reply and renders as text. -->
 <script lang="ts">
   import Icon from '../Icon.svelte';
-  import { S, refresh } from '../../lib/app.svelte.ts';
-  import { ticker } from '../../lib/clock.svelte.ts';
-  import { API_VERSION } from '../../lib/types.ts';
-  import { ago } from '../../lib/util.ts';
-  import type { ConnectionState } from '../../lib/statusbar.ts';
-  import { t } from '../../lib/locale.ts';
+  import { S, refresh } from '../../lib/core/app.svelte.ts';
+  import { ticker } from '../../lib/core/clock.svelte.ts';
+  import { API_VERSION } from '../../lib/core/types.ts';
+  import { ago } from '../../lib/core/util.ts';
+  import type { ConnectionState } from '../../lib/shell/statusbar.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let { status }: { status: ConnectionState } = $props();
   let pending = $state(false);

@@ -6,12 +6,12 @@
   import JobActions from './JobActions.svelte';
   import GatePrNote from './GatePrNote.svelte';
   import PermissionPrompts from './PermissionPrompts.svelte';
-  import { dockModel } from '../lib/dock.ts';
-  import { decisionInFlight } from '../lib/decision.ts';
-  import { ago } from '../lib/util.ts';
-  import { S, req } from '../lib/app.svelte.ts';
-  import type { JobDetail } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { dockModel } from '../lib/gates/dock.ts';
+  import { decisionInFlight } from '../lib/gates/decision.ts';
+  import { ago } from '../lib/core/util.ts';
+  import { S, req } from '../lib/core/app.svelte.ts';
+  import type { JobDetail } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: JobDetail['job'] } = $props();
   const m = $derived(dockModel(job, S.data?.daemons ?? null));

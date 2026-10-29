@@ -2,7 +2,7 @@
 <script lang="ts">
   import Loading from '../Loading.svelte';
   import Skeleton from '../Skeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   const rows = [
     { title: '70%', chip: '4.5rem', status: '3.5rem' },

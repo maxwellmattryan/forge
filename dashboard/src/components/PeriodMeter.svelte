@@ -4,9 +4,9 @@
 <script lang="ts">
   import Chip from './Chip.svelte';
   import AnalyticsPeriodMeterSkeleton from './skeletons/AnalyticsPeriodMeterSkeleton.svelte';
-  import type { RepoBudgetStatus } from '../lib/types.ts';
-  import { TONE_MOD, dayMeter, money, monthMeter, spentMoney } from '../lib/repo-budget.ts';
-  import { t } from '../lib/locale.ts';
+  import type { RepoBudgetStatus } from '../lib/core/types.ts';
+  import { TONE_MOD, dayMeter, money, monthMeter, spentMoney } from '../lib/metrics/repo-budget.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { budget }: { budget: RepoBudgetStatus | undefined } = $props();
   const m = $derived(budget ? monthMeter(budget) : null);

@@ -88,6 +88,7 @@ function markdownFiles(): Map<string, string[]> {
     roots.set(rel, fs.existsSync(path.join(ROOT, rel)) ? [rel] : []);
   for (const dir of ['docs', 'skills/forge', 'agents', 'reviewers']) roots.set(`${dir}/`, walk(dir, md));
   roots.set('lib/**/AGENTS.md', walk('lib', (name) => name === 'AGENTS.md'));
+  roots.set('dashboard/src/lib/**/AGENTS.md', walk('dashboard/src/lib', (name) => name === 'AGENTS.md'));
   return roots;
 }
 

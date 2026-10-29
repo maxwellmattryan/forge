@@ -1,7 +1,7 @@
 <!-- What readiness triage found missing from an item, as one muted line: the Issues row and the issue panel share it. -->
 <script lang="ts">
-  import { t } from '../lib/locale.ts';
-  import type { TriageMissing } from '../lib/types.ts';
+  import { t } from '../lib/text/locale.ts';
+  import type { TriageMissing } from '../lib/core/types.ts';
 
   let { missing }: { missing: TriageMissing[] } = $props();
 </script>

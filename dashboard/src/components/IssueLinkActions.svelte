@@ -2,11 +2,11 @@
      a new issue, or none. Candidate titles are tracker text and render as text; their links go through safeUrl.
      With `approving` (an unlinked spec gate) each button also approves the spec: same request, approve-and-link wording. -->
 <script lang="ts">
-  import { api } from '../lib/util.ts';
-  import { safeUrl } from '../lib/markdown.ts';
-  import { cleanRef, parseCandidates, type Candidate } from '../lib/thread.ts';
-  import { req } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { api } from '../lib/core/util.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import { cleanRef, parseCandidates, type Candidate } from '../lib/jobs/thread.ts';
+  import { req } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   // `refId` keeps the ref field's id unique when the Needs-you card and the drawer show the same job.
   // `note` is bound so a send clears the gate's note box along with the ref field.

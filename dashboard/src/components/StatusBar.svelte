@@ -14,7 +14,7 @@
      The facts strip takes what the clusters leave (basis 0) and drops the FOCUS word as it runs short (see
      factsHidden). Each cluster holds its indicators in a max-content row; when the row is wider than the cluster, the next
      level of text goes sr-only (see fit()), so a visible label is always whole, never cut to an ellipsis. Below md every
-     indicator is a glyph or a lamp. Needs, Foreman, Workers, Inbox and Connection each carry a pilot lamp (src/lib/statusbar.ts
+     indicator is a glyph or a lamp. Needs, Foreman, Workers, Inbox and Connection each carry a pilot lamp (src/lib/shell/statusbar.ts
      barLamps), the one the session terminals use; the model button has none. Every indicator shares one class (INDICATOR). -->
 <script lang="ts">
   import { tick, untrack } from 'svelte';
@@ -29,17 +29,17 @@
   import ModelPanel from './statusbar/ModelPanel.svelte';
   import WorkersPanel from './statusbar/WorkersPanel.svelte';
   import Tooltip from './Tooltip.svelte';
-  import { API_VERSION } from '../lib/types.ts';
-  import type { DaemonPoolState } from '../lib/types.ts';
-  import { mergePoolState, poolModel, postDaemon } from '../lib/daemon.ts';
-  import { FACTS_MAX, barLamps, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/statusbar.ts';
-  import { needsCount } from '../lib/inbox.ts';
-  import { S, openDrawer, refresh } from '../lib/app.svelte.ts';
-  import { focusFact } from '../lib/focus.ts';
-  import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/popover.svelte.ts';
-  import type { PopoverId } from '../lib/popover.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { API_VERSION } from '../lib/core/types.ts';
+  import type { DaemonPoolState } from '../lib/core/types.ts';
+  import { mergePoolState, poolModel, postDaemon } from '../lib/sessions/daemon.ts';
+  import { FACTS_MAX, barLamps, barModel, connectionState, factsHidden, modelSummary, promptAnnouncement, summaryText } from '../lib/shell/statusbar.ts';
+  import { needsCount } from '../lib/gates/inbox.ts';
+  import { S, openDrawer, refresh } from '../lib/core/app.svelte.ts';
+  import { focusFact } from '../lib/project/focus.ts';
+  import { closePopover, focusInPopover, keepFocus, openPopover, popover, reanchor } from '../lib/ui/overlay/popover.svelte.ts';
+  import type { PopoverId } from '../lib/ui/overlay/popover.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   // Follows each new /api/state (assigned only when it changed); POST replies overwrite it in between.
   let pool = $derived<Partial<DaemonPoolState> | null>(S.data?.daemons ?? null);
@@ -64,7 +64,7 @@
    * 5 Workers' live/cap, 6 the "Foreman" word (its glyph, lamp and prompt count stay): the supervisor keeps its name
    * longest. Glyphs and lamps show at every level. The Needs-you bell is icon-only at every width, so it adds no level. Right: 1 the provider and the effort, 2 the model label, 3 the
    * connection's word while it is Live or Connecting, and "needed" after "Update", 4 the rest of the connection's word.
-   * Facts, before either cluster: 1 the FOCUS word (src/lib/statusbar.ts factsHidden).
+   * Facts, before either cluster: 1 the FOCUS word (src/lib/shell/statusbar.ts factsHidden).
    */
   let left = $state(0);
   let right = $state(0);

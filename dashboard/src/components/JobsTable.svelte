@@ -7,13 +7,13 @@
   import StageStepper from './StageStepper.svelte';
   import BudgetCell from './BudgetCell.svelte';
   import MandateBadge from './MandateBadge.svelte';
-  import { ago, num, usd } from '../lib/util.ts';
-  import { cardModel, sortByRank } from '../lib/board.ts';
-  import { prChipModel } from '../lib/job-state.ts';
-  import { openDrawer } from '../lib/app.svelte.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import type { StateJob } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { ago, num, usd } from '../lib/core/util.ts';
+  import { cardModel, sortByRank } from '../lib/jobs/board.ts';
+  import { prChipModel } from '../lib/jobs/state.ts';
+  import { openDrawer } from '../lib/core/app.svelte.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import type { StateJob } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { jobs }: { jobs: StateJob[] } = $props();
   const rows = $derived(sortByRank(jobs));

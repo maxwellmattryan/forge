@@ -37,20 +37,20 @@
   import AnalyticsSkeleton from './components/skeletons/AnalyticsSkeleton.svelte';
   import EvalsSkeleton from './components/skeletons/EvalsSkeleton.svelte';
   import ProjectSkeleton from './components/skeletons/ProjectSkeleton.svelte';
-  import { S, checkSelection, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/app.svelte.ts';
-  import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/sidebar.ts';
-  import { hideTip, railTipOn } from './lib/rail-tip.svelte.ts';
-  import { startClock } from './lib/clock.svelte.ts';
-  import { inlineInputAction, type InlineInputEvent } from './lib/statusbar.ts';
-  import { t } from './lib/locale.ts';
-  import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel, type SettingsTabId } from './lib/settings.ts';
-  import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/command.ts';
-  import { closePalette, openPalette, palette } from './lib/palette.svelte.ts';
-  import { addProjectDialog, closeAddProject } from './lib/add-project.svelte.ts';
-  import { closePopover, popover } from './lib/popover.svelte.ts';
-  import { closeCard, ghCard } from './lib/github-card.svelte.ts';
-  import { lockScroll } from './lib/scroll-lock.ts';
-  import { launchMode } from './lib/daemon.ts';
+  import { S, checkSelection, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/core/app.svelte.ts';
+  import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/shell/sidebar.ts';
+  import { hideTip, railTipOn } from './lib/shell/rail-tip.svelte.ts';
+  import { startClock } from './lib/core/clock.svelte.ts';
+  import { inlineInputAction, type InlineInputEvent } from './lib/shell/statusbar.ts';
+  import { t } from './lib/text/locale.ts';
+  import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel, type SettingsTabId } from './lib/settings/modal.ts';
+  import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/shell/command.ts';
+  import { closePalette, openPalette, palette } from './lib/shell/palette.svelte.ts';
+  import { addProjectDialog, closeAddProject } from './lib/shell/add-project.svelte.ts';
+  import { closePopover, popover } from './lib/ui/overlay/popover.svelte.ts';
+  import { closeCard, ghCard } from './lib/ui/overlay/github-card.svelte.ts';
+  import { lockScroll } from './lib/ui/overlay/scroll-lock.ts';
+  import { launchMode } from './lib/sessions/daemon.ts';
 
   let settingsOpen = $state(false);
   /** The tab Settings opens on; unset opens the saved tab. */
@@ -138,7 +138,7 @@
     };
   });
 
-  // The page under an open drawer does not scroll (lib/scroll-lock.ts keeps it from shifting).
+  // The page under an open drawer does not scroll (lib/ui/overlay/scroll-lock.ts keeps it from shifting).
   $effect(() => {
     if (!covered) return;
     return lockScroll();

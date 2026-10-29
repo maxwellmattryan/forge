@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFile, spawn } from 'node:child_process';
 import { forgeAsync, waitFor } from '../../helpers.ts';
 import { NOTIFY_GATES, STAGES } from '#core/job/schema.ts';
-import { mergeCatalogs } from '../../../dashboard/src/lib/i18n.ts';
+import { mergeCatalogs } from '../../../dashboard/src/lib/text/i18n.ts';
 import { SCENARIO_DIR, listScenarios, loadScenario, scenarioEnv, seedScenario } from '../../../scripts/scenario.ts';
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', '..', '..', 'scripts', 'scenario.ts');

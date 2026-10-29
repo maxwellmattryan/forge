@@ -5,12 +5,12 @@
      The tool, input and description are session output, i.e. untrusted, and render as text. -->
 <script lang="ts">
   import Chip from '../Chip.svelte';
-  import { ago } from '../../lib/util.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../../lib/types.ts';
-  import { promptInput, timedOutPrompts } from '../../lib/permissions.ts';
-  import { S, openDrawer } from '../../lib/app.svelte.ts';
-  import { ticker } from '../../lib/clock.svelte.ts';
-  import { t } from '../../lib/locale.ts';
+  import { ago } from '../../lib/core/util.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../../lib/core/types.ts';
+  import { promptInput, timedOutPrompts } from '../../lib/sessions/permissions.ts';
+  import { S, openDrawer } from '../../lib/core/app.svelte.ts';
+  import { ticker } from '../../lib/core/clock.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   const entries = $derived(timedOutPrompts(S.data?.daemons ?? null));
 </script>

@@ -7,9 +7,9 @@
   import PageHeader from '../components/PageHeader.svelte';
   import MachineCapSkeleton from '../components/skeletons/MachineCapSkeleton.svelte';
   import MachineProjectsSkeleton from '../components/skeletons/MachineProjectsSkeleton.svelte';
-  import { S } from '../lib/app.svelte.ts';
-  import type { MachineProjectSummary } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import type { MachineProjectSummary } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   const m = $derived(S.machine);
   const port = location.port || (location.protocol === 'https:' ? '443' : '80');

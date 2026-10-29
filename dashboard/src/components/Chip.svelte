@@ -4,8 +4,8 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
-  import { TONE_CLASS } from '../lib/util.ts';
-  import type { IconName } from '../lib/icons.ts';
+  import { TONE_CLASS } from '../lib/core/util.ts';
+  import type { IconName } from '../lib/ui/icons.ts';
 
   let {
     tone,

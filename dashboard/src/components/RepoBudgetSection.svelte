@@ -2,11 +2,11 @@
      job's pane) and Acknowledge, which grants one more period (the month when a month cap is reached, else the day).
      Titles and the reason are untrusted and render as text; an error toasts the server's message. -->
 <script lang="ts">
-  import type { ApiState } from '../lib/types.ts';
-  import { ackPeriod } from '../lib/repo-budget.ts';
-  import { openDrawer, postBudgetAck, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import type { ApiState } from '../lib/core/types.ts';
+  import { ackPeriod } from '../lib/metrics/repo-budget.ts';
+  import { openDrawer, postBudgetAck, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { data }: { data: ApiState } = $props();
   const b = $derived(data.budget);

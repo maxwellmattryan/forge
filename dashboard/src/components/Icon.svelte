@@ -1,6 +1,7 @@
-<!-- A machined Smithy line icon from src/lib/icons.ts. Decorative: its button or link carries the name. Size comes from `ic` (18px) and `.btn .ic` (15px). -->
+<!-- A machined Smithy line icon from src/lib/ui/icons.ts. Decorative: its button or link carries the name. Size comes from
+     `ic` (18px) and `.btn .ic` (15px). -->
 <script lang="ts">
-  import { ICONS, type IconDef, type IconName } from '../lib/icons.ts';
+  import { ICONS, type IconDef, type IconName } from '../lib/ui/icons.ts';
 
   let { name, class: cls = '' }: { name: IconName; class?: string } = $props();
   const def = $derived<IconDef>(ICONS[name]);

@@ -12,9 +12,9 @@ import type { Browser, BrowserContext, Page } from 'playwright-core';
 import { PLUGIN_ROOT } from '../lib/core/paths.ts';
 import { startServer } from '../lib/server/start.ts';
 import { addProject } from '../lib/engine/project/machine-index.ts';
-import { VIEWS } from '../dashboard/src/lib/nav.ts';
-import type { ViewId } from '../dashboard/src/lib/nav.ts';
-import { SIGNED_OUT_MESSAGE } from '../dashboard/src/lib/login.ts';
+import { VIEWS } from '../dashboard/src/lib/shell/nav.ts';
+import type { ViewId } from '../dashboard/src/lib/shell/nav.ts';
+import { SIGNED_OUT_MESSAGE } from '../dashboard/src/lib/core/login.ts';
 import { SCENARIO_DIR, SCENARIO_ENV_DROPPED, catalogText, listScenarios, loadScenario, seedScenario } from './scenario.ts';
 import type { Seeded } from './scenario.ts';
 

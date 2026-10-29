@@ -8,14 +8,14 @@
   import ConfigTab from './settings/ConfigTab.svelte';
   import DiagnosticsTab from './settings/DiagnosticsTab.svelte';
   import GeneralTab from './settings/GeneralTab.svelte';
-  import { t } from '../lib/locale.ts';
-  import { slideMarker } from '../lib/marker.ts';
-  import { EXIT, fade, pop } from '../lib/motion.ts';
-  import { pref } from '../lib/prefs.ts';
-  import { currentProject } from '../lib/project.ts';
-  import { lockScroll } from '../lib/scroll-lock.ts';
-  import { SETTINGS_TABS, moveTab, openingTab, sectionOf, settingsTabsFor, wrapFocus, type SettingsTabId } from '../lib/settings.ts';
-  import { SettingsSession } from '../lib/settings-session.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { slideMarker } from '../lib/ui/marker.ts';
+  import { EXIT, fade, pop } from '../lib/ui/motion.ts';
+  import { pref } from '../lib/settings/prefs.ts';
+  import { currentProject } from '../lib/core/project.ts';
+  import { lockScroll } from '../lib/ui/overlay/scroll-lock.ts';
+  import { SETTINGS_TABS, moveTab, openingTab, sectionOf, settingsTabsFor, wrapFocus, type SettingsTabId } from '../lib/settings/modal.ts';
+  import { SettingsSession } from '../lib/settings/session.svelte.ts';
 
   let { onclose, start }: { onclose: () => void; start?: SettingsTabId } = $props();
 

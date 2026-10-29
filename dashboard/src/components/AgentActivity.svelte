@@ -7,10 +7,10 @@
   import Chip from './Chip.svelte';
   import LeaseChip from './LeaseChip.svelte';
   import LiveDot from './LiveDot.svelte';
-  import { activityLine, newestActivity, sortedActivity } from '../lib/agent-activity.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import type { AgentActivity, OwnerStatus } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { activityLine, newestActivity, sortedActivity } from '../lib/sessions/agent-activity.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import type { AgentActivity, OwnerStatus } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { activity, owner = null, expandable = false }: { activity: AgentActivity[]; owner?: OwnerStatus | null; expandable?: boolean } = $props();
   const top = $derived(newestActivity(activity));

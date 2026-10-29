@@ -3,7 +3,7 @@
   import PageHeader from '../PageHeader.svelte';
   import Skeleton from '../Skeleton.svelte';
   import EvalsBodySkeleton from './EvalsBodySkeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 </script>
 
 <PageHeader title={$t('evals.title')}>

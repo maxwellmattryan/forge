@@ -1,4 +1,4 @@
-<!-- The project switcher over the machine's registered projects (lib/switcher.ts): in the expanded sidebar a select-only
+<!-- The project switcher over the machine's registered projects (lib/shell/switcher.ts): in the expanded sidebar a select-only
      combobox (`field`), in the phone strip its small button (`phone`), and on the rail an icon button that opens the
      palette with `project ` typed, which lists the projects (`rail`). Choosing a project opens its same view from a
      project page and its Pipeline from a global page; missing and unavailable projects are listed but can't be chosen.
@@ -8,12 +8,12 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Select from './Select.svelte';
-  import { S } from '../lib/app.svelte.ts';
-  import { openAddProject } from '../lib/add-project.svelte.ts';
-  import { openPalette } from '../lib/palette.svelte.ts';
-  import { railTipOn } from '../lib/rail-tip.svelte.ts';
-  import { switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from '../lib/switcher.ts';
-  import { t } from '../lib/locale.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import { openAddProject } from '../lib/shell/add-project.svelte.ts';
+  import { openPalette } from '../lib/shell/palette.svelte.ts';
+  import { railTipOn } from '../lib/shell/rail-tip.svelte.ts';
+  import { switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from '../lib/shell/switcher.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { variant, labelledby }: { variant: 'field' | 'rail' | 'phone'; labelledby?: string } = $props();
 

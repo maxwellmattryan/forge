@@ -3,9 +3,9 @@
      from config.yml and the roster, and render as text. -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { S, loadRoster } from '../../lib/app.svelte.ts';
-  import { modelSummary, reviewerRows, roleRows, summaryText, type ModelLabel } from '../../lib/statusbar.ts';
-  import { t } from '../../lib/locale.ts';
+  import { S, loadRoster } from '../../lib/core/app.svelte.ts';
+  import { modelSummary, reviewerRows, roleRows, summaryText, type ModelLabel } from '../../lib/shell/statusbar.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   const models = $derived(S.data?.config?.models ?? {});
   const summary = $derived(modelSummary(models));

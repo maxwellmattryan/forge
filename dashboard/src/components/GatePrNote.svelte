@@ -2,9 +2,9 @@
      decision before it can merge; a held push says nothing has left the machine yet. Nothing for any other gate. -->
 <script lang="ts">
   import PrChip from './PrChip.svelte';
-  import { gatePrNote } from '../lib/inbox.ts';
-  import type { JobLike } from '../lib/job-state.ts';
-  import { t } from '../lib/locale.ts';
+  import { gatePrNote } from '../lib/gates/inbox.ts';
+  import type { JobLike } from '../lib/jobs/state.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: JobLike } = $props();
   const note = $derived(gatePrNote(job));

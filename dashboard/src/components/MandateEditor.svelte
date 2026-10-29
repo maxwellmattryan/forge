@@ -14,16 +14,16 @@
   import CloseButton from './CloseButton.svelte';
   import FieldHint from './FieldHint.svelte';
   import Select from './Select.svelte';
-  import { blankForm, editMandateBody, fetchMandate, formOf, inIntake, isUnreadable, newMandateBody, postMandate, postMandateEdit, type MandateForm } from '../lib/foreman.ts';
-  import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL } from '../lib/types.ts';
-  import { loadMandates, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import { EXIT, fade, pop } from '../lib/motion.ts';
-  import { lockScroll } from '../lib/scroll-lock.ts';
-  import { wrapFocus } from '../lib/settings.ts';
-  import type { GateClass, MandateDetailResponse, MandateRow, MandatesResponse } from '../lib/types.ts';
-  import type { SelectOption } from '../lib/select.ts';
+  import { blankForm, editMandateBody, fetchMandate, formOf, inIntake, isUnreadable, newMandateBody, postMandate, postMandateEdit, type MandateForm } from '../lib/office/foreman.ts';
+  import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL } from '../lib/core/types.ts';
+  import { loadMandates, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { EXIT, fade, pop } from '../lib/ui/motion.ts';
+  import { lockScroll } from '../lib/ui/overlay/scroll-lock.ts';
+  import { wrapFocus } from '../lib/settings/modal.ts';
+  import type { GateClass, MandateDetailResponse, MandateRow, MandatesResponse } from '../lib/core/types.ts';
+  import type { SelectOption } from '../lib/ui/select.ts';
 
   let { mandates, row, onclose }: { mandates: MandatesResponse; row?: MandateRow; onclose: () => void } = $props();
 

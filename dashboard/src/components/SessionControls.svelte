@@ -11,13 +11,13 @@
   import Select from './Select.svelte';
   import SessionToggle from './SessionToggle.svelte';
   import Tooltip from './Tooltip.svelte';
-  import type { SelectOption } from '../lib/select.ts';
-  import { sharedScope } from '../lib/types.ts';
-  import type { DaemonSessionState } from '../lib/types.ts';
-  import { PERMISSION_MODES, postDaemonMode, scopeSession, sessionMode } from '../lib/daemon.ts';
-  import { S, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import type { SelectOption } from '../lib/ui/select.ts';
+  import { sharedScope } from '../lib/core/types.ts';
+  import type { DaemonSessionState } from '../lib/core/types.ts';
+  import { PERMISSION_MODES, postDaemonMode, scopeSession, sessionMode } from '../lib/sessions/daemon.ts';
+  import { S, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { scope, live = null, onacted, toggle = true }: { scope: string; live?: Partial<DaemonSessionState> | null; onacted?: () => void; toggle?: boolean } = $props();
 

@@ -8,13 +8,13 @@
   import CloseButton from './CloseButton.svelte';
   import IconButton from './IconButton.svelte';
   import Lamp from './Lamp.svelte';
-  import { atBottom } from '../lib/session-log.ts';
-  import { logStreamUrl, parseFrame, pushLines } from '../lib/environment.ts';
-  import { S } from '../lib/app.svelte.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { settled } from '../lib/motion.ts';
-  import { LIVE_LAMPS, isLiveLine, lampState, streaming } from '../lib/station.ts';
-  import { t } from '../lib/locale.ts';
+  import { atBottom } from '../lib/logs/session-log.ts';
+  import { logStreamUrl, parseFrame, pushLines } from '../lib/project/environment.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { settled } from '../lib/ui/motion.ts';
+  import { LIVE_LAMPS, isLiveLine, lampState, streaming } from '../lib/logs/station.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job, source, label, onclose }: { job: string; source: string; label: string; onclose: () => void } = $props();
 

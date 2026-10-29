@@ -4,7 +4,7 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
   import Tooltip from './Tooltip.svelte';
-  import type { IconName } from '../lib/icons.ts';
+  import type { IconName } from '../lib/ui/icons.ts';
 
   let {
     icon,

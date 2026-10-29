@@ -9,13 +9,13 @@
   import StateChip from './StateChip.svelte';
   import BudgetPanel from './BudgetPanel.svelte';
   import Chip from './Chip.svelte';
-  import { protectedSummary, showParkReason } from '../lib/protected.ts';
-  import { gateOwnerBadge, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/inbox.ts';
-  import { ago } from '../lib/util.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { openDrawer } from '../lib/app.svelte.ts';
-  import type { StateJob } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { protectedSummary, showParkReason } from '../lib/jobs/protected.ts';
+  import { gateOwnerBadge, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/gates/inbox.ts';
+  import { ago } from '../lib/core/util.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { openDrawer } from '../lib/core/app.svelte.ts';
+  import type { StateJob } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job: j }: { job: StateJob } = $props();
   const kind = $derived(inboxKind(j));

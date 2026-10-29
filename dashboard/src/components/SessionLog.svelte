@@ -9,7 +9,7 @@
      instead of capping the pane's height. Every daemon-scoped header also states its model (from the newest init line), and
      the office's its effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort.
      It is a station terminal (style.css `station`): the bezel holds the nameplate (pilot lamp, then the facts) and the
-     controls, and the screen is the log pane, always drawn. Heat is activity (src/lib/station.ts): the bezel warms while
+     controls, and the screen is the log pane, always drawn. Heat is activity (src/lib/logs/station.ts): the bezel warms while
      live lines stream, a call that arrives live strikes its gutter, the screen clocks in the
      first time the lamp goes live after the dashboard settles, and a stage change drops the nameplate's shutter. -->
 <script lang="ts">
@@ -21,27 +21,27 @@
   import MarkdownToggle from './MarkdownToggle.svelte';
   import MenuButton from './MenuButton.svelte';
   import SessionControls from './SessionControls.svelte';
-  import { mdView } from '../lib/md-view.svelte.ts';
-  import { clock, usd } from '../lib/util.ts';
-  import { projectApi } from '../lib/project.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/types.ts';
-  import type { DaemonSessionState } from '../lib/types.ts';
-  import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../lib/session-log.ts';
-  import { modelLabel } from '../lib/statusbar.ts';
-  import { EFFORTS } from '../lib/types.ts';
-  import type { Effort } from '../lib/types.ts';
-  import type { Filters } from '../lib/session-log.ts';
-  import type { Entry } from '../lib/session-parse.ts';
-  import { createSessionLog } from '../lib/daemon-log.ts';
-  import type { SessionLogUrls } from '../lib/daemon-log.ts';
-  import { promptRefreshKey } from '../lib/permissions.ts';
-  import { mergeSessionState, scopeSession, sessionPill } from '../lib/daemon.ts';
-  import { S, refresh } from '../lib/app.svelte.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { settled, shutter } from '../lib/motion.ts';
-  import { LIVE_LAMPS, lampState, streaming } from '../lib/station.ts';
-  import { pref } from '../lib/prefs.ts';
-  import { t } from '../lib/locale.ts';
+  import { mdView } from '../lib/text/md-view.svelte.ts';
+  import { clock, usd } from '../lib/core/util.ts';
+  import { projectApi } from '../lib/core/project.ts';
+  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../lib/core/types.ts';
+  import type { DaemonSessionState } from '../lib/core/types.ts';
+  import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../lib/logs/session-log.ts';
+  import { modelLabel } from '../lib/shell/statusbar.ts';
+  import { EFFORTS } from '../lib/core/types.ts';
+  import type { Effort } from '../lib/core/types.ts';
+  import type { Filters } from '../lib/logs/session-log.ts';
+  import type { Entry } from '../lib/logs/session-parse.ts';
+  import { createSessionLog } from '../lib/logs/daemon-log.ts';
+  import type { SessionLogUrls } from '../lib/logs/daemon-log.ts';
+  import { promptRefreshKey } from '../lib/sessions/permissions.ts';
+  import { mergeSessionState, scopeSession, sessionPill } from '../lib/sessions/daemon.ts';
+  import { S, refresh } from '../lib/core/app.svelte.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { settled, shutter } from '../lib/ui/motion.ts';
+  import { LIVE_LAMPS, lampState, streaming } from '../lib/logs/station.ts';
+  import { pref } from '../lib/settings/prefs.ts';
+  import { t } from '../lib/text/locale.ts';
 
   /** A transcript to follow in place of the daemon session: the job, the agent's role (null for the owner) and the banner text. */
   type Transcript = { job: string; agent: string | null; label: string };

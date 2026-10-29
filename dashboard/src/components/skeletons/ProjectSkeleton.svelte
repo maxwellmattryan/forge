@@ -4,7 +4,7 @@
   import PageHeader from '../PageHeader.svelte';
   import ProjectEnvironmentsSkeleton from './ProjectEnvironmentsSkeleton.svelte';
   import ProjectGraphSkeleton from './ProjectGraphSkeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 </script>
 
 <Loading>

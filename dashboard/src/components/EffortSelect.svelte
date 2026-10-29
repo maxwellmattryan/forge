@@ -6,13 +6,13 @@
 <script lang="ts">
   import Select from './Select.svelte';
   import Icon from './Icon.svelte';
-  import { EFFORTS } from '../lib/types.ts';
-  import type { Effort } from '../lib/types.ts';
-  import type { SelectOption } from '../lib/select.ts';
-  import { effortTone, postJobEffort, restartPending } from '../lib/effort.ts';
-  import { S, refresh } from '../lib/app.svelte.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { EFFORTS } from '../lib/core/types.ts';
+  import type { Effort } from '../lib/core/types.ts';
+  import type { SelectOption } from '../lib/ui/select.ts';
+  import { effortTone, postJobEffort, restartPending } from '../lib/jobs/effort.ts';
+  import { S, refresh } from '../lib/core/app.svelte.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: string } = $props();
   const row = $derived(S.data?.jobs?.find((j) => j.id === job) ?? null);

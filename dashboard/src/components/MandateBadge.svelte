@@ -2,8 +2,8 @@
      button), titled "Mandate <id>". Nothing renders for a job without a valid mandate id, so neither layout changes shape. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { mandateBadge } from '../lib/foreman.ts';
-  import { t } from '../lib/locale.ts';
+  import { mandateBadge } from '../lib/office/foreman.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { mandate, extra = '' }: { mandate: unknown; extra?: string } = $props();
   const badge = $derived(mandateBadge({ mandate }));

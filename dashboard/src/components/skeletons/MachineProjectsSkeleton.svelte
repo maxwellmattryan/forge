@@ -2,7 +2,7 @@
 <script lang="ts">
   import Loading from '../Loading.svelte';
   import Skeleton from '../Skeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 </script>
 
 <Loading class="overflow-x-auto">

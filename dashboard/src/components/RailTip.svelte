@@ -4,7 +4,7 @@
      at the sidebar's edge right where the bottom control's tip (Settings) appears; the drawer needs no ordering, because
      the tip hides while the drawer covers the page. -->
 <script lang="ts">
-  import { railTip } from '../lib/rail-tip.svelte.ts';
+  import { railTip } from '../lib/shell/rail-tip.svelte.ts';
 </script>
 
 {#if railTip.shown}

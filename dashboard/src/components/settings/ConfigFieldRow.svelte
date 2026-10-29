@@ -1,11 +1,11 @@
 <!-- One config field: label, key, help and default, then its control (or its read-only value) and any error. -->
 <script lang="ts">
   import Select from '../Select.svelte';
-  import { t } from '../../lib/locale.ts';
-  import type { SelectOption } from '../../lib/select.ts';
-  import { draftOf, formatValue, parseDraft, type Draft, type Parsed } from '../../lib/config-form.ts';
-  import type { SettingsSession } from '../../lib/settings-session.svelte.ts';
-  import type { ConfigField } from '../../lib/types.ts';
+  import { t } from '../../lib/text/locale.ts';
+  import type { SelectOption } from '../../lib/ui/select.ts';
+  import { draftOf, formatValue, parseDraft, type Draft, type Parsed } from '../../lib/settings/config-form.ts';
+  import type { SettingsSession } from '../../lib/settings/session.svelte.ts';
+  import type { ConfigField } from '../../lib/core/types.ts';
 
   let { field: f, value, session, disabled }: { field: ConfigField; value: unknown; session: SettingsSession; disabled: boolean } = $props();
 

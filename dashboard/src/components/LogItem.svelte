@@ -10,16 +10,16 @@
   import Chip from './Chip.svelte';
   import Icon from './Icon.svelte';
   import LogItem from './LogItem.svelte';
-  import { cliAction } from '../lib/chats.ts';
-  import { md } from '../lib/markdown.ts';
-  import { renderable } from '../lib/md-view.ts';
-  import type { MdView } from '../lib/md-view.ts';
-  import { TONE_CLASS, clock } from '../lib/util.ts';
-  import type { Item } from '../lib/session-parse.ts';
-  import { TINT, logSender } from '../lib/sender.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { struck } from '../lib/station.ts';
-  import { t } from '../lib/locale.ts';
+  import { cliAction } from '../lib/office/chats.ts';
+  import { md } from '../lib/text/markdown.ts';
+  import { renderable } from '../lib/text/md-view.ts';
+  import type { MdView } from '../lib/text/md-view.ts';
+  import { TONE_CLASS, clock } from '../lib/core/util.ts';
+  import type { Item } from '../lib/logs/session-parse.ts';
+  import { TINT, logSender } from '../lib/logs/sender.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { struck } from '../lib/logs/station.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let {
     it,

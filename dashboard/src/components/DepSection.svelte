@@ -1,10 +1,10 @@
 <!-- The drawer's Dependencies card: "Depends on" and "Blocks" rows, each only when non-empty. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { blockLinks, depHint, depLinks, type DepLink } from '../lib/deps.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
-  import type { Job } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { blockLinks, depHint, depLinks, type DepLink } from '../lib/jobs/deps.ts';
+  import { S, openDrawer } from '../lib/core/app.svelte.ts';
+  import type { Job } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: Partial<Job> } = $props();
   const deps = $derived(depLinks(job, S.data?.jobs ?? []));

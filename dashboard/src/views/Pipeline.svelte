@@ -6,12 +6,12 @@
   import JobCard from '../components/JobCard.svelte';
   import JobsTable from '../components/JobsTable.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import type { ApiState } from '../lib/types.ts';
-  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/board.ts';
-  import { workingCount } from '../lib/live.ts';
-  import { S, req, setFilter, setLayout } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import { slideMarker } from '../lib/marker.ts';
+  import type { ApiState } from '../lib/core/types.ts';
+  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/jobs/board.ts';
+  import { workingCount } from '../lib/sessions/live.ts';
+  import { S, req, setFilter, setLayout } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { slideMarker } from '../lib/ui/marker.ts';
 
   // App renders a view only once S.data is loaded.
   const data = $derived(S.data as ApiState);

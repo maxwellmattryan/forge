@@ -1,12 +1,12 @@
 <!-- The Rendered/Raw switch for one markdown surface. Every toggle for a surface shares one saved choice (md-view.svelte.ts).
      With `iconOnly` (the session log's compact control row) it is one pressed-or-not icon button instead of the segment. -->
 <script lang="ts">
-  import { MD_VIEWS } from '../lib/md-view.ts';
-  import type { MdSurface, MdView } from '../lib/md-view.ts';
-  import { mdView, setMdView } from '../lib/md-view.svelte.ts';
+  import { MD_VIEWS } from '../lib/text/md-view.ts';
+  import type { MdSurface, MdView } from '../lib/text/md-view.ts';
+  import { mdView, setMdView } from '../lib/text/md-view.svelte.ts';
   import IconButton from './IconButton.svelte';
-  import { t } from '../lib/locale.ts';
-  import { slideMarker } from '../lib/marker.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { slideMarker } from '../lib/ui/marker.ts';
 
   let { surface, iconOnly = false }: { surface: MdSurface; iconOnly?: boolean } = $props();
 

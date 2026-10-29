@@ -1,18 +1,18 @@
-<!-- The Add project dialog: registers a repo through POST /api/projects (lib/add-project.ts), then selects it and opens its
+<!-- The Add project dialog: registers a repo through POST /api/projects (lib/shell/add-project.ts), then selects it and opens its
      Project page. The Settings shell: a labelled, focus-trapped dialog, a centred plate at md and up and a full-screen plate
      below. A field the server would refuse is named under it before anything is sent; a server refusal shows above the
      buttons, keeping what was typed. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import CloseButton from './CloseButton.svelte';
-  import { refreshMachine } from '../lib/app.svelte.ts';
-  import { addProjectBody, addProjectOutcome, postProject, type AddProjectError } from '../lib/add-project.ts';
-  import { closeAddProject } from '../lib/add-project.svelte.ts';
-  import { t } from '../lib/locale.ts';
-  import { EXIT, fade, pop } from '../lib/motion.ts';
-  import { lockScroll } from '../lib/scroll-lock.ts';
-  import { wrapFocus } from '../lib/settings.ts';
-  import { toast } from '../lib/toast.svelte.ts';
+  import { refreshMachine } from '../lib/core/app.svelte.ts';
+  import { addProjectBody, addProjectOutcome, postProject, type AddProjectError } from '../lib/shell/add-project.ts';
+  import { closeAddProject } from '../lib/shell/add-project.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
+  import { EXIT, fade, pop } from '../lib/ui/motion.ts';
+  import { lockScroll } from '../lib/ui/overlay/scroll-lock.ts';
+  import { wrapFocus } from '../lib/settings/modal.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
 
   let dir = $state('');
   let name = $state('');

@@ -15,16 +15,16 @@
   import BudgetChip from './BudgetChip.svelte';
   import Chip from './Chip.svelte';
   import MandateBadge from './MandateBadge.svelte';
-  import { memberPrs } from '../lib/repos.ts';
-  import { effortChip } from '../lib/effort.ts';
-  import { ago, tokensShort } from '../lib/util.ts';
-  import { agentsSummary, needsHuman, runningRoles } from '../lib/job-state.ts';
-  import { cardModel } from '../lib/board.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { sessionActivity } from '../lib/live.ts';
-  import type { StateJob } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { memberPrs } from '../lib/jobs/repos.ts';
+  import { effortChip } from '../lib/jobs/effort.ts';
+  import { ago, tokensShort } from '../lib/core/util.ts';
+  import { agentsSummary, needsHuman, runningRoles } from '../lib/jobs/state.ts';
+  import { cardModel } from '../lib/jobs/board.ts';
+  import { S, openDrawer } from '../lib/core/app.svelte.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { sessionActivity } from '../lib/sessions/live.ts';
+  import type { StateJob } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   /** `onopen` replaces opening the job's panel: the issue panel's card opens it with a Back button. */
   let { job: j, onopen }: { job: StateJob; onopen?: () => void } = $props();

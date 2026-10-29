@@ -16,15 +16,15 @@
   import IconButton from '../IconButton.svelte';
   import Select from '../Select.svelte';
   import Tooltip from '../Tooltip.svelte';
-  import { PERMISSION_MODES, START_HINT, billingNote, daemonRows, jobFallbackMode, launchMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/daemon.ts';
-  import type { DaemonBilling } from '../../lib/types.ts';
-  import type { SelectOption } from '../../lib/select.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import { JOBS_SCOPE } from '../../lib/types.ts';
-  import { S, openDrawer, refresh } from '../../lib/app.svelte.ts';
-  import { closePopover } from '../../lib/popover.svelte.ts';
-  import { t } from '../../lib/locale.ts';
-  import { tokensShort } from '../../lib/util.ts';
+  import { PERMISSION_MODES, START_HINT, billingNote, daemonRows, jobFallbackMode, launchMode, postDaemonMode, type Pill, type PoolModel } from '../../lib/sessions/daemon.ts';
+  import type { DaemonBilling } from '../../lib/core/types.ts';
+  import type { SelectOption } from '../../lib/ui/select.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import { JOBS_SCOPE } from '../../lib/core/types.ts';
+  import { S, openDrawer, refresh } from '../../lib/core/app.svelte.ts';
+  import { closePopover } from '../../lib/ui/overlay/popover.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
+  import { tokensShort } from '../../lib/core/util.ts';
 
   let {
     model,

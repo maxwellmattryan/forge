@@ -2,33 +2,33 @@
      actions and the session's permission prompts live in the drawer's ActionDock, on every tab. Request text and
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
      characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings and scan
-     error are plain text, never markdown. Progress lines (lib/thread-progress.ts) sit between the messages as one-line rows,
+     error are plain text, never markdown. Progress lines (lib/jobs/thread-progress.ts) sit between the messages as one-line rows,
      their agent and engine text plain; the Progress button hides them, and they never count as unread. The opening request
      comes as the server's 2,000-character excerpt; when it was cut, a button loads the whole request.md, which goes
-     through the same md() or text view. Each sender has its own colour and icon (lib/sender.ts WHO), the same on every
-     message. A message or reply that arrives while the Thread is open types out behind a caret (lib/typing.ts), its
+     through the same md() or text view. Each sender has its own colour and icon (lib/logs/sender.ts WHO), the same on every
+     message. A message or reply that arrives while the Thread is open types out behind a caret (lib/jobs/typing.ts), its
      reply after it; what was there when it opened, a page load or a reconnect (settled()) and reduced motion show whole. -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import Chip from './Chip.svelte';
   import Icon from './Icon.svelte';
   import MarkdownToggle from './MarkdownToggle.svelte';
-  import { md } from '../lib/markdown.ts';
-  import { renderable } from '../lib/md-view.ts';
-  import { mdView } from '../lib/md-view.svelte.ts';
-  import { ago, api } from '../lib/util.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { STAGE_LABEL, WAIT_LABEL } from '../lib/labels.ts';
-  import { threadFeed, threadProgress, type Progress } from '../lib/thread-progress.ts';
-  import { pref } from '../lib/prefs.ts';
-  import { requestText, secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/thread.ts';
-  import { WHO } from '../lib/sender.ts';
-  import { S } from '../lib/app.svelte.ts';
-  import { prefersReducedMotion, settled } from '../lib/motion.ts';
-  import { scheduleTyping, typedText, type Typing } from '../lib/typing.ts';
-  import type { ForgeRequest, Job, JobEvent } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { md } from '../lib/text/markdown.ts';
+  import { renderable } from '../lib/text/md-view.ts';
+  import { mdView } from '../lib/text/md-view.svelte.ts';
+  import { ago, api } from '../lib/core/util.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { STAGE_LABEL, WAIT_LABEL } from '../lib/core/labels.ts';
+  import { threadFeed, threadProgress, type Progress } from '../lib/jobs/thread-progress.ts';
+  import { pref } from '../lib/settings/prefs.ts';
+  import { requestText, secretLine, threadItems, threadMark, type ThreadAction, type ThreadFrom, type ThreadOpening, type ThreadSecret, type ThreadStatus } from '../lib/jobs/thread.ts';
+  import { WHO } from '../lib/logs/sender.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import { prefersReducedMotion, settled } from '../lib/ui/motion.ts';
+  import { scheduleTyping, typedText, type Typing } from '../lib/jobs/typing.ts';
+  import type { ForgeRequest, Job, JobEvent } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   /** `baseline`: the Thread's marks when the drawer opened; a message whose mark is not in it is new or changed since. */
   let { job, requests, opening, events = [], baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; events?: JobEvent[]; baseline?: string[] | null } = $props();

@@ -3,9 +3,9 @@
 // project (App's first route() call).
 import { mount } from 'svelte';
 import App from './App.svelte';
-import { consumeLoginFragment, watchLoginFragment } from './lib/login.ts';
-import { entryRedirect } from './lib/routes.ts';
-import { followSystemTheme } from './lib/theme.ts';
+import { consumeLoginFragment, watchLoginFragment } from './lib/core/login.ts';
+import { entryRedirect } from './lib/shell/routes.ts';
+import { followSystemTheme } from './lib/ui/theme.ts';
 
 followSystemTheme();
 // Before the app mounts, so it runs ahead of App's own hashchange handler: a login link pasted into this open tab changes only the fragment.

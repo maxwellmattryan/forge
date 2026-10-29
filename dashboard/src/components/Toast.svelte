@@ -3,18 +3,18 @@
      The visible plate rises in and fades out on its own, with its copy of the message aria-hidden so nothing is read twice;
      toastState.msg outlives `shown`, so the plate keeps its text while it fades. Pointer or focus inside holds the toast past
      its 4 s. Dismiss draws its ring inside itself: the plate clips to its cut corner, which would shave a ring drawn outside.
-     It never covers the board's controls, the job drawer's dock or the status bar (src/lib/toast-place.ts): at md and up it sits
+     It never covers the board's controls, the job drawer's dock or the status bar (src/lib/ui/overlay/toast-place.ts): at md and up it sits
      at the bottom right, left of an open drawer and above its backdrop; below md, top-centre. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
   import CloseButton from './CloseButton.svelte';
-  import { toastState as toast, dismissToast, holdToast, releaseToast } from '../lib/toast.svelte.ts';
-  import { toastPlacement } from '../lib/toast-place.ts';
-  import { S } from '../lib/app.svelte.ts';
-  import { clampPaneWidth } from '../lib/drawer.ts';
-  import { EXIT, fade, rise } from '../lib/motion.ts';
-  import { sidebarShown } from '../lib/sidebar.ts';
-  import { t } from '../lib/locale.ts';
+  import { toastState as toast, dismissToast, holdToast, releaseToast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { toastPlacement } from '../lib/ui/overlay/toast-place.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import { clampPaneWidth } from '../lib/jobs/drawer.ts';
+  import { EXIT, fade, rise } from '../lib/ui/motion.ts';
+  import { sidebarShown } from '../lib/shell/sidebar.ts';
+  import { t } from '../lib/text/locale.ts';
 
   const place = $derived(toastPlacement({ narrow: !S.pane.md, paneOpen: S.drawer.open, paneWidth: clampPaneWidth(S.pane.width, S.pane.viewport, sidebarShown(S.side)) }));
 </script>

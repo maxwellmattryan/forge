@@ -4,12 +4,12 @@
      the link stays the keyboard's way to GitHub, and the card's own links are for the pointer. Everything in it is GitHub text and renders as text. -->
 <script lang="ts">
   import Chip from './Chip.svelte';
-  import { CARD_ID, closeCard, ghCard, holdCard, isCardLink, linkIntent, pointerLeft } from '../lib/github-card.svelte.ts';
-  import { checksTone, countShort, placeCard, previewable, reviewTone, stateTone } from '../lib/github.ts';
-  import { ago } from '../lib/util.ts';
-  import { safeUrl } from '../lib/markdown.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { CARD_ID, closeCard, ghCard, holdCard, isCardLink, linkIntent, pointerLeft } from '../lib/ui/overlay/github-card.svelte.ts';
+  import { checksTone, countShort, placeCard, previewable, reviewTone, stateTone } from '../lib/ui/overlay/github.ts';
+  import { ago } from '../lib/core/util.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let card = $state<HTMLDivElement>();
   let height = $state(0);

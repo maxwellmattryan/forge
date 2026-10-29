@@ -3,7 +3,7 @@
 <script lang="ts">
   import Loading from '../Loading.svelte';
   import Skeleton from '../Skeleton.svelte';
-  import { t } from '../../lib/locale.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let { bare = false }: { bare?: boolean } = $props();
   const ROWS = ['85%', '60%', '75%', '50%'];

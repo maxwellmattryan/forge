@@ -1,8 +1,8 @@
 <!-- The Evals compare result: config and version line, then one row per metric. -->
 <script lang="ts">
-  import { compareRows } from '../lib/analytics.ts';
-  import type { EvalCompare } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { compareRows } from '../lib/metrics/analytics.ts';
+  import type { EvalCompare } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { result: c }: { result: EvalCompare } = $props();
   const rows = $derived(compareRows(c));

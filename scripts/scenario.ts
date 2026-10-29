@@ -10,10 +10,10 @@ import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { PLUGIN_ROOT, jobDir } from '../lib/core/paths.ts';
 import { gitEnv } from '../lib/integrations/git/runner.ts';
-import { VIEWS } from '../dashboard/src/lib/nav.ts';
-import { mergeCatalogs } from '../dashboard/src/lib/i18n.ts';
-import type { Catalog } from '../dashboard/src/lib/i18n.ts';
-import type { ViewId } from '../dashboard/src/lib/nav.ts';
+import { VIEWS } from '../dashboard/src/lib/shell/nav.ts';
+import { mergeCatalogs } from '../dashboard/src/lib/text/i18n.ts';
+import type { Catalog } from '../dashboard/src/lib/text/i18n.ts';
+import type { ViewId } from '../dashboard/src/lib/shell/nav.ts';
 import { gitSync } from './git.ts';
 
 export const SCENARIO_DIR = path.join(PLUGIN_ROOT, 'test', 'fixtures', 'scenarios');

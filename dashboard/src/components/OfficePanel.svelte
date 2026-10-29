@@ -1,4 +1,4 @@
-<!-- The Office page's panel, in two columns where the view is wide enough (lib/office-layout.ts), stacked below that. The
+<!-- The Office page's panel, in two columns where the view is wide enough (lib/office/layout.ts), stacked below that. The
      left column, top to bottom: the mandates (New mandate and the editor, the open ones, unreadable ones as one line each,
      then the closed ones folded), the gate runs (only while the Foreman is on), and the latest directives, newest first;
      it scrolls on its own. The right column is the office session: the Foreman-off note, or its permission prompts and
@@ -17,15 +17,15 @@
   import SessionLog from './SessionLog.svelte';
   import ForemanDirectivesSkeleton from './skeletons/ForemanDirectivesSkeleton.svelte';
   import ForemanMandatesSkeleton from './skeletons/ForemanMandatesSkeleton.svelte';
-  import { OFFICE_GRID, OFFICE_LEFT, OFFICE_RIGHT } from '../lib/office-layout.ts';
-  import { DIRECTIVE_TONE, directiveActor, directiveFeed, isUnreadable, mandateGroups, pendingGates } from '../lib/foreman.ts';
-  import { gateRunRows, gateRunsHeader, type GateRunShown } from '../lib/gate-runs.ts';
-  import { pendingPrompts } from '../lib/permissions.ts';
-  import { OFFICE_SCOPE } from '../lib/types.ts';
-  import { ago, clock } from '../lib/util.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
-  import { ticker } from '../lib/clock.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { OFFICE_GRID, OFFICE_LEFT, OFFICE_RIGHT } from '../lib/office/layout.ts';
+  import { DIRECTIVE_TONE, directiveActor, directiveFeed, isUnreadable, mandateGroups, pendingGates } from '../lib/office/foreman.ts';
+  import { gateRunRows, gateRunsHeader, type GateRunShown } from '../lib/office/gate-runs.ts';
+  import { pendingPrompts } from '../lib/sessions/permissions.ts';
+  import { OFFICE_SCOPE } from '../lib/core/types.ts';
+  import { ago, clock } from '../lib/core/util.ts';
+  import { S, openDrawer } from '../lib/core/app.svelte.ts';
+  import { ticker } from '../lib/core/clock.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   const data = $derived(S.data);
   const foremanOn = $derived(data?.daemons?.foreman === true);

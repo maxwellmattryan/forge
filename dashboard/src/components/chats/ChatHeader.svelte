@@ -9,11 +9,11 @@
   import { tick } from 'svelte';
   import Chip from '../Chip.svelte';
   import MarkdownToggle from '../MarkdownToggle.svelte';
-  import { archiveChat, renameChat } from '../../lib/chats.ts';
-  import { sessionPill } from '../../lib/daemon.ts';
-  import type { Chat, DaemonSessionState } from '../../lib/types.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import { t } from '../../lib/locale.ts';
+  import { archiveChat, renameChat } from '../../lib/office/chats.ts';
+  import { sessionPill } from '../../lib/sessions/daemon.ts';
+  import type { Chat, DaemonSessionState } from '../../lib/core/types.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let {
     chat,

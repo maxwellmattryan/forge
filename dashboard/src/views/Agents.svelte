@@ -4,12 +4,12 @@
   import EffortChip from '../components/EffortChip.svelte';
   import Empty from '../components/Empty.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import { ago } from '../lib/util.ts';
-  import { effortChip } from '../lib/effort.ts';
-  import type { ApiState, Effort, EffortSource, RosterModelBy } from '../lib/types.ts';
-  import { agentSessions, runningAgents } from '../lib/agents.ts';
-  import { S, openDrawer } from '../lib/app.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { ago } from '../lib/core/util.ts';
+  import { effortChip } from '../lib/jobs/effort.ts';
+  import type { ApiState, Effort, EffortSource, RosterModelBy } from '../lib/core/types.ts';
+  import { agentSessions, runningAgents } from '../lib/sessions/agents.ts';
+  import { S, openDrawer } from '../lib/core/app.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   // App renders a view only once S.data is loaded.
   const data = $derived(S.data as ApiState);

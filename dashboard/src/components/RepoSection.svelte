@@ -1,10 +1,10 @@
 <!-- The drawer's Repos table for a job with member repos: one row per job repo, root first. Nothing for a single-repo job. -->
 <script lang="ts">
   import PrChip from './PrChip.svelte';
-  import { jobRepoRows } from '../lib/repos.ts';
-  import { S } from '../lib/app.svelte.ts';
-  import type { Job } from '../lib/types.ts';
-  import { t } from '../lib/locale.ts';
+  import { jobRepoRows } from '../lib/jobs/repos.ts';
+  import { S } from '../lib/core/app.svelte.ts';
+  import type { Job } from '../lib/core/types.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: Partial<Job> } = $props();
   const rows = $derived(jobRepoRows(job, S.data?.repo?.name ?? ''));

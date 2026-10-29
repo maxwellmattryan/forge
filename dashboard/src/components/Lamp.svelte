@@ -1,7 +1,7 @@
-<!-- A pilot lamp (src/lib/station.ts LampState): decorative, so aria-hidden; the pill or text beside it carries the meaning.
+<!-- A pilot lamp (src/lib/logs/station.ts LampState): decorative, so aria-hidden; the pill or text beside it carries the meaning.
      `relit`: it was just remounted by a stage change, so it comes back from dark. -->
 <script lang="ts">
-  import type { LampState } from '../lib/station.ts';
+  import type { LampState } from '../lib/logs/station.ts';
 
   let { state, relit = false }: { state: LampState; relit?: boolean } = $props();
   // Whole literals, so Tailwind sees every class.

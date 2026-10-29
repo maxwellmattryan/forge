@@ -11,13 +11,13 @@
   import Icon from './Icon.svelte';
   import IconButton from './IconButton.svelte';
   import LiveDot from './LiveDot.svelte';
-  import { safeUrl } from '../lib/markdown.ts';
-  import { environmentModel, postEditor, postFocus } from '../lib/focus.ts';
-  import { actionToast, backingButtons, backingSource, devButtons, devChip, dockerDown as dockerIsDown, fetchEnvironment, logHint, postEnvironment, serviceChip, type ButtonHint } from '../lib/environment.ts';
-  import { S, refresh } from '../lib/app.svelte.ts';
-  import type { DevState, EnvironmentAction, EnvironmentService, EnvironmentTarget, Job, JobEnvironmentResponse } from '../lib/types.ts';
-  import { toast } from '../lib/toast.svelte.ts';
-  import { t } from '../lib/locale.ts';
+  import { safeUrl } from '../lib/text/markdown.ts';
+  import { environmentModel, postEditor, postFocus } from '../lib/project/focus.ts';
+  import { actionToast, backingButtons, backingSource, devButtons, devChip, dockerDown as dockerIsDown, fetchEnvironment, logHint, postEnvironment, serviceChip, type ButtonHint } from '../lib/project/environment.ts';
+  import { S, refresh } from '../lib/core/app.svelte.ts';
+  import type { DevState, EnvironmentAction, EnvironmentService, EnvironmentTarget, Job, JobEnvironmentResponse } from '../lib/core/types.ts';
+  import { toast } from '../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../lib/text/locale.ts';
 
   let { job }: { job: Pick<Job, 'id' | 'state' | 'worktree'> } = $props();
   // /api/state carries the endpoints and is polled, so the live dot follows it; the detail's job is the fallback.

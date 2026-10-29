@@ -10,14 +10,14 @@
   import Banner from '../Banner.svelte';
   import Empty from '../Empty.svelte';
   import ChatView from './ChatView.svelte';
-  import { createChat, isChatId, listChats, pickChat } from '../../lib/chats.ts';
-  import { currentProject } from '../../lib/project.ts';
-  import { pref } from '../../lib/prefs.ts';
-  import type { Chat } from '../../lib/types.ts';
-  import { ago } from '../../lib/util.ts';
-  import { ticker } from '../../lib/clock.svelte.ts';
-  import { toast } from '../../lib/toast.svelte.ts';
-  import { t } from '../../lib/locale.ts';
+  import { createChat, isChatId, listChats, pickChat } from '../../lib/office/chats.ts';
+  import { currentProject } from '../../lib/core/project.ts';
+  import { pref } from '../../lib/settings/prefs.ts';
+  import type { Chat } from '../../lib/core/types.ts';
+  import { ago } from '../../lib/core/util.ts';
+  import { ticker } from '../../lib/core/clock.svelte.ts';
+  import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
+  import { t } from '../../lib/text/locale.ts';
 
   let chats = $state.raw<Chat[] | null>(null);
   let loadError = $state<string | null>(null);
