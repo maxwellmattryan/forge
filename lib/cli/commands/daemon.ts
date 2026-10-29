@@ -1,5 +1,6 @@
-// `forge daemon status|log`: the terminal's view of the session pool. Both read runtime files only,
-// so they work with or without a running `forge dash` and never talk to its server.
+// `forge daemon status|log|prompts`: the terminal's view of the session pool. Each reads runtime files only,
+// so they work with or without a running `forge dash` and never talk to its server; `prompts` writes nothing,
+// not even the config it suggests rules for.
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from '#core/config/load.ts';
@@ -7,6 +8,9 @@ import { openRead, readInfo, sessionFiles, sessionRecords, tailLines } from '#co
 import { redactKnown, scopeKnownValues } from '#engine/guard/known-secrets.ts';
 import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, sharedScope, validJobId } from '#core/job/requests.ts';
 import { sessionAgents } from '#office/session/owned.ts';
+import { readPromptHistory } from '#office/session/permissions/history.ts';
+import { promptReport, promptRoots, type PromptReport } from '#office/session/permissions/suggest.ts';
+import { parseAuditDate } from '#engine/ops/audit.ts';
 import { recordIds } from '#office/driver.ts';
 import { ForgeError } from '#core/errors.ts';
 import { pidAlive } from '#core/os/process.ts';
@@ -15,6 +19,9 @@ import { forgeHome } from '#core/paths.ts';
 import { usageError } from './args.ts';
 import type { HelpGroup } from '../types.ts';
 import type { DaemonPermissionMode } from '#core/types.ts';
+
+const DEFAULT_MIN = 3;
+const MAX_MIN = 1000;
 
 const DAEMON: HelpGroup = {
   name: 'daemon',
@@ -34,6 +41,16 @@ const DAEMON: HelpGroup = {
       ],
       exits: [[1, 'an invalid job id, or no readable log']],
       common: true,
+    },
+    {
+      command: 'daemon prompts',
+      args: '[--since DATE] [--min N]',
+      summary: 'the permission prompts pool sessions raised, grouped by candidate rule, with suggested daemon.allowedTools entries (read-only)',
+      flags: [
+        ['--since DATE', 'only count prompts answered at or after DATE (YYYY-MM-DD or a full ISO timestamp); a deny before it still blocks a suggestion'],
+        ['--min N', `suggest a rule only once allowed at least N times (1-${MAX_MIN}, default ${DEFAULT_MIN})`],
+      ],
+      exits: [[2, `a --since that is not a date, a --min outside 1-${MAX_MIN}, or an argument (usage)`]],
     },
   ],
 };
@@ -69,10 +86,24 @@ export function escapeControls(line: string): string {
   return line.replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
-export async function daemonCmd(root: string, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<DaemonStatusOut | string | undefined> {
+export async function daemonCmd(root: string, sub: string | undefined, rest: string[], flags: Record<string, any>): Promise<DaemonStatusOut | PromptReport | string | undefined> {
   if (sub === 'status') return status(root);
   if (sub === 'log') return log(root, rest[0], flags);
+  if (sub === 'prompts') return prompts(root, rest, flags);
   throw usageError(DAEMON);
+}
+
+/** The prompt history's report (lib/office/session/permissions/suggest.ts): reads the history and the config, writes nothing. */
+function prompts(root: string, rest: string[], flags: Record<string, any>): PromptReport {
+  if (rest.length) throw usageError(DAEMON, 'prompts');
+  const since = flags.since === undefined ? null : parseAuditDate(flags.since, '--since');
+  // Digits only: a bare --min (true), a repeated one (an array) and `0x10` all fail.
+  const min = flags.min === undefined ? DEFAULT_MIN : /^\d{1,4}$/.test(String(flags.min)) ? Number(flags.min) : NaN;
+  if (!(min >= 1 && min <= MAX_MIN))
+    throw new ForgeError(`--min must be an integer from 1 to ${MAX_MIN} (got ${JSON.stringify(String(flags.min)).slice(0, 60)})`, 'usage');
+  const config = loadConfig(root).config;
+  // The whole history is read and promptReport applies `since`: a deny before it must still block a suggestion.
+  return promptReport(readPromptHistory(root), { min, since, allowedTools: config.daemon?.allowedTools, roots: promptRoots(root, config) });
 }
 
 function str(v: unknown): string | null {

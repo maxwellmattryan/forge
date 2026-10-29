@@ -120,7 +120,7 @@ export function sessionGrant(suggestions: unknown): SessionGrant {
 }
 
 /** A rule content that matches everything: only `*`, `:` and whitespace (`*`, `:*`, `**`). */
-const WILDCARD_RULE = /^[\s*:]*$/;
+export const WILDCARD_RULE = /^[\s*:]*$/;
 
 /** A rule as claude's settings write it: `Bash(npm test)`, or a bare tool name. */
 export function ruleText(r: { toolName: string; ruleContent?: string }): string {

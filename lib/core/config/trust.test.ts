@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { defaults } from './keys/defaults.ts';
 import { splitWords } from '../text.ts';
-import { daemonIsolationWarning, daemonProblems, daemonTrust, trustDigest } from './trust.ts';
+import { allowedToolProblem, daemonIsolationWarning, daemonProblems, daemonTrust, trustDigest } from './trust.ts';
 
 function scratch(t: any): { root: string; write: (rel: string, text: string) => void } {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-trust-')));
@@ -31,6 +31,17 @@ test('daemonProblems polices file rules and MCP tools', () => {
     const problems = problemsFor([entry]);
     assert.equal(problems.length, 1, entry);
     assert.ok(problems[0].includes(JSON.stringify(entry)) && problems[0].includes('list bare Edit and Write'), entry);
+  }
+});
+
+test('allowedToolProblem refuses one entry as daemonProblems would', () => {
+  for (const ok of ['Bash(npm test:*)', 'Read(src/**)', 'Agent', 'Edit', 'Bash(forge:*)', 'WebFetch(domain:example.com)']) assert.equal(allowedToolProblem(ok), null, ok);
+  for (const bad of ['Bash(git log:*)', 'Bash(gh api:*)', 'Bash', 'Bash(*)', 'Edit(src/**)', 'Write(~/**)', 'mcp__x__y(z)', 'mcp__fs__write_file', 'Bash(a,b)', '', '  ', 7, null]) {
+    assert.equal(typeof allowedToolProblem(bad), 'string', JSON.stringify(bad));
+    // The same entry in the list: daemonProblems reports it too.
+    const c = defaults();
+    c.daemon.allowedTools = ['Agent', bad as string];
+    assert.notDeepEqual(daemonProblems(c).filter((p) => p.startsWith('daemon.allowedTools')), [], JSON.stringify(bad));
   }
 });
 
