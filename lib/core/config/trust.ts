@@ -46,7 +46,7 @@ export function daemonProblems(c: unknown, root?: string): string[] {
   const tools = d.allowedTools;
   if (!Array.isArray(tools)) problems.push(`daemon.allowedTools must be a list of tool names (got ${JSON.stringify(tools)})`);
   else {
-    const bad = tools.filter((t: any) => typeof t !== 'string' || !t.trim() || t.includes(','));
+    const bad = tools.filter(badEntry);
     if (bad.length) problems.push(`daemon.allowedTools entries must be non-empty strings without commas (got ${bad.map((t: any) => JSON.stringify(t)).join(', ')})`);
     if (!tools.includes('Agent')) problems.push('daemon.allowedTools must include Agent: the orchestrator runs every role as a subagent');
     const broad = tools.filter((t: any) => typeof t === 'string' && broadBash(t));
@@ -54,8 +54,7 @@ export function daemonProblems(c: unknown, root?: string): string[] {
       problems.push(
         `daemon.allowedTools must not include ${broad.map((t: any) => JSON.stringify(t)).join(', ')}: those reach arbitrary code execution, file writes or GitHub writes in an unattended session; use the scoped forms and \`forge git\` (docs/CONFIG.md "Daemon")`,
       );
-    // A scoped file rule would widen what the spawn scopes (Edit(//**) reaches ~/.ssh), and an MCP tool writes where no rule sees.
-    const unscoped = tools.filter((t: any) => typeof t === 'string' && (/^(Edit|Write|MultiEdit|NotebookEdit)\(/.test(t.trim()) || t.trim().startsWith('mcp__')));
+    const unscoped = tools.filter((t: any) => typeof t === 'string' && unscopedEntry(t));
     if (unscoped.length)
       problems.push(
         `daemon.allowedTools must not include ${unscoped.map((t: any) => JSON.stringify(t)).join(', ')}: list bare Edit and Write, which the daemon scopes to the job folders and worktrees at spawn; MCP tools are allowed per call from the dashboard (docs/CONFIG.md "Daemon")`,
@@ -293,6 +292,28 @@ function broadBash(tool: string): boolean {
   if (!m) return false;
   const spec = (m[1] ?? '').trim().replace(/(:\*|\s*\*)$/, '').trim();
   return BROAD_BASH.some((re) => re.test(spec));
+}
+
+/** An allowedTools entry claude can't take: not a non-empty string, or one with a comma (the list is passed comma-joined). */
+function badEntry(t: unknown): boolean {
+  return typeof t !== 'string' || !t.trim() || t.includes(',');
+}
+
+/** A scoped file rule would widen what the spawn scopes (Edit(//**) reaches ~/.ssh), and an MCP tool writes where no rule sees. */
+function unscopedEntry(t: string): boolean {
+  return /^(Edit|Write|MultiEdit|NotebookEdit)\(/.test(t.trim()) || t.trim().startsWith('mcp__');
+}
+
+/**
+ * Why one daemon.allowedTools entry would be refused, as a short fixed reason, or null: the per-entry checks
+ * daemonProblems applies (the list-wide one, that Agent is listed, is not here). `forge daemon prompts` runs
+ * it over the rules it might suggest, so a suggestion never fails validation once pasted.
+ */
+export function allowedToolProblem(t: unknown): string | null {
+  if (badEntry(t)) return 'not a non-empty string without commas';
+  if (broadBash(t as string)) return 'reaches arbitrary code execution, file writes or GitHub writes';
+  if (unscopedEntry(t as string)) return 'a scoped file rule or an MCP tool';
+  return null;
 }
 
 /**
