@@ -50,20 +50,18 @@ export function stepsFor(r: RepoInput): ReleaseStep[] {
     add('publish', 'Publish the packages and tag them', { argv: ['changeset', 'publish'], publish: true, check: 'tagged' });
     add('push', `Push the release commit and tags to ${r.remote}/${r.base}`, { argv: ['git', 'push', '--follow-tags', r.remote, `HEAD:refs/heads/${r.base}`], publish: true, check: 'tag-pushed' });
   } else if (mechanism === 'script') {
-    // Only `node <script> …`: every check on the release branch, the PR and the tag stays in the script, and
-    // `pr` has no check on purpose, so a resume always re-checks the branch tip before the merge.
+    // Only `node <script> …`: every check on the release branch, the PR and the tag stays in the script. `start`
+    // has no check on purpose: it is idempotent (cut, push and open the PR, each only when not done), so a resume
+    // re-checks the branch tip before the merge. The merge into the base publishes; CI tags, `tag` checks it.
     const v = r.bump?.to ?? '<version>';
     const phase = (name: string, ...rest: string[]) => ['node', String(r.strategy.script ?? ''), '--phase', name, v, ...rest];
-    add('start', `Cut Release ${v} on release/v${v} with the notes file, and push the branch`, { argv: phase('start', '--notes-file', r.bump?.notes ?? '<notes>'), publish: true });
-    add('build', `Wait for main-update.yml's build of Release ${v}`, { argv: phase('wait-build') });
-    add('pr', `Push the main update and open the release PR for ${v}`, { argv: phase('pr'), publish: true });
+    add('start', `Cut Release ${v} on release/v${v}, push it and open the release PR into ${r.base}`, { argv: phase('start', '--notes-file', r.bump?.notes ?? '<notes>'), publish: true });
     add('merge', 'Merge the release PR', {
-      manual: `Merge the release PR from release/v${v} in GitHub with "Create a merge commit", only while its head is the one the pr step printed as checked.`,
+      manual: `Merge the release PR from release/v${v} into ${r.base} in GitHub once its CI passes; the merge publishes v${v}.`,
       publish: true,
       check: 'pr-merged',
     });
-    add('tag', `Wait for release.yml to tag the merge commit v${v}`, { argv: phase('wait-tag') });
-    add('land', `Land Release ${v} on ${r.base} and push it`, { argv: phase('land'), publish: true });
+    add('tag', `Wait for release.yml to tag the stable commit v${v}`, { argv: phase('wait-tag') });
   } else {
     add('merge', "Merge the release PR", { manual: `Merge ${label}'s open release-please PR on GitHub; its workflow tags the release.`, publish: true, check: 'remote-tagged' });
     add('sync', `Fast-forward ${r.base} to ${r.remote}/${r.base}`, { argv: ['git', 'merge', '--ff-only', `${r.remote}/${r.base}`], check: 'at-remote' });
@@ -77,10 +75,8 @@ export function rollbackFor(r: RepoInput, steps: ReleaseStep[], pkg: ReleasePack
   const tag = `\`git push ${r.remote} --delete refs/tags/<tag>\`, then \`git tag --delete <tag>\`, and delete its GitHub Release if one was made: \`gh release delete <tag>\``;
   const v = r.bump?.to ?? '<version>';
   const script: Record<string, string> = {
-    land: `ship the fix as the next patch; to stop installs following \`v${v}\` sooner, revert the landing on ${r.base} in a PR`,
-    merge: `\`gh release delete v${v} --cleanup-tag\`, then undo the merge on main with a hotfix PR (RELEASES.md "Recovery"). Never move a published tag`,
-    pr: `close the release PR from release/v${v}`,
-    start: `\`git push ${r.remote} --delete release/v${v}\`, then \`git branch -D release/v${v}\``,
+    merge: 'ship the fix as the next patch release: `stable` only moves forward and installs follow it. Never move or reuse a published tag',
+    start: `close the release PR, then \`git push ${r.remote} --delete release/v${v}\` and \`git branch -D release/v${v}\``,
   };
   const lines = (s: ReleaseStep): string[] => {
     const m = r.strategy.mechanism;

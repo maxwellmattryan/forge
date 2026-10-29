@@ -43,7 +43,7 @@ if (argv[0] === '--draft-notes') {
 }
 if (argv[0] === '--check') {
   if (fs.existsSync(path.join(dir, 'merged'))) process.exit(0);
-  process.stderr.write('release: there is no release PR from release/v' + argv[2] + ' into main\\n');
+  process.stderr.write('release: there is no release PR from release/v' + argv[2] + ' into develop\\n');
   process.exit(1);
 }
 `;
