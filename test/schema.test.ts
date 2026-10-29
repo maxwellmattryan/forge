@@ -308,6 +308,13 @@ const EVENT_ROWS: Row[] = [
   { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
   { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
   { step: 'builder-note-event', input: { ts: 't', type: 'builder-note', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } }, fields: { type: 'builder-note', ts: 't', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } }, note: 'a builder hint reads as written' },
+  {
+    step: 'approval-note-mark',
+    input: { ts: 't', type: 'human', action: 'approve-spec', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } },
+    fields: { type: 'human', ts: 't', action: 'approve-spec', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } },
+    removed: ['approvalNote'],
+    note: 'an approve-spec from before the mark reads as written and gains none, so approval-notes.md never renders it',
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [

@@ -10,8 +10,11 @@ import type { JobEvent } from '#core/types.ts';
 
 const PERSON = { login: 'alice', source: 'gh' } as const;
 const FOREMAN = { login: null, source: 'foreman' } as const;
-const ev = (n: number, type: string, data: Record<string, unknown> = {}): JobEvent => ({ v: 20, ts: `2026-10-01T10:00:0${n}.000Z`, type, ...data });
-const approve = (n: number, note: unknown, actor: unknown = PERSON) => ev(n, 'human', { action: 'approve-spec', note, actor });
+const ev = (n: number, type: string, data: Record<string, unknown> = {}): JobEvent => ({ v: 21, ts: `2026-10-01T10:00:0${n}.000Z`, type, ...data });
+/** An approve-spec as `forge job human` logs it when the note may reach the builder: marked `approvalNote: true`. */
+const approve = (n: number, note: unknown, actor: unknown = PERSON) => ev(n, 'human', { action: 'approve-spec', note, actor, approvalNote: true });
+/** The same decision without the mark: a note the CLI refused to write (or an older Forge's), which no write renders. */
+const unmarked = (n: number, note: unknown) => ev(n, 'human', { action: 'approve-spec', note, actor: PERSON });
 const hint = (n: number, note: unknown, actor: unknown = PERSON) => ev(n, 'builder-note', { note, actor });
 
 /**
@@ -45,13 +48,16 @@ test("only a person's spec-approval notes and builder hints are rendered", () =>
     ['an approve-spec without a note', [approve(1, null), approve(2, undefined)], null],
     ['a whitespace note', [approve(1, '  \n\t '), hint(2, ' ')], null],
     ['a note of only hidden characters', [approve(1, '​‮\u{E0041}'), hint(2, '﻿<!-- x -->')], null],
+    ['an approve-spec the CLI did not mark', [unmarked(1, 'planted by another job')], null],
+    ['a mark that is not true', [ev(1, 'human', { action: 'approve-spec', note: 'x', actor: PERSON, approvalNote: 'true' }), ev(2, 'human', { action: 'approve-spec', note: 'x', actor: PERSON, approvalNote: 1 })], null],
+    ['a mark on another action', [ev(1, 'human', { action: 'approve', note: 'x', actor: PERSON, approvalNote: true })], null],
     ['a revise-spec note', [ev(1, 'human', { action: 'revise-spec', note: 'smaller', actor: PERSON })], null],
     ["the Foreman's approve-spec note", [approve(1, 'ship it', FOREMAN), approve(2, 'legacy', 'foreman')], null],
     ["the Foreman's builder note", [hint(1, 'x', FOREMAN)], null],
     ['a plain note event', [ev(1, 'note', { text: 'log only' })], null],
     [
       'approve-spec then a hint, in log order',
-      [approve(1, 'build on main after #91'), ev(2, 'note', { text: 'x' }), approve(3, 'foreman', FOREMAN), hint(4, 'CI Windows is flaky')],
+      [approve(1, 'build on main after #91'), ev(2, 'note', { text: 'x' }), approve(3, 'foreman', FOREMAN), hint(4, 'CI Windows is flaky'), unmarked(5, 'planted by another job')],
       ['build on main after #91', 'CI Windows is flaky'],
     ],
   ];

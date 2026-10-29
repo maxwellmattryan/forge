@@ -73,15 +73,16 @@ export async function human(root: string, config: Config, rest: string[], flags:
   if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
   else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
   else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
-  logHumanEvent(root, jobId, 'human', { action, note: noted }, actor);
-  // A person's note reaches the builder: approval-notes.md, which the builder brief lists. Only for a job that waited on
-  // spec-approval when this call began, and from a session that may add a builder hint for it: approve-spec is no way into
-  // another job's brief. A skipped or failed write never undoes the decision; the result says why no file was written.
+  // A person's note reaches the builder (approval-notes.md, which the builder brief lists) only for a job that waited on
+  // spec-approval when this call began and from a session that may add a builder hint for it: approve-spec is no way into
+  // another job's brief. That is decided here, before the event is logged, and the event carries the answer
+  // (`approvalNote: true`): approval-notes.md renders only marked notes, so a refused note never shows up in a later write.
+  const noteGiven = action === 'approve-spec' && Boolean(noted?.trim());
+  const skip = !noteGiven ? null : job.waitingOn === 'spec-approval' ? builderNoteRefusal(jobId, 'forge job human approve-spec') : `job ${jobId} is not waiting on spec-approval`;
+  logHumanEvent(root, jobId, 'human', { action, note: noted, ...(noteGiven && skip === null ? { approvalNote: true } : {}) }, actor);
+  // A skipped or failed write never undoes the decision; the result says why no file was written.
   let approvalNotes: { path: string; written: boolean; error?: string } | null = null;
-  if (action === 'approve-spec' && noted?.trim()) {
-    const skip = job.waitingOn === 'spec-approval' ? builderNoteRefusal(jobId, 'forge job human approve-spec') : `job ${jobId} is not waiting on spec-approval`;
-    approvalNotes = skip === null ? writeApprovalNotes(root, jobId) : { path: approvalNotesPath(root, jobId), written: false, error: skip };
-  }
+  if (noteGiven) approvalNotes = skip === null ? writeApprovalNotes(root, jobId) : { path: approvalNotesPath(root, jobId), written: false, error: skip };
   return { ok: true, ...(link !== undefined ? { link: linked } : {}), ...(approvalNotes ? { approvalNotes } : {}) };
 }
 

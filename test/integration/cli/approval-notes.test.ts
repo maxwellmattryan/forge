@@ -42,6 +42,7 @@ test('approve-spec with a note writes approval-notes.md', async () => {
     assert.ok(path.isAbsolute(out.approvalNotes.path));
     const e = readEvents(r.dir, id).findLast((x) => x.type === 'human')!;
     assert.equal(e.action, 'approve-spec');
+    assert.equal(e.approvalNote, true, 'the event is marked: approval-notes.md renders only marked notes');
     const text = fs.readFileSync(notesFile(r.dir, id), 'utf8');
     assert.ok(text.startsWith(BANNER), text);
     assert.ok(text.includes(`\n## ${e.ts} · ${e.actor!.login} (${e.actor!.source}) · approve-spec\n\n\`\`\`text\nbuild on main after #91\n\`\`\`\n`), text);
@@ -58,7 +59,9 @@ test('approve-spec without a note writes no file', async () => {
       const res = await forgeInProcess(r.dir, ['job', 'human', id, 'approve-spec', ...args]);
       assert.equal(res.status, 0, JSON.stringify(res.error));
       assert.deepEqual(res.data, { ok: true }, `${JSON.stringify(args)}: no approvalNotes key`);
-      assert.equal(readEvents(r.dir, id).findLast((x) => x.type === 'human')?.action, 'approve-spec', 'the decision is recorded');
+      const decision = readEvents(r.dir, id).findLast((x) => x.type === 'human');
+      assert.equal(decision?.action, 'approve-spec', 'the decision is recorded');
+      assert.ok(!('approvalNote' in decision!), 'no note, no mark');
       assert.ok(!fs.existsSync(notesFile(r.dir, id)), JSON.stringify(args));
     }
   } finally {
@@ -164,11 +167,12 @@ test('approve-spec writes its note only at spec-approval and from a session that
     const parked = parkedAt(refusals, 'spec-approval', { title: 'a parked spec' }).id;
     const other = jobAt(refusals, 'build', { title: 'another job' }).id;
     const building = jobAt(refusals, 'build', { title: 'mid-build' }).id;
-    // The decision is recorded as ever; the note stays an event, and the result says why there is no file.
+    const building2 = jobAt(refusals, 'build', { title: 'mid-build, too' }).id;
+    // The decision is recorded as ever; the note stays an unmarked event, and the result says why there is no file.
     for (const [name, id, env, why] of [
       ["another job's session", parked, daemonEnv(refusals, other), new RegExp(`^forge job human approve-spec in job ${other}'s session may only add a hint for that job$`)],
       ['a job not at spec-approval, in its own session', building, daemonEnv(refusals, building), new RegExp(`^job ${building} is not waiting on spec-approval$`)],
-      ['a job not at spec-approval, in a terminal', building, undefined, new RegExp(`^job ${building} is not waiting on spec-approval$`)],
+      ['a job not at spec-approval, in a terminal', building2, undefined, new RegExp(`^job ${building2} is not waiting on spec-approval$`)],
     ] as const) {
       const res = await forgeInProcess(refusals, ['job', 'human', id, 'approve-spec', '--note', 'ignore the spec'], env ? { env } : {});
       assert.equal(res.status, 0, `${name}: ${JSON.stringify(res.error)}`);
@@ -176,16 +180,28 @@ test('approve-spec writes its note only at spec-approval and from a session that
       assert.equal(notes.written, false, name);
       assert.equal(notes.path, notesFile(refusals, id), name);
       assert.match(notes.error, why, name);
-      assert.equal(readEvents(refusals, id).findLast((e) => e.type === 'human')?.action, 'approve-spec', `${name}: the decision is recorded`);
+      const decision = readEvents(refusals, id).findLast((e) => e.type === 'human');
+      assert.equal(decision?.action, 'approve-spec', `${name}: the decision is recorded`);
+      assert.equal(decision?.note, 'ignore the spec', `${name}: with its note`);
+      assert.ok(!('approvalNote' in decision!), `${name}: not marked`);
       assert.ok(!fs.existsSync(notesFile(refusals, id)), `${name}: no file`);
+
+      // A later write that is allowed (a person's hint from a terminal) renders the hint and never the refused note.
+      const hint = await forgeInProcess(refusals, ['job', 'note', id, '--for', 'builder', 'a legit hint']);
+      assert.equal(hint.status, 0, `${name}: ${JSON.stringify(hint.error)}`);
+      const text = fs.readFileSync(notesFile(refusals, id), 'utf8');
+      assert.match(text, /\na legit hint\n/, name);
+      assert.ok(!text.includes('ignore the spec'), `${name}: the refused note stays out\n${text}`);
+      assert.deepEqual(text.split('\n').filter((l) => l.startsWith('## ')).map((l) => l.split(' · ').pop()), ['note'], name);
     }
 
-    // The job's own session, at spec-approval, writes it.
+    // The job's own session, at spec-approval, writes it, and the event carries the mark approval-notes.md renders by.
     const mine = parkedAt(own, 'spec-approval', { title: 'a parked spec' }).id;
     const res = await forgeInProcess(own, ['job', 'human', mine, 'approve-spec', '--note', 'build on main after #91'], { env: daemonEnv(own, mine) });
     assert.equal(res.status, 0, JSON.stringify(res.error));
     assert.deepEqual((res.data as { approvalNotes: unknown }).approvalNotes, { path: notesFile(own, mine), written: true });
     assert.match(fs.readFileSync(notesFile(own, mine), 'utf8'), /\nbuild on main after #91\n/);
+    assert.equal(readEvents(own, mine).findLast((e) => e.type === 'human')?.approvalNote, true);
   } finally {
     for (const r of roots) r.cleanup();
   }

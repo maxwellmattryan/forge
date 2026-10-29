@@ -48,10 +48,15 @@ export function builderNoteRefusal(id: string, by: string): string | null {
   return s.daemon && !sharedScope(s.scope) && s.scope !== id ? `${by} in job ${s.scope}'s session may only add a hint for that job` : null;
 }
 
-/** A person's approve-spec with a note, or a builder hint, never the Foreman's: what approval-notes.md holds. */
+/**
+ * A person's approve-spec note that `forge job human` marked `approvalNote: true` when it logged it, or a builder hint,
+ * never the Foreman's: what approval-notes.md holds. The mark is the decision that this session and job may put the
+ * note in the builder's brief, taken when the event is logged, so an approve-spec the CLI refused to write stays an
+ * ordinary event that no later write renders. A hint needs no mark: `forge job note --for builder` refuses before it logs one.
+ */
 export function isApprovalNote(e: JobEvent): boolean {
   if (isForemanActor(e) || !noteBody(e.note)) return false;
-  return (e.type === 'human' && e.action === 'approve-spec') || e.type === 'builder-note';
+  return (e.type === 'human' && e.action === 'approve-spec' && e.approvalNote === true) || e.type === 'builder-note';
 }
 
 function heading(e: JobEvent): string {

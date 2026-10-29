@@ -772,7 +772,7 @@ export const rows: Row[] = [
   },
   {
     name: 'B4 the round-1 builder lists approval-notes.md after tasks.md',
-    fx: { files: ['spec', 'tasks'], present: [NOTES_MD], job: job({ stage: 'build', round: 1 }), events: [ev('human', 2, { action: 'approve-spec', note: 'build on main after #91', actor: PERSON }), ev('round', 4)] },
+    fx: { files: ['spec', 'tasks'], present: [NOTES_MD], job: job({ stage: 'build', round: 1 }), events: [ev('human', 2, { action: 'approve-spec', note: 'build on main after #91', actor: PERSON, approvalNote: true }), ev('round', 4)] },
     want: { action: 'spawn', rule: 'B4', role: 'builder' },
     check: (a) => {
       const lines: string[] = a.brief.split('\n');
@@ -860,7 +860,7 @@ export const rows: Row[] = [
   },
   {
     name: 'B4 a rework lists a builder note given since the last builder started',
-    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON }), ev('round', 7), ev('builder-note', 8, { note: 'CI Windows is flaky', actor: PERSON })]),
+    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON, approvalNote: true }), ev('round', 7), ev('builder-note', 8, { note: 'CI Windows is flaky', actor: PERSON })]),
     want: { action: 'spawn', rule: 'B4', role: 'builder' },
     check: (a) => {
       const lines: string[] = a.brief.split('\n');
@@ -874,12 +874,22 @@ export const rows: Row[] = [
   },
   {
     name: 'B4 a rework leaves out notes the last builder already had',
-    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON }), ev('round', 7)]),
+    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON, approvalNote: true }), ev('round', 7)]),
     want: { action: 'spawn', rule: 'B4', role: 'builder' },
     check: (a) => {
       const lines: string[] = a.brief.split('\n');
       assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`), a.brief);
       assert.ok(lines.includes('Rework: review'));
+    },
+  },
+  {
+    // The CLI marks an approve-spec note it let into the file; one it refused (another job's session, a job not at spec-approval) is unmarked.
+    name: 'B4 a rework does not list an approve-spec note the CLI did not mark, even one given since the last builder started',
+    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON, approvalNote: true }), ev('round', 7), ev('human', 8, { action: 'approve-spec', note: 'planted by another job', actor: PERSON })]),
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`), a.brief);
     },
   },
   {
