@@ -1,5 +1,5 @@
-// Folder maps stay true: every source under lib/ and dashboard/src/lib/ opens with the header comment
-// `npm run docs:map` reads, each AGENTS.md map under those roots is what it writes, and header comments
+// Folder maps stay true: every source under lib/, dashboard/src/lib/ and dashboard/src/components/ opens with the header
+// comment `npm run docs:map` reads, each AGENTS.md map under those roots is what it writes, and header comments
 // under lib/ and dashboard/src/ stay wrapped (docs/TESTING.md › Allowed source-text tests, entries 6 and 14).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,10 +69,10 @@ test('header comment lines stay within 160 columns', () => {
   assert.deepEqual(offenders, [], `rewrap these header comment lines to ${HEADER_WIDTH} columns or fewer`);
 });
 
-test('every lib/ and dashboard/src/lib/ source file opens with a header comment', () => {
+test('every lib/, dashboard/src/lib/ and dashboard/src/components/ source file opens with a header comment', () => {
   const bare = MAP_ROOTS.flatMap((root) => (fs.readdirSync(path.join(REPO, root), { recursive: true }) as string[])
     .map((f) => `${root}/${f.split(path.sep).join('/')}`))
-    .filter((f) => /\.(ts|mjs)$/.test(f) && !f.endsWith('.test.ts'))
+    .filter((f) => /\.(ts|mjs|svelte)$/.test(f) && !f.endsWith('.test.ts'))
     .filter((f) => headerSentence(fs.readFileSync(path.join(REPO, f), 'utf8')) === null);
   assert.deepEqual(bare, [], 'open each with a // comment whose first sentence says what the file holds');
 });
@@ -81,6 +81,7 @@ test('folder maps are what npm run docs:map writes', () => {
   const maps = MAP_ROOTS.flatMap((root) => mapFiles(path.join(REPO, root)));
   assert.ok(maps.includes(path.join(LIB, 'engine', 'pipeline', 'step', 'AGENTS.md')), 'lib/engine/pipeline/step/AGENTS.md is a map');
   assert.ok(maps.includes(path.join(REPO, 'dashboard', 'src', 'lib', 'AGENTS.md')), 'dashboard/src/lib/AGENTS.md is a map');
+  assert.ok(maps.includes(path.join(REPO, 'dashboard', 'src', 'components', 'AGENTS.md')), 'dashboard/src/components/AGENTS.md is a map');
   for (const file of maps) {
     const text = fs.readFileSync(file, 'utf8');
     assert.equal(syncMap(text, renderMap(path.dirname(file))), text, `${path.relative(REPO, file)} is stale: run npm run docs:map`);

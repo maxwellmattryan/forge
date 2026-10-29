@@ -1,8 +1,9 @@
-// dashboard/src/lib/ folders follow the layout rules root lib/ follows (test/invariants/layout.test.ts and
-// file-size.test.ts): no source files at the root, no index files, no stutter, 3–12 entries per folder, an
-// AGENTS.md map in every folder, and no source over 600 lines unless pinned. No public function exposes the
-// tree's shape or a file's length, so this lists folder and file names under each root in ROOTS and counts
-// each source's lines (docs/TESTING.md › Allowed source-text tests, entry 15).
+// dashboard/src/lib/ and dashboard/src/components/ folders follow the layout rules root lib/ follows
+// (test/invariants/layout.test.ts and file-size.test.ts): no source files at the root, no index files, no stutter
+// (for components, no name equal to its folder's), 3–12 entries per folder, PascalCase component names, an AGENTS.md
+// map in every folder, and no source over 600 lines unless pinned. No public function exposes the tree's shape or a
+// file's length, so this lists folder and file names under each root in ROOTS and counts each source's lines
+// (docs/TESTING.md › Allowed source-text tests, entry 15).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -33,6 +34,7 @@ interface Root {
 
 const ROOTS: Root[] = [
   { root: 'dashboard/src/lib', entry: /\.ts$/, filesAtRoot: false, pascal: false, small: [], registries: [], allowed: { 'core/app.svelte.ts': 675 } },
+  { root: 'dashboard/src/components', entry: /\.(svelte|ts)$/, filesAtRoot: false, pascal: true, small: [], registries: [], allowed: {} },
 ];
 
 /** A folder under a root: its root-relative path (`''` for the root, else ending in `/`) and its names, subfolders ending in `/`. */
@@ -126,7 +128,7 @@ function scan(cfg: Root): { dirs: Dir[]; sizes: Map<string, number> } {
   return { dirs, sizes };
 }
 
-test('dashboard/src/lib folders follow the layout rules', () => {
+test('dashboard/src folders follow the layout rules', () => {
   for (const cfg of ROOTS) {
     const { dirs, sizes } = scan(cfg);
     const problems = [...layoutProblems(cfg.root, dirs, cfg), ...sizeProblems(cfg.root, sizes, cfg.allowed)];
