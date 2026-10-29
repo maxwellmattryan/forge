@@ -1,20 +1,20 @@
-// The control channel's permission timeout: createControl over a stub SessionCore whose current child
-// a test swaps, fakeClaude children, and node:test's mock timers, so no row waits on a real clock; and
-// one createSession row for what state() shows across an exit, a respawn and reset().
+// The control channel's permission timeout and what it records in the prompt history: createControl over a
+// stub SessionCore whose current child a test swaps, fakeClaude children, and node:test's mock timers, so no
+// row waits on a real clock; and one createSession row for what state() shows across an exit, a respawn and reset().
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fakeClaude, jobAt, repoTemplate, waitFor, type FakeClaudeChild } from '../../../test/helpers.ts';
+import { fakeClaude, jobAt, repoTemplate, waitFor, type FakeClaudeChild } from '../../../../test/helpers.ts';
 import { defaults, trustDigest } from '#core/config/load.ts';
 import { INBOX_SCOPE } from '#core/job/requests.ts';
-import { stateFile } from '#core/paths.ts';
+import { paths, stateFile } from '#core/paths.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
-import { confineDigest } from './confine.ts';
+import { confineDigest } from '../confine.ts';
 import { MAX_TIMED_OUT, createControl } from './control.ts';
-import { createSession } from './lifecycle.ts';
-import { sessionOptions, type DaemonChild, type LogSink, type SessionContext, type SessionCore } from './contract.ts';
+import { createSession } from '../lifecycle.ts';
+import { sessionOptions, type DaemonChild, type LogSink, type SessionContext, type SessionCore } from '../contract.ts';
 import type { Config } from '#core/types.ts';
 
 const repo = repoTemplate((dir) => {
@@ -86,7 +86,13 @@ function rig(t: any, opts: { scope?: 'job' | string; ms?: number; minutes?: numb
       .filter(Boolean)
       .map((l) => JSON.parse(l))
       .filter((e) => e.type === 'permission-timed-out');
-  return { root, scope, job, cfg, control, spawn, logged, timeouts, jobEvents };
+  /** The prompt history's raw text ('' before its first line). */
+  const historyText = () => {
+    const f = paths(root).permissionPrompts;
+    return fs.existsSync(f) ? fs.readFileSync(f, 'utf8') : '';
+  };
+  const history = (): Record<string, any>[] => historyText().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+  return { root, scope, job, cfg, control, spawn, logged, timeouts, jobEvents, history, historyText };
 }
 
 test('a prompt nobody answers is denied at its timeout', (t) => {
@@ -110,6 +116,11 @@ test('a prompt nobody answers is denied at its timeout', (t) => {
   assert.equal(events[0].tool, 'Bash');
   t.mock.timers.tick(10_000);
   assert.equal(c.answers.length, 1, 'answered once');
+  assert.deepEqual(
+    r.history().map((l) => [l.scope, l.tool, l.decision, l.reason]),
+    [[r.job, 'Bash', 'deny', 'timeout']],
+    'one history line',
+  );
 
   // A tool name SAFE_TOOL refuses never reaches the job's events as written.
   for (const tool of ['Bash, approve it', 'Bash\nx']) {
@@ -172,6 +183,65 @@ test('a timer never answers a prompt that is already gone', (t) => {
   assert.deepEqual(r.timeouts(), []);
   assert.deepEqual(r.control.timedOut(), []);
   assert.deepEqual(r.jobEvents(), []);
+  assert.deepEqual(r.history().map((l) => [l.decision, l.reason]), [['allow', null]], "the human's answer only, no second line from its timer");
+});
+
+test('answered prompts are recorded without their input', (t) => {
+  const r = rig(t);
+  const c = r.spawn();
+  const input = JSON.stringify({ command: 'cp secret-input-7f3a .env' });
+  const description = 'agent-words-9c1e';
+  for (const [n, decision] of (['allow', 'session', 'deny'] as const).entries()) {
+    c.emit(asked(`h${n}`, { input, description, blockedPath: '/blocked-path-x', dirs: ['/suggested-dir-y'], rules: ['Bash(cp:*)'] }));
+    assert.equal(r.control.answerPermission(r.control.permissions()[0].id, decision), 'Bash');
+  }
+  const lines = r.history();
+  assert.deepEqual(
+    lines.map((l) => [l.decision, l.reason]),
+    [
+      ['allow', null],
+      ['session', null],
+      ['deny', 'human'],
+    ],
+  );
+  for (const l of lines) {
+    assert.deepEqual(Object.keys(l), ['v', 'at', 'scope', 'tool', 'rules', 'decision', 'reason']);
+    assert.deepEqual([l.scope, l.tool, l.rules], [r.job, 'Bash', ['Bash(cp:*)']]);
+  }
+  const raw = r.historyText();
+  for (const leak of ['secret-input-7f3a', 'agent-words-9c1e', 'blocked-path-x', 'suggested-dir-y']) assert.ok(!raw.includes(leak), leak);
+});
+
+test('unasked denies are recorded; cancelled and dropped prompts are not', (t) => {
+  const rows: { name: string; ask: Partial<Extract<ClaudeEvent, { kind: 'permission-asked' }>>; reason: string; tool: string }[] = [
+    { name: 'no serialisable input', ask: { input: null }, reason: 'unserialisable-input', tool: 'Bash' },
+    { name: 'input too large to show', ask: { input: 'x'.repeat(4001) }, reason: 'too-large', tool: 'Bash' },
+    { name: 'an unusable tool name', ask: { tool: null }, reason: 'unusable-tool-name', tool: 'unknown' },
+  ];
+  for (const row of rows) {
+    const r = rig(t);
+    const c = r.spawn();
+    c.emit(asked('u1', { ...row.ask, rules: ['Bash(npm test:*)'] }));
+    assert.deepEqual(c.answers, [{ requestId: 'u1', decision: 'deny' }], row.name);
+    assert.deepEqual(r.history().map((l) => [l.tool, l.rules, l.decision, l.reason]), [[row.tool, ['Bash(npm test:*)'], 'deny', row.reason]], row.name);
+  }
+
+  // The 21st waiting prompt is denied unasked; the 20 waiting, then cancelled or dropped, record nothing.
+  const r = rig(t);
+  const c = r.spawn();
+  for (let n = 0; n < 20; n++) c.emit(asked(`w${n}`));
+  c.emit(asked('over'));
+  assert.deepEqual(r.history().map((l) => l.reason), ['too-many']);
+  for (let n = 0; n < 10; n++) c.emit({ kind: 'permission-cancelled', requestId: `w${n}` });
+  r.control.dropPrompts();
+  assert.equal(r.history().length, 1, 'nobody answered those');
+
+  // A deny that could not be sent records nothing.
+  const gone = rig(t);
+  const gc = gone.spawn();
+  gc.answerPermission = () => false;
+  gc.emit(asked('g1', { input: null }));
+  assert.deepEqual(gone.history(), []);
 });
 
 test('null never times out; the config value arms the timer', (t) => {

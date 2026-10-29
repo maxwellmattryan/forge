@@ -43,6 +43,11 @@ export interface ForgePaths {
   mandates: string;
   /** The owner's chats with the Foreman (lib/office/chat/), one `<id>/` each: written only by the dashboard server. */
   chats: string;
+  /**
+   * The prompt history (lib/office/session/permissions/history.ts): one input-free line per permission prompt a pool
+   * session answered, which `forge daemon prompts` reads. Appended only by `forge dash`.
+   */
+  permissionPrompts: string;
   backlog: string;
   notes: string;
   reviewers: string;
@@ -68,6 +73,7 @@ export function paths(root: string): ForgePaths {
     records: path.join(dir, 'runtime', 'job-records'),
     mandates: path.join(dir, 'runtime', 'mandates'),
     chats: path.join(dir, 'runtime', 'chats'),
+    permissionPrompts: path.join(dir, 'runtime', 'permission-prompts.jsonl'),
     backlog: path.join(dir, 'backlog.md'),
     notes: path.join(dir, 'notes'),
     reviewers: path.join(dir, 'reviewers'),

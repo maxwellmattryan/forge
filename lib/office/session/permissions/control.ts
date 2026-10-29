@@ -2,7 +2,8 @@
 // unasked, the deny a prompt nobody answers within daemon.permissionTimeoutMinutes gets (with the
 // session's in-memory history of those and its job's permission-timed-out event), and what a refused
 // or unconfirmed mode switch does. Every line it sends claude goes through the child's ClaudeChild,
-// which builds it from fixed text (lib/integrations/claude/stream.ts).
+// which builds it from fixed text (lib/integrations/claude/stream.ts). Every answer sent is also appended,
+// without its input, to the prompt history `forge daemon prompts` reads (history.ts).
 import crypto from 'node:crypto';
 import { modeReach } from '#integrations/claude/argv.ts';
 import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
@@ -11,7 +12,8 @@ import { sharedScope, validJobId } from '#core/job/requests.ts';
 import { logEvent as logJobEvent } from '#core/job/store.ts';
 import { SAFE_TOOL } from '#core/text.ts';
 import { now } from '#core/utils.ts';
-import type { SessionCore } from './contract.ts';
+import type { SessionCore } from '../contract.ts';
+import { recordPrompt, type PromptReason } from './history.ts';
 import type { DaemonPermissionMode, DaemonPermissionPrompt, DaemonTimedOutPrompt, EventActor, PermissionDecision } from '#core/types.ts';
 
 /** Prompts waiting at once per session; past this, new ones are denied without asking. */
@@ -30,6 +32,11 @@ export function createControl(core: SessionCore) {
   const timedOutPrompts: DaemonTimedOutPrompt[] = [];
   /** Mode switches sent to the current child and not yet answered, by request id, each with its confirmation deadline. */
   const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
+
+  /** An answer claude was sent, into the prompt history; never throws. */
+  function record(tool: string | null, rules: readonly string[], decision: PermissionDecision, reason: PromptReason | null): void {
+    recordPrompt(core.root, { scope, tool, rules, decision, reason });
+  }
 
   /** The one way a prompt leaves the map, so its timer never outlives it. */
   function removePrompt(id: string): void {
@@ -76,6 +83,7 @@ export function createControl(core: SessionCore) {
     const sent = p.child.answerPermission(p.requestId, 'deny', 'timeout');
     if (sent) {
       core.logEvent('permission', { id, tool: p.prompt.tool, decision: 'deny', reason: 'timeout' });
+      record(p.prompt.tool, p.prompt.sessionRules, 'deny', 'timeout');
       timedOutPrompts.unshift({ ...p.prompt, deniedAt: now() });
       timedOutPrompts.length = Math.min(timedOutPrompts.length, MAX_TIMED_OUT);
       // The tool name only: the input may hold secrets, and claude's tool name is checked again before it reaches the job.
@@ -90,9 +98,9 @@ export function createControl(core: SessionCore) {
 
   /** A tool call claude asked about: a prompt the dashboard shows until a human answers it, or a deny without asking. */
   function onAsked(child: ClaudeChild, e: Extract<ClaudeEvent, { kind: 'permission-asked' }>): void {
-    const deny = (reason: string) => {
+    const deny = (reason: PromptReason) => {
       core.logEvent('permission', { tool: e.tool ?? 'unknown', decision: 'deny', reason });
-      child.answerPermission(e.requestId, 'deny');
+      if (child.answerPermission(e.requestId, 'deny')) record(e.tool, e.rules, 'deny', reason);
     };
     if (prompts.size >= MAX_PROMPTS) return deny('too-many');
     // The dashboard must show the whole input, because an allow runs all of it: a call it can't show
@@ -179,7 +187,10 @@ export function createControl(core: SessionCore) {
     if (!p || p.child !== core.child?.claude) return null;
     removePrompt(id);
     const sent = p.child.answerPermission(p.requestId, decision);
-    if (sent) core.logEvent('permission', { id, tool: p.prompt.tool, decision, ...(actor ? { actor } : {}) });
+    if (sent) {
+      core.logEvent('permission', { id, tool: p.prompt.tool, decision, ...(actor ? { actor } : {}) });
+      record(p.prompt.tool, p.prompt.sessionRules, decision, decision === 'deny' ? 'human' : null);
+    }
     core.changed();
     return sent ? p.prompt.tool : null;
   }

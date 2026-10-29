@@ -17,7 +17,7 @@ import { billingOf, buildArgv, commandPermissionMode, sessionEnv } from '#integr
 import type { ClaudeChild, ClaudeEvent } from '#integrations/claude/types.ts';
 import type { ChildMeta, DaemonChild, Session, SessionContext, SessionCore, SessionOptions } from './contract.ts';
 import { budgetStopMessage, spawnBudgetCap } from './budget-cap.ts';
-import { createControl } from './control.ts';
+import { createControl } from './permissions/control.ts';
 import { createMeter } from './meter.ts';
 import { routeHolds } from './holds.ts';
 import { confineDigest, spawnConfinement } from './confine.ts';
