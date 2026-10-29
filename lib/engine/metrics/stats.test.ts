@@ -5,7 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { agentStartSeconds, computeStats, statsFrom } from './stats.ts';
 import type { StatsSource } from './stats.ts';
+import { appendSessionUsage } from './meter.ts';
+import { defaults } from '#core/config/load.ts';
 import { normalizeJob } from '#core/job/schema.ts';
+import { estimateCost } from '#integrations/claude/pricing.ts';
 import { projectSlug } from '#integrations/claude/transcripts.ts';
 import type { Job, JobEvent, JobUsage } from '#core/types.ts';
 import type { JobFindings } from '#core/job/types.ts';
@@ -125,6 +128,52 @@ test('a shelved job counts as shelved, not waiting', () => {
   ]);
   assert.deepEqual([s.counts.active, s.counts.waiting, s.counts.shelved], [3, 1, 1]);
   assert.deepEqual(s.waitingOn, { escalation: 1 });
+});
+
+test("cost.orchestrator prices each lane's session usage, apart from agent spend", (t) => {
+  const own = (min: number, ok: boolean, model: string, input: number): JobEvent => ({
+    v: 20,
+    ts: `2026-10-01T10:${String(min).padStart(2, '0')}:00.000Z`,
+    type: 'session-usage',
+    session: null,
+    turn: min,
+    model,
+    usage: { input, output: 200, cacheRead: 30_000, cacheWrite: 1000, totalTokens: 0 },
+    numTurns: 2,
+    durationMs: 1000,
+    ok,
+  });
+  const agentEnd: JobEvent = { v: 20, ts: '2026-10-01T10:05:00.000Z', type: 'agent-end', role: 'builder', model: 'claude-opus-5-5', usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 10 } };
+  const job = (id: string, events: JobEvent[], usd: number): StatsSource => {
+    const src = source(id, events);
+    src.job.usage = { ...src.job.usage, totalTokens: 10, estCostUsd: usd, byRole: { builder: { tokens: 10, estCostUsd: usd, runs: 1 } as JobUsage['byRole'][string] }, byModel: { 'claude-opus-5-5': { tokens: 10, estCostUsd: usd, runs: 1 } as JobUsage['byModel'][string] } };
+    return src;
+  };
+  const turns = [own(1, true, 'claude-opus-5-5', 100), own(2, false, 'claude-sonnet-5-5', 50)];
+  const priced = turns.map((e) => {
+    const u = e.usage as Record<string, number>;
+    return estimateCost({ model: e.model as string, input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite }).usd;
+  });
+  const withTurns = [job('a', [agentEnd, ...turns], 1.25), job('b', [agentEnd], 0.75)];
+  const without = [job('a', [agentEnd], 1.25), job('b', [agentEnd], 0.75)];
+  const s = statsFrom(withTurns);
+  const o = s.cost.orchestrator!;
+  const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+  assert.deepEqual(o.byLane.job, { tokens: 2 * 31_200 + 150, estCostUsd: round4(priced[0] + priced[1]), turns: 2 });
+  assert.deepEqual(o.coverage, { jobs: 2, withUsage: 1, agentUsd: 1.25 });
+  assert.deepEqual([o.byLane.inbox, o.byLane.office], [{ tokens: 0, estCostUsd: 0, turns: 0 }, { tokens: 0, estCostUsd: 0, turns: 0 }]);
+  assert.deepEqual([o.tokens, o.estCostUsd, o.turns], [o.byLane.job.tokens + o.byLane.inbox.tokens + o.byLane.office.tokens, round4(o.byLane.job.estCostUsd + o.byLane.inbox.estCostUsd + o.byLane.office.estCostUsd), 2]);
+  // Agent spend is the same with or without the session's own turns.
+  const plain = statsFrom(without);
+  assert.deepEqual([s.cost.estCostUsd, s.cost.totalTokens, s.cost.byRole, s.cost.byModel, s.cost.reportingCoverage], [plain.cost.estCostUsd, plain.cost.totalTokens, plain.cost.byRole, plain.cost.byModel, plain.cost.reportingCoverage]);
+  assert.deepEqual(plain.cost.orchestrator?.coverage, { jobs: 2, withUsage: 0, agentUsd: 0 });
+
+  // Over a given job list the inbox and office lanes stay zero, whatever the repo's runtime ledger holds.
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-orchestrator-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  appendSessionUsage(root, '_inbox', { session: null, turn: 1, model: 'claude-opus-5-5', usage: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1, totalTokens: 4 }, numTurns: 1, durationMs: 1, ok: true });
+  const given = computeStats(root, { jobs: withTurns.map((w) => w.job), config: defaults() }).cost.orchestrator!;
+  assert.deepEqual([given.byLane.inbox.turns, given.byLane.office.turns], [0, 0]);
 });
 
 // Agent start: real transcript files under a temp projects dir, never process.env.

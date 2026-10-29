@@ -121,6 +121,9 @@ export const API_CHANGES = [
   // Job.contexts (ContextSession): the context sessions `forge job agent run` started; ContextMark as `context` on a
   // role run's agent-end event, and the `context-session` event with its usage under role `context`.
   { id: 'context-sessions' },
+  // Stats.cost.orchestrator (OrchestratorSpend, LaneSpend); Stats.cost.sessions' job key is job-session (was orchestrator);
+  // StateJob.lastEvent and JobDetail.events leave out session-usage events.
+  { id: 'orchestrator-spend' },
 ] as const;
 
 /**

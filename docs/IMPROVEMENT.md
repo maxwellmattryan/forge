@@ -81,6 +81,8 @@ A change meant to cut spend (a prompt rule, `runtime.modelByComplexity`, `runtim
 4. Keep the change only if first-pass review rate and avg rounds did not get worse; otherwise revert it.
 5. For a controlled comparison, run `forge eval` twice on one suite, the second with an overlay such as `--set runtime.reworkModel=sonnet` or `--set review.onRework=full`, and `forge eval compare` the runs.
 
+**Measuring orchestrator spend.** For a change to what the daemon sessions themselves do (the pool driving jobs, a leaner `/forge requests` turn), measure their own spend apart from the agents': run `forge stats --json --since <date>` and read `cost.orchestrator.coverage` first, since only jobs whose sessions ran since session usage was recorded count. Then take `byLane.job.estCostUsd / coverage.withUsage` as the orchestrator USD per job, and `byLane.job.estCostUsd / coverage.agentUsd` as its share of agent spend. Compare both with the baseline the session logs gave on 2026-10-19 (about 15% of agent spend), and watch the `inbox` and `office` lanes for spend that moved rather than went away.
+
 Forge's own repo pins the gatekeepers and lowers effort for low-complexity jobs with this block under `runtime:` in `.forge/config.yml` (a human applies it on the base branch: `policy.protectedPaths` refuses the file to jobs):
 
 ```yaml
