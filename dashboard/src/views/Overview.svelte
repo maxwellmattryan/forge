@@ -4,15 +4,15 @@
      opens it on the Waiting filter (written to that project's filter pref before the navigation). A missing or
      unavailable project is plain text with its chip. Job titles are job text and render as text. -->
 <script lang="ts">
-  import Banner from '../components/Banner.svelte';
-  import Chip from '../components/Chip.svelte';
-  import Empty from '../components/Empty.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
-  import Loading from '../components/Loading.svelte';
-  import OverviewCardsSkeleton from '../components/skeletons/OverviewCardsSkeleton.svelte';
-  import OverviewGraphSkeleton from '../components/skeletons/OverviewGraphSkeleton.svelte';
-  import Select from '../components/Select.svelte';
-  import StackedBars from '../components/StackedBars.svelte';
+  import Banner from '../components/ui/feedback/Banner.svelte';
+  import Chip from '../components/ui/Chip.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
+  import Loading from '../components/ui/feedback/Loading.svelte';
+  import OverviewCardsSkeleton from '../components/skeletons/machine/OverviewCardsSkeleton.svelte';
+  import OverviewGraphSkeleton from '../components/skeletons/machine/OverviewGraphSkeleton.svelte';
+  import Select from '../components/ui/Select.svelte';
+  import StackedBars from '../components/metrics/StackedBars.svelte';
   import { S, setOverviewWindow } from '../lib/core/app.svelte.ts';
   import { OVERVIEW_WINDOWS, overviewCards, stackedSeries, type OverviewCard } from '../lib/metrics/overview.ts';
   import { pref } from '../lib/settings/prefs.ts';
