@@ -644,6 +644,17 @@ The dashboard's headless sessions, from the terminal.
 |---|---|
 | 1 | an invalid job id, or no readable log |
 
+**`forge daemon prompts [--since DATE] [--min N]`**: the permission prompts pool sessions raised, grouped by candidate rule, with suggested daemon.allowedTools entries (read-only)
+
+| Flag | Meaning |
+|---|---|
+| `--min N` | suggest a rule only once allowed at least N times (1-1000, default 3) |
+| `--since DATE` | only prompts answered at or after DATE (YYYY-MM-DD or a full ISO timestamp) |
+
+| Exit | When |
+|---|---|
+| 2 | a --since that is not a date, a --min outside 1-1000, or an argument (usage) |
+
 **`forge daemon status`**: the daemon's sessions and the machine dashboard (pid, url, launch permission mode), from the terminal
 
 ### `forge dash`
