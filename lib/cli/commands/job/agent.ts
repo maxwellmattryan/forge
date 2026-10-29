@@ -6,6 +6,7 @@ import { refuseInboxDrive } from '#office/owner.ts';
 import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, importCursor, jobDir, loadJob, recordAgent, renewLease, resolveAgentOutput, type Fence } from '#core/job/store.ts';
 import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';
+import { RESUME_SKIPS } from '#engine/pipeline/step/facts.ts';
 import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
 import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -44,9 +45,14 @@ export function agent(root: string, config: Config, rest: string[], flags: Recor
   const durationMs = num(flags['duration-ms'], '--duration-ms');
   const agentId: string | undefined = flags['agent-id'];
   if (phase === 'end') return endAgent(root, config, jobId, { role, model: flags.model, status: flags.status, summary, agentId, tokens, toolUses, durationMs, import: Boolean(flags.import), env, fence: epochFence(flags) });
+  // Event fields from step's start line: checked before anything is written, so only an id or one of step's fixed reasons is recorded.
+  const resume = flags.resume;
+  if (resume !== undefined && (typeof resume !== 'string' || !AGENT_ID.test(resume))) throw new ForgeError('--resume must match [A-Za-z0-9_-]{1,100}', 'usage');
+  const skipped = flags['resume-skipped'];
+  if (skipped !== undefined && !(RESUME_SKIPS as readonly unknown[]).includes(skipped)) throw new ForgeError(`--resume-skipped must be one of: ${RESUME_SKIPS.join(', ')}`, 'usage');
   // `end` stays allowed, so a stray start can still be closed.
   refuseInboxDrive(jobId);
-  return startAgent(root, config, jobId, { role, model: flags.model, output: flags.output, retry: flags.retry === true, agentId, status: flags.status, summary, fence: epochFence(flags) });
+  return startAgent(root, config, jobId, { role, model: flags.model, output: flags.output, retry: flags.retry === true, agentId, status: flags.status, summary, resume, resumeSkipped: skipped, fence: epochFence(flags) });
 }
 
 /**
@@ -58,7 +64,7 @@ export function startAgent(
   root: string,
   config: Config,
   jobId: string,
-  o: { role: string; model?: string; output?: unknown; retry?: boolean; agentId?: string; status?: string; summary?: string; fence?: Fence },
+  o: { role: string; model?: string; output?: unknown; retry?: boolean; agentId?: string; status?: string; summary?: string; resume?: string; resumeSkipped?: string; fence?: Fence },
 ) {
   // Before the output dir: a stale driver leaves no trace.
   if (o.fence) checkFence(root, jobId, o.fence);
@@ -69,7 +75,14 @@ export function startAgent(
     output = resolveAgentOutput(root, jobId, o.output);
     fs.mkdirSync(path.dirname(path.join(jobDir(root, jobId), output)), { recursive: true });
   }
-  const job = recordAgent(root, jobId, { role: o.role, phase: 'start', model: o.model, agentId: o.agentId, status: o.status, summary: o.summary, output, retry: o.retry === true }, config, o.fence);
+  const flags = { ...(o.resume ? { resume: o.resume } : {}), ...(o.resumeSkipped ? { resumeSkipped: o.resumeSkipped } : {}) };
+  const job = recordAgent(
+    root,
+    jobId,
+    { role: o.role, phase: 'start', model: o.model, agentId: o.agentId, status: o.status, summary: o.summary, output, retry: o.retry === true, ...(Object.keys(flags).length ? { flags } : {}) },
+    config,
+    o.fence,
+  );
   // The driver's agents are its activity: a start keeps the lease for the longest agent run.
   renewLease(root, jobId, { ttl: AGENT_LEASE_MS });
   const a = job.agents[o.role];
@@ -102,6 +115,8 @@ export function endAgent(
     unmeasured?: boolean;
     /** A role run's use of its round's context session, recorded on the end event. */
     context?: ContextMark;
+    /** A role run whose resume failed before init and ran once more as a fresh session. */
+    resumeFailed?: boolean;
     env: NodeJS.ProcessEnv;
     fence?: Fence;
   },
@@ -141,7 +156,7 @@ export function endAgent(
   }
   if (!measured && !usage && (tokens !== undefined || toolUses !== undefined || durationMs !== undefined)) usage = { totalTokens: tokens ?? 0, toolUses: toolUses ?? 0, durationMs: durationMs ?? 0 };
   if (usage && !usage.toolUses && toolUses) usage.toolUses = toolUses;
-  const flags = { ...(metered ? { metered: true as const } : {}), ...(unmeasured ? { unmeasured: true as const } : {}), ...(o.context ? { context: o.context } : {}) };
+  const flags = { ...(metered ? { metered: true as const } : {}), ...(unmeasured ? { unmeasured: true as const } : {}), ...(o.context ? { context: o.context } : {}), ...(o.resumeFailed ? { resumeFailed: true as const } : {}) };
   const job = recordAgent(
     root,
     jobId,

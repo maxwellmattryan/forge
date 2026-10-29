@@ -32,10 +32,12 @@ export interface AgentRecordChange {
   /** end: the output check's result, when an output is known. */
   outputMissing?: boolean;
   /**
+   * start: `resume` the session the run continues, `resumeSkipped` why a rework spawn did not resume (step's reason).
    * end: `metered` when the job's own daemon session's meter holds this run's cost, `unmeasured` when its transcript wasn't found,
-   * `context` how a role run used its round's context session (`forge job agent run`).
+   * `context` how a role run used its round's context session, `resumeFailed` a resume that failed before init and ran fresh
+   * (`forge job agent run`).
    */
-  flags?: { metered?: true; unmeasured?: true; context?: ContextMark };
+  flags?: { metered?: true; unmeasured?: true; context?: ContextMark; resume?: string; resumeSkipped?: string; resumeFailed?: true };
 }
 
 /**

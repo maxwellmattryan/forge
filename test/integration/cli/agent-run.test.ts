@@ -505,6 +505,9 @@ test('agent run resumes, and falls back to a fresh session', async (t) => {
   assert.ok(launches.every((a) => a.includes('--append-system-prompt-file')) && prefixOf(launches[0]) === prefixOf(launches[1]) && prefixOf(launches[0]) === out2.prefix, 'the resume and the fresh fallback carry the same prefix');
   assert.deepEqual([out2.resumeFailed, out2.resumed, out2.agentId, out2.usage], [true, false, fresh, { tokens: USAGE_TOKENS, exact: true }]);
   assert.equal(loadJob(s.root, k.id).agents['spec-writer'].agentId, fresh);
+  const logged = readEvents(s.root, k.id);
+  assert.equal(logged.findLast((e) => e.type === 'agent-start')?.resume, gone, "the start records the session it resumed");
+  assert.equal(logged.findLast((e) => e.type === 'agent-end')?.resumeFailed, true, 'the end records the failed resume');
 
   // No baseline a runner wrote (no sidecar, a planted one, junk): the session transcript is the measure, and without one the run is flagged unmeasured.
   const planted = { v: 1, cum: { usd: -1, models: {} }, at: new Date().toISOString() };
