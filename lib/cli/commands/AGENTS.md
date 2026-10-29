@@ -19,7 +19,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `budget.ts` | `forge budget`: repo spend against the day and month caps (config `budget:`), and a human's acknowledgement that grants one more period. |
 | `chat.ts` | `forge chat list\|show\|brief`: the owner's chats with the Foreman, read-only. |
 | `config.ts` | `forge config show\|get\|set\|validate`: read the effective config, and write one editable key. |
-| `daemon.ts` | `forge daemon status\|log`: the terminal's view of the session pool. |
+| `daemon.ts` | `forge daemon status\|log\|prompts`: the terminal's view of the session pool. |
 | `dash.ts` | `forge dash`: the machine's one dashboard for every registered project, started in the foreground or as a detached, pid-tracked process, registering the repo it runs in. |
 | `doctor.ts` | `forge doctor`: is this machine and repo ready for Forge, and with --bundle, a redacted support bundle (lib/engine/ops/bundle.ts) a user can attach to a bug report. |
 | `environment.ts` | `forge environment up\|stop\|down\|list`: a job's environment on demand (lib/engine/environment/lifecycle.ts, docs/CONFIG.md "Backing services" › Lifecycle). |
