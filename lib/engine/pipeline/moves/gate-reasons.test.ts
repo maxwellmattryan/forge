@@ -1,4 +1,5 @@
-// forge job gate's rules: each reason from job facts, every detail CLI-composed, in table order.
+// forge job gate's rules (each reason from job facts, every detail CLI-composed, in table order) and the escalation
+// park's reason that lists them.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,9 +7,10 @@ import path from 'node:path';
 import { jobAt, tempRepo } from '../../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { jobDir, logEvent, updateJob } from '#core/job/store.ts';
-import type { Config, Job, ProtectedPaths } from '#core/types.ts';
+import type { Config, Job, JobEvent, ProtectedPaths } from '#core/types.ts';
 import { memberWorktreePath } from '../../project/job-repos.ts';
 import { computeGate, goModRequires, manifestChange, manifestKind, packageDeps, tomlDependencyLines, versionOf } from './gate-reasons.ts';
+import { escalationReason, parseEscalationReason, waitingGateReasons } from './escalation.ts';
 
 const OLD = '2020-01-01T00:00:00.000Z';
 const flag = (n: number): ProtectedPaths => ({
@@ -20,6 +22,37 @@ const flag = (n: number): ProtectedPaths => ({
 });
 const SPEC = ['# S', '', '## Acceptance criteria', '- [ ] AC1 — a', '- [ ] AC2 — b', '- [ ] AC3 — c', ''].join('\n');
 const BUILD = ['## Round 1', '', '| AC | Proof | Result |', '|---|---|---|', '| AC1 | `t.test.ts` | pass |', '| AC3 | `t.test.ts` | fail |', ''].join('\n');
+
+test('the escalation park reason and its reasons', () => {
+  assert.equal(escalationReason(['version', 'approver', 'runbook', 'version']), 'escalation: approver, runbook, version');
+  const parse: [string, unknown, string[]][] = [
+    ['the collapsed park', 'escalation: approver, runbook, version', ['approver', 'runbook', 'version']],
+    ["PP1's held push", 'push held: escalation: approver, protected-paths', ['approver', 'protected-paths']],
+    ['an unknown token lists nothing', 'escalation: approver, everything', []],
+    ['legacy PR15', 'approver escalated: see decision.md', ['approver']],
+    ['legacy PR16', 'runbook: steps before merge', ['runbook']],
+    ['legacy PP1b', 'protected paths: db/migrations/0001.sql, +2 more', ['protected-paths']],
+    ['legacy PP1', 'push held: protected paths: .github/workflows/ci.yml', ['protected-paths']],
+    ['a release bump', 'release bump: verify failed after the release of repo lib 1.2.0', []],
+    ['DC3', 'decision.md has no APPROVE/ESCALATE line', []],
+    ['not a string', null, []],
+    ['a 10k-character hostile reason', `escalation: ${'approver, '.repeat(1000)}`, []],
+  ];
+  for (const [name, reason, want] of parse) assert.deepEqual(parseEscalationReason(reason), want, name);
+  // /api/state's gateReasons: the park's rules with the details of the gate event before it.
+  const events = [
+    { v: 1, ts: 't1', type: 'gate', round: 1, head: null, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }, { rule: 'bogus', detail: 'x' }] },
+    { v: 1, ts: 't2', type: 'transition', from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'escalation' }, reason: 'escalation: approver, runbook' },
+  ] as JobEvent[];
+  const waiting = { state: 'waiting', waitingOn: 'escalation', reason: 'escalation: approver, runbook', protectedPaths: null } as const;
+  assert.deepEqual(waitingGateReasons(waiting, events), [
+    { rule: 'approver', detail: 'the approver escalated: see decision.md' },
+    { rule: 'runbook', detail: 'runbook.md has steps for a person' },
+  ]);
+  assert.equal(waitingGateReasons({ ...waiting, state: 'running' }, events), null, 'not waiting');
+  assert.equal(waitingGateReasons({ ...waiting, waitingOn: 'human' }, events), null, 'another gate');
+  assert.equal(waitingGateReasons({ ...waiting, reason: 'touches auth' }, events), null, 'a reason that lists no rule');
+});
 
 test('gate rules from job facts', () => {
   const repo = tempRepo();

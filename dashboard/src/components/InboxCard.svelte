@@ -1,7 +1,7 @@
-<!-- A "Needs you" card: the job, why it waits, who acted last, who owns the gate (with the foreman on) or that the Foreman
-     left it for a human, what Approve does on a secret park (and whether the last one left it blocked), the protected paths
-     it changes, its doc link, what its buttons do to the PR (a merge gate on an open PR, a held push), a note and the
-     request buttons. The title takes the width (grows from 16rem), so the chips
+<!-- A "Needs you" card: the job, why it waits (an escalation park's rules with their details), who acted last, who owns the
+     gate (with the foreman on) or that the Foreman left it for a human, what Approve does on a secret park (and whether the
+     last one left it blocked), the protected paths it changes, its doc link, what its buttons do to the PR (a merge gate on
+     an open PR, a held push), a note and the request buttons. The title takes the width (grows from 16rem), so the chips
      drop to the next line before it would wrap word by word. -->
 <script lang="ts">
   import JobActions from './JobActions.svelte';
@@ -10,7 +10,7 @@
   import BudgetPanel from './BudgetPanel.svelte';
   import Chip from './Chip.svelte';
   import { protectedSummary, showParkReason } from '../lib/jobs/protected.ts';
-  import { gateOwnerBadge, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/gates/inbox.ts';
+  import { gateOwnerBadge, gateReasonRows, handoffNote, inboxDoc, inboxKind, lastActed, secretPark } from '../lib/gates/inbox.ts';
   import { ago } from '../lib/core/util.ts';
   import { ticker } from '../lib/core/clock.svelte.ts';
   import { openDrawer } from '../lib/core/app.svelte.ts';
@@ -26,6 +26,8 @@
   const prot = $derived(protectedSummary(j));
   const acted = $derived(lastActed(j));
   const secret = $derived(secretPark(j));
+  // An escalation park's rules with their details; null for any other park (or an older server).
+  const reasons = $derived(gateReasonRows(j));
 </script>
 
 <div class="plate ember p-4 flex flex-col gap-3">
@@ -36,6 +38,12 @@
   {#if secret?.stillBlocked}<div class="muted text-[12px]">{$t('inbox.stillBlockedNote')}</div>{/if}
   {#if secret}<div class="muted text-[12px]">{$t('inbox.secretRescan')}</div>{/if}
   {#if acted}<div class="muted text-[12px]">{$t('inbox.lastActed', { who: acted.foreman ? $t('inbox.foreman') : acted.who, ago: ago(acted.ts, ticker.now) })}</div>{/if}
+  {#if reasons}
+    <div class="flex flex-col gap-1.5">
+      <div id="gate-reasons-{j.id}" class="label text-[10px]">{$t('inbox.gateReasons')}</div>
+      <ul aria-labelledby="gate-reasons-{j.id}" class="flex flex-col gap-0.5">{#each reasons as r, i (i)}<li class="text-[12px] break-words"><span class="mono">{r.rule}</span>{' — '}<span class="muted">{r.detail}</span>{#if r.paths.length}{' · '}<span class="mono muted break-all">{r.paths.join(', ')}</span>{/if}</li>{/each}</ul>
+    </div>
+  {/if}
   {#if prot}
     <div class="flex flex-col gap-1.5">
       <div id="protected-{j.id}" class="label text-[10px]">{$t('inbox.protectedPaths')}</div>

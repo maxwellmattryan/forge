@@ -151,22 +151,43 @@ export function secretPark(j: Pick<StateJob, 'state' | 'waitingOn' | 'reason' | 
 /** The reason `forge job step` (PR13, PP1) gives a park on a push `forge pr open` holds: lib/engine/guard/push-hold.ts. */
 export const PUSH_HELD_PREFIX = 'push held: ';
 
-/** The gates a merge gate on an open PR waits on (PR15, PR16, PP1b, PR17). */
+/** The gates a merge gate on an open PR waits on: the escalation park (PR15) and the recall eval (PR17), and PR16's `infra` for a job parked before they collapsed. */
 const MERGE_GATE_WAITS: readonly (WaitingOn | null | undefined)[] = ['escalation', 'infra', 'human'];
 
 /**
  * What a gate card says about the PR beside its buttons: `open` for a merge gate on an open PR (in
  * stage pr, the PR waits on this decision before it can merge), `held` for a push `forge pr open`
- * holds (nothing has left the machine), else null. A secret park and a repo proposal stop something
- * else, so they get neither.
+ * holds (PR13's `human` park, or PP1's escalation park: nothing has left the machine), else null. A
+ * secret park and a repo proposal stop something else, so they get neither.
  */
 export function gatePrNote(j: Pick<JobLike, 'stage' | 'state' | 'waitingOn' | 'reason' | 'pr'>): { kind: 'open'; pr: JobPr } | { kind: 'held' } | null {
   if (j.state !== 'waiting') return null;
   const reason = s(j.reason);
-  if (j.waitingOn === 'human' && reason.startsWith(PUSH_HELD_PREFIX)) return { kind: 'held' };
+  if ((j.waitingOn === 'human' || j.waitingOn === 'escalation') && reason.startsWith(PUSH_HELD_PREFIX)) return { kind: 'held' };
   if (j.stage !== 'pr' || !MERGE_GATE_WAITS.includes(j.waitingOn) || inboxKind(j) !== j.waitingOn) return null;
   if (reason.startsWith(SECRET_PARK_PREFIX) || isRepoProposal(j)) return null;
   return j.pr && j.pr.state === 'OPEN' ? { kind: 'open', pr: j.pr } : null;
+}
+
+/** One row of the Needs-you card's `Why it waits` list: an escalation park's rule, its detail and the paths it names. */
+export interface GateReasonRow {
+  rule: string;
+  detail: string;
+  paths: string[];
+}
+
+/**
+ * The rows of /api/state's `gateReasons`, or null when the job has none (no escalation park listing
+ * rules, an older server, or a malformed value). Components render each field as escaped text.
+ */
+export function gateReasonRows(j: { gateReasons?: unknown }): GateReasonRow[] | null {
+  const list = j.gateReasons;
+  if (!Array.isArray(list)) return null;
+  const rows = list
+    .map(obj)
+    .filter((r) => typeof r.rule === 'string' && typeof r.detail === 'string')
+    .map((r) => ({ rule: s(r.rule), detail: s(r.detail), paths: Array.isArray(r.paths) ? r.paths.filter((p: unknown): p is string => typeof p === 'string') : [] }));
+  return rows.length ? rows : null;
 }
 
 /** A waiting job's gate owner badge: the foreman deciding it, or a human owning it; null for no owner (or an older server). */

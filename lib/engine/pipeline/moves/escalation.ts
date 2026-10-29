@@ -130,6 +130,17 @@ export function parkReasons(events: readonly JobEvent[], parkIdx: number, flag?:
 }
 
 /**
+ * /api/state's `gateReasons`: while the job waits on `escalation` with a reason that lists rules, the
+ * reasons of the park its last transition entered; null otherwise.
+ */
+export function waitingGateReasons(job: Pick<Job, 'state' | 'waitingOn' | 'reason' | 'protectedPaths'>, events: readonly JobEvent[]): GateReason[] | null {
+  if (job.state !== 'waiting' || job.waitingOn !== 'escalation' || !parseEscalationReason(job.reason).length) return null;
+  const at = events.findLastIndex((e) => e.type === 'transition');
+  const reasons = at < 0 ? [] : parkReasons(events, at, job.protectedPaths);
+  return reasons.length ? reasons : null;
+}
+
+/**
  * The approver's and the Foreman assistant's `Gate reasons` line: the latest gate event after `after`
  * as JSON (so a branch path can't start a line of the brief), or `none`.
  */

@@ -121,6 +121,8 @@ export const API_CHANGES = [
   // Job.contexts (ContextSession): the context sessions `forge job agent run` started; ContextMark as `context` on a
   // role run's agent-end event, and the `context-session` event with its usage under role `context`.
   { id: 'context-sessions' },
+  // StateJob.gateReasons (GateReason[] | null): the rules an escalation park lists, each with its CLI-composed detail.
+  { id: 'gate-reasons' },
 ] as const;
 
 /**

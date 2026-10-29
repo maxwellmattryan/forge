@@ -26,6 +26,7 @@ import { draftGates } from '#office/mandates/gate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { itemView } from '#engine/trackers/view.ts';
 import { roster } from '#engine/pipeline/roster.ts';
+import { waitingGateReasons } from '#engine/pipeline/moves/escalation.ts';
 import { readTriageCache } from '#engine/trackers/triage.ts';
 import { redactContext, redactText } from '#engine/guard/redact.ts';
 import { isMap } from '#core/shape.ts';
@@ -237,7 +238,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     const events = readEvents(root, j.id);
     const last = events[events.length - 1] ?? null;
     // Without the per-run lists, so /api/state doesn't grow with every run: the job detail serves them.
-    return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
+    return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events), gateReasons: waitingGateReasons(j, events) };
   });
   // Every string leaf: titles, events and activity lines can all carry what a command printed.
   return redactDeep<ApiState>({

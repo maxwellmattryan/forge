@@ -1,6 +1,6 @@
 // GET /api/state, plus /api/requests, /api/focus and /api/budget/ack, whose replies are slices of it; and the shared JSON error body.
 import type { Effort, RepoBudgetKey, RepoBudgetMode, RequestType } from './enums.ts';
-import type { BudgetLimits, EventActor, ForemanHandoff, GateOwner, Job, JobEvent, OwnerStatus, Progress } from './job.ts';
+import type { BudgetLimits, EventActor, ForemanHandoff, GateOwner, GateReason, Job, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { DaemonBilling, DaemonJobBudget, DaemonPoolState } from './daemon.ts';
 import type { DraftGate } from './repo.ts';
 
@@ -81,7 +81,11 @@ export interface LastHuman {
   actor: EventActor;
 }
 
-export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null };
+/**
+ * `gateReasons`: while the job waits on `escalation` with a reason that lists rules, each rule with its
+ * detail (parkReasons in lib/engine/pipeline/moves/escalation.ts); null otherwise.
+ */
+export type StateJob = Job & { progress: Progress; lastEvent: JobEvent | null; eventCount: number; ownerStatus: OwnerStatus; activity: AgentActivity[]; gateOwner: GateOwner; lastHuman: LastHuman | null; endpoints: Endpoint[]; foremanHandoff: ForemanHandoff | null; gateReasons: GateReason[] | null };
 
 /** GET /api/state: state() in lib/server/routes/misc.ts. */
 export interface ApiState {
