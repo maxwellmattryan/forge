@@ -28,7 +28,7 @@ test('release plan --bump and release run --dry-run', POSIX, () => {
       assert.equal(dry.status, 0, dry.stderr);
       const out = JSON.parse(dry.stdout);
       assert.equal(out.dryRun, true);
-      assert.deepEqual(out.steps.map((s: { id: string }) => s.id.split('/')[1]), ['preflight', 'start', 'build', 'pr', 'merge', 'tag', 'land']);
+      assert.deepEqual(out.steps.map((s: { id: string }) => s.id.split('/')[1]), ['preflight', 'start', 'merge', 'tag']);
     }
     const refused = forgeSync(r.dir, ['release', 'run'], daemon);
     assert.equal(refused.status, 1);

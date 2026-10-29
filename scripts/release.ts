@@ -1,36 +1,32 @@
 // `npm run release -- [patch|minor|major|X.Y.Z] [--notes-file <file>] [--yes]`: Forge's own release, run by
 // the maintainer on a clean develop that equals origin/develop (docs/RELEASES.md "Releasing"). A release is
-// a PR from release/v<version> into main:
-//   1. with a version: bump package.json, package-lock.json, .claude-plugin/plugin.json and the forge
-//      plugin's ref in .claude-plugin/marketplace.json, draft the CHANGELOG section from develop's commits
-//      since the last tag, open it in $EDITOR, commit `Release X.Y.Z` (the release commit) on a new
-//      release/vX.Y.Z branch cut from develop, and push that branch; develop itself does not move;
-//   2. wait for main-update.yml's dashboard build on the release commit, check it (scripts/main-update.ts),
-//      push the main update (the release commit plus dashboard/dist/, on top of main) to the branch and
-//      open the release PR; a human merges it with a merge commit, and that push runs release.yml;
-//   3. once release.yml has tagged the merge commit, land the release commit on develop, so develop's
-//      marketplace.json, the one installs read, names the tag only once it exists.
+// a reviewed PR from release/v<version> into develop:
+//   1. with a version: bump package.json, package-lock.json and .claude-plugin/plugin.json, draft the
+//      CHANGELOG section from develop's commits since the last tag, open it in $EDITOR, commit `Release X.Y.Z`
+//      (the release commit) on a new release/vX.Y.Z branch cut from develop, push that branch and open the
+//      release PR into develop; develop itself does not move, and marketplace.json, which names the stable
+//      branch for good, is never touched;
+//   2. a human merges the PR with any merge method once its CI passes. That push to develop runs release.yml,
+//      which builds the dashboard, commits the stable tree onto stable, tags that commit v<version> and
+//      publishes the GitHub Release;
+//   3. with no version, once the PR merged: wait for that tag, check it is the stable commit of the merge
+//      (its second parent is the merge commit, and it is on origin/stable) and print the Release URL.
 // With no version it resumes the one release in flight: every step checks whether it is done before it runs.
 // A release branch is adopted only when it can be re-derived, because anyone who can push a branch can push
-// this one: the release commit must be develop plus exactly the bump (file by file, byte by byte), and the main
-// update must have exactly the tree built from it and the artifact main-update.yml made of it. The head the PR
-// merged is derived again before step 3 lands anything: the merge published whatever the head was by then.
-// A human pushes and merges, not CI: a push or merge GITHUB_TOKEN makes starts no workflow run, and
-// GITHUB_TOKEN can't push a commit that changes .github/workflows/.
+// this one: the release commit must be develop plus exactly the bump (file by file, byte by byte).
+// This script never reads or pushes any branch but develop, release/v<version> and stable, and lands nothing
+// on develop: the merge of the PR does.
 //
 // The script protocol, which `forge release plan|run` drives for `release.mechanism: script` (docs/CONFIG.md
 // "Release strategy"). Progress goes to stderr; a refusal exits 1 with `release: <message>`:
 //   --draft-notes [--bump patch|minor|major]   one JSON line on stdout: {current, next, bump, inferred, reasons,
 //                                              since, draft}, from local git and the working tree only;
-//   --phase start <X.Y.Z> --notes-file <f>     step 1 with <f> as the CHANGELOG section, then push the branch;
-//   --phase wait-build <X.Y.Z>                 wait for main-update.yml's build of the release commit;
-//   --phase pr <X.Y.Z>                         the resume before the merge, with all of its checks;
-//   --phase wait-tag <X.Y.Z>                   wait for release.yml's tag, which must peel to the merge commit;
-//   --phase land <X.Y.Z>                       derive the merged head again, land on develop and push it;
-//   --check merged <X.Y.Z>                     exit 0 only when the release PR into main is merged.
+//   --phase start <X.Y.Z> --notes-file <f>     step 1 with <f> as the CHANGELOG section: cut, push and open the
+//                                              release PR, each only when not done yet; prints the PR URL;
+//   --phase wait-tag <X.Y.Z>                   step 3: wait for release.yml's tag and check it; prints the Release URL;
+//   --check merged <X.Y.Z>                     exit 0 only when the release PR into develop is merged.
 // Each phase finds the release in flight as a resume does and does nothing once its release is past it. Phase
-// mode never asks: the engine asked before each pushing step, so the push questions are answered yes, a release
-// behind origin/develop warns and goes on, and unported hotfixes on main refuse (PHASE_ASK).
+// mode never asks: the engine asked before the pushing step, so the push question is answered yes (PHASE_ASK).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -38,9 +34,10 @@ import readline from 'node:readline/promises';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { historyEnv } from '../lib/integrations/git/runner.ts';
 import { gitSync } from './git.ts';
-import { changelogSection, forgeRef, releaseProblems } from './release-check.ts';
-import { isMainUpdate, isReleaseSubject, mainCommit, mainOnlyCommits, oneLine, Refusal } from './main-update.ts';
+import { changelogSection, releaseProblems } from './release-check.ts';
+import { isReleaseSubject, oneLine, Refusal } from './stable-tree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -60,9 +57,9 @@ const VERSION_LABELS: Record<string, string> = {
   API_VERSION: '`API_VERSION`',
 };
 const PR_FIELDS = 'number,state,url,headRefName,headRefOid,baseRefName,isCrossRepository,mergeCommit';
-/** What to do with the release PR, naming the head `npm run release` checked: a later push to the branch is not it. */
-const mergeHint = (head: string) =>
-  `Merge it in GitHub with "Create a merge commit", and only while its head is ${head} (the commit checked; if the branch moved, run \`npm run release\` again first), then run \`npm run release\`.`;
+/** What to do with the release PR once it is open. */
+const mergeHint = (version: string) =>
+  `Merge it into develop in GitHub once its CI passes, with any merge method: the merge publishes v${version}. Then run \`npm run release\` (or forge release run) to wait for the tag.`;
 
 const semver = (v: string): number[] => {
   const m = SEMVER.exec(v);
@@ -94,28 +91,15 @@ const VERSION_FILES: [string, string[][]][] = [
   ['package-lock.json', [['version'], ['packages', '', 'version']]],
   [path.join('.claude-plugin', 'plugin.json'), [['version']]],
 ];
-/** Where installs added from GitHub read which commit to install: the forge plugin's `source.ref`. */
-export const MARKETPLACE = path.join('.claude-plugin', 'marketplace.json');
-/** Everything a release commit changes next to its parent, as git names the paths. */
-const RELEASE_FILES = [...VERSION_FILES.map(([rel]) => rel), MARKETPLACE, 'CHANGELOG.md'].map((rel) => rel.split(path.sep).join('/'));
+/** Everything a release commit changes next to its parent, as git names the paths. marketplace.json is not one: it names `stable` for good. */
+const RELEASE_FILES = [...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md'].map((rel) => rel.split(path.sep).join('/'));
 
 /**
- * `text` of one bumped file (`rel`: a `VERSION_FILES` entry or marketplace.json) taken from `from` to `to`. Rewrites
- * only the version lines, so the file keeps its formatting, and the first `ref` of marketplace.json to `v<to>`, then
- * checks the JSON reads `to` (and the forge plugin's ref `v<to>`). `releaseCommitOf` replays it on the parent's bytes.
+ * `text` of one bumped file (`rel`: a `VERSION_FILES` entry) taken from `from` to `to`. Rewrites only the version
+ * lines, so the file keeps its formatting, then checks the JSON reads `to`. `releaseCommitOf` replays it on the
+ * parent's bytes.
  */
 export function rewriteVersion(rel: string, text: string, from: string, to: string): string {
-  if (rel === MARKETPLACE) {
-    const next = text.replace(/("ref":\s*)"[^"]*"/, (_m, key) => `${key}"v${to}"`);
-    let ref: unknown;
-    try {
-      ref = forgeRef(JSON.parse(next));
-    } catch (e) {
-      throw new Refusal(`.claude-plugin/marketplace.json: ${(e as Error).message}`);
-    }
-    if (ref !== `v${to}`) throw new Refusal(`.claude-plugin/marketplace.json: the forge plugin's source.ref reads ${JSON.stringify(ref ?? null)} after the bump, not v${to}`);
-    return next;
-  }
   const paths = VERSION_FILES.find(([r]) => r === rel)?.[1];
   if (!paths) throw new Refusal(`${rel} is not a file a version bump touches`);
   const line = new RegExp(`("version":\\s*)"${from.replace(/\./g, '\\.')}"`, 'g');
@@ -132,7 +116,7 @@ export function rewriteVersion(rel: string, text: string, from: string, to: stri
 
 /** `rewriteVersion` over every file a bump touches. Each is checked before any is written, so a refusal never leaves a half-bumped tree. */
 export function setVersion(root: string, from: string, to: string): void {
-  const writes = [...VERSION_FILES.map(([rel]) => rel), MARKETPLACE].map((rel): [string, string] => {
+  const writes = VERSION_FILES.map(([rel]): [string, string] => {
     const file = path.join(root, rel);
     return [file, rewriteVersion(rel, fs.readFileSync(file, 'utf8'), from, to)];
   });
@@ -265,17 +249,17 @@ export function releaseBranches(refs: string, current: string): ReleaseBranch[] 
 }
 
 /**
- * The release in flight: a release branch ahead of develop's version, or main's version ahead of it (a
- * merged release not yet landed on develop, or a hotfix not yet ported). Null when none; two refuse.
+ * The release in flight: a release branch ahead of develop's version, or develop's own version while it is
+ * untagged (a merged release whose release.yml run is still going, or failed). Null when none; two refuse.
  */
-export function inFlight(developVersion: string, mainVersion: string, branches: ReleaseBranch[]): { version: string; from: 'branch' | 'main' } | null {
+export function inFlight(developVersion: string, developTagged: boolean, branches: ReleaseBranch[]): { version: string; from: 'branch' | 'develop' } | null {
   const onBranch = new Set(branches.filter((b) => compareVersions(b.version, developVersion) > 0).map((b) => b.version));
   const ahead = new Set(onBranch);
-  if (compareVersions(mainVersion, developVersion) > 0) ahead.add(mainVersion);
+  if (!developTagged) ahead.add(developVersion);
   if (ahead.size > 1) throw new Refusal(`more than one release is in flight: ${[...ahead].sort(compareVersions).join(', ')}. Finish or delete all but one (docs/RELEASES.md "Recovery")`);
   const [version] = ahead;
   if (version === undefined) return null;
-  return { version, from: onBranch.has(version) ? 'branch' : 'main' };
+  return { version, from: onBranch.has(version) ? 'branch' : 'develop' };
 }
 
 /** The release PR as `npm run release` reads it. */
@@ -288,7 +272,7 @@ export interface ReleasePr {
 }
 
 /**
- * This repo's PR from `release/v<version>` into main among `gh pr list --json <PR_FIELDS>` rows, or null.
+ * This repo's PR from `release/v<version>` into develop among `gh pr list --json <PR_FIELDS>` rows, or null.
  * A fork's PR with the same branch name, or any other base or head, is not it. The open or merged one wins
  * over closed ones; two open or merged ones refuse, and so does a row whose number or shas are malformed.
  */
@@ -297,7 +281,7 @@ export function pickReleasePr(prs: unknown, want: { version: string }): ReleaseP
   const branch = `release/v${want.version}`;
   const found: ReleasePr[] = [];
   for (const p of prs as any[]) {
-    if (p?.headRefName !== branch || p?.baseRefName !== 'main' || p?.isCrossRepository !== false) continue;
+    if (p?.headRefName !== branch || p?.baseRefName !== 'develop' || p?.isCrossRepository !== false) continue;
     const state = typeof p.state === 'string' ? p.state.toLowerCase() : '';
     if (state !== 'open' && state !== 'merged' && state !== 'closed') throw new Refusal(`a PR from ${branch} has state ${JSON.stringify(p.state)}`);
     if (!Number.isSafeInteger(p.number) || p.number <= 0) throw new Refusal(`a PR from ${branch} has number ${JSON.stringify(p.number)}`);
@@ -308,7 +292,7 @@ export function pickReleasePr(prs: unknown, want: { version: string }): ReleaseP
     found.push({ number: p.number, url: p.url, state, head: p.headRefOid, merge });
   }
   const live = found.filter((p) => p.state !== 'closed');
-  if (live.length > 1) throw new Refusal(`more than one open or merged PR from ${branch} into main: ${live.map((p) => `#${p.number}`).join(', ')}`);
+  if (live.length > 1) throw new Refusal(`more than one open or merged PR from ${branch} into develop: ${live.map((p) => `#${p.number}`).join(', ')}`);
   return live[0] ?? found.sort((a, b) => b.number - a.number)[0] ?? null;
 }
 
@@ -327,11 +311,6 @@ const onFirstParents = (root: string, c: string, ref: string): boolean => {
   return r.status === 0 && r.stdout.split('\n').includes(c);
 };
 
-/** How many commits `develop` has that `release` lacks: a release commit cut from an older develop ships without them. */
-export function behindDevelop(root: string, release: string, develop = 'refs/remotes/origin/develop'): number {
-  return Number(git(root, 'rev-list', '--count', `${release}..${develop}`, '--'));
-}
-
 /** `bytes` as text, or null when they are not valid UTF-8, which would not survive a rewrite byte for byte. */
 const utf8 = (bytes: Buffer): string | null => {
   const text = bytes.toString('utf8');
@@ -340,9 +319,9 @@ const utf8 = (bytes: Buffer): string | null => {
 
 /**
  * Whether commit `c` is `parent` plus the bump to `version` that `prepare` makes and nothing else: each version
- * file and marketplace.json is the `rewriteVersion` of the parent's bytes, and CHANGELOG.md is the parent's with
- * one `## <version>` section inserted. A file list is not enough: a `resolved` URL changed in the lockfile, or a
- * hook added to plugin.json, would ride in with the bump, and CI would build and `land` would put it on develop.
+ * file is the `rewriteVersion` of the parent's bytes, and CHANGELOG.md is the parent's with one `## <version>`
+ * section inserted. A file list is not enough: a `resolved` URL changed in the lockfile, or a hook added to
+ * plugin.json, would ride in with the bump, and the release PR would carry it into develop and stable.
  */
 function isBumpOf(root: string, parent: string, c: string, version: string): boolean {
   const text = (rev: string, rel: string): string | null => {
@@ -353,7 +332,7 @@ function isBumpOf(root: string, parent: string, c: string, version: string): boo
     const was = text(parent, 'package.json');
     const from: unknown = was === null ? null : JSON.parse(was)?.version;
     if (typeof from !== 'string' || compareVersions(from, version) >= 0) return false;
-    for (const rel of [...VERSION_FILES.map(([r]) => r), MARKETPLACE]) {
+    for (const [rel] of VERSION_FILES) {
       const [before, after] = [text(parent, rel), text(c, rel)];
       if (before === null || after === null || after !== rewriteVersion(rel, before, from, version)) return false;
     }
@@ -369,38 +348,32 @@ function isBumpOf(root: string, parent: string, c: string, version: string): boo
 /**
  * `tip` when it is a release commit for `version` (one parent, subject exactly `Release <version>`,
  * package.json at `version`, no tracked dashboard/dist, and nothing but develop plus the bump: its parent is
- * on `develop`'s first-parent chain, it changes only the version files, marketplace.json and CHANGELOG.md, and
- * each holds exactly the parent's bytes bumped, with one new CHANGELOG section), its second parent when `tip` is
- * a two-parent main update of one, else null: a hotfix branch, whose dist must never land on develop, or a branch
- * someone else pushed. `develop` is the ref the parent must be on. A parent behind develop's tip still passes:
- * `behindDevelop` counts what such a release leaves out.
+ * on `develop`'s first-parent chain, it changes only the version files and CHANGELOG.md, and each holds
+ * exactly the parent's bytes bumped, with one new CHANGELOG section), else null: a branch someone else pushed,
+ * or a release commit that also edits marketplace.json. `develop` is the ref the parent must be on. A parent
+ * behind develop's tip still passes: the PR merges it into develop as it is now.
  */
 export function releaseCommitOf(root: string, tip: string, version: string, develop = 'refs/remotes/origin/develop'): string | null {
   if (!SHA.test(tip)) return null;
-  const isRelease = (c: string): boolean => {
-    const [parent, ...others] = parentsOf(root, c);
-    if (!parent || others.length) return false;
-    if (git(root, 'log', '-1', '--format=%s', c, '--') !== `Release ${version}`) return false;
-    const pkg = gitSync(['cat-file', 'blob', `${c}:package.json`], { cwd: root });
-    let v: unknown;
-    try {
-      v = pkg.status === 0 ? JSON.parse(pkg.stdout)?.version : undefined;
-    } catch {
-      v = undefined;
-    }
-    if (v !== version || git(root, 'ls-tree', '-r', '--name-only', '--full-tree', c, '--', 'dashboard/dist') !== '') return false;
-    // A commit develop was at: one from a branch merged into it would release a state develop never had.
-    if (!onFirstParents(root, parent, develop)) return false;
-    const changed = gitOut(root, ['diff', '--name-only', '-z', '--no-renames', parent, c, '--']).split('\0').filter(Boolean);
-    return changed.every((f) => RELEASE_FILES.includes(f)) && isBumpOf(root, parent, c, version);
-  };
-  if (isRelease(tip)) return tip;
-  const p = parentsOf(root, tip);
-  return p.length === 2 && SHA.test(p[1]) && isRelease(p[1]) ? p[1] : null;
+  const [parent, ...others] = parentsOf(root, tip);
+  if (!parent || others.length) return null;
+  if (git(root, 'log', '-1', '--format=%s', tip, '--') !== `Release ${version}`) return null;
+  const pkg = gitSync(['cat-file', 'blob', `${tip}:package.json`], { cwd: root });
+  let v: unknown;
+  try {
+    v = pkg.status === 0 ? JSON.parse(pkg.stdout)?.version : undefined;
+  } catch {
+    v = undefined;
+  }
+  if (v !== version || git(root, 'ls-tree', '-r', '--name-only', '--full-tree', tip, '--', 'dashboard/dist') !== '') return null;
+  // A commit develop was at: one from a branch merged into it would release a state develop never had.
+  if (!onFirstParents(root, parent, develop)) return null;
+  const changed = gitOut(root, ['diff', '--name-only', '-z', '--no-renames', parent, tip, '--']).split('\0').filter(Boolean);
+  return changed.every((f) => RELEASE_FILES.includes(f)) && isBumpOf(root, parent, tip, version) ? tip : null;
 }
 
 /** The release PR's description: a copy of the notes for reviewers. No workflow ever reads it. */
-export function prBody(o: { section: string; repo: string; previous: string; version: string; head: string }): string {
+export function prBody(o: { section: string; repo: string; previous: string; version: string }): string {
   return [
     o.section.trim(),
     '',
@@ -408,11 +381,7 @@ export function prBody(o: { section: string; repo: string; previous: string; ver
     '',
     `Everything since ${o.previous}: https://github.com/${o.repo}/compare/${o.previous}...release/v${o.version}`,
     '',
-    `This PR's own diff is against \`main\`, so it equals \`${o.previous}..\` only while \`main\` sits at the tag: after a hotfix it leaves out what the hotfix already changed.`,
-    '',
-    `The Release notes come from CHANGELOG.md in the merged commit, not from this description: editing it changes nothing.`,
-    '',
-    mergeHint(o.head),
+    `Merging this PR into develop publishes v${o.version}: release.yml builds the dashboard, commits it onto stable, tags it and publishes the Release. The notes come from CHANGELOG.md in the merged commit; editing this description changes nothing.`,
     '',
   ].join('\n');
 }
@@ -449,44 +418,20 @@ async function confirm(question: string, yes: boolean, declined = 'stopped: noth
   if (!/^y(es)?$/i.test(answer.trim())) throw new Refusal(declined);
 }
 
-/** A commit on main that the release lacks. */
-export interface MainOnly {
-  sha: string;
-  subject: string;
-}
-
-/** The questions `toPr` and `land` ask before they push or go on; each resolves to go on and throws to stop. */
+/** The question `toPr` asks before it pushes; it resolves to go on and throws to stop. */
 export interface Ask {
-  /** Push the release branch, the main update or develop. */
+  /** Push the release branch. */
   push(question: string, declined?: string): Promise<void>;
-  /** The release lacks `count` commits origin/develop has. */
-  behind(question: string, count: number, declined: string): Promise<void>;
-  /** These commits are on main but not in the release (already listed on stderr): were they all ported? */
-  hotfixes(list: MainOnly[]): Promise<void>;
 }
 
-/** `npm run release`'s questions: asked on a terminal, or all answered by `--yes`. */
+/** `npm run release`'s question: asked on a terminal, or answered by `--yes`. */
 export const plainAsk = (yes: boolean): Ask => ({
   push: (question, declined) => confirm(question, yes, declined),
-  behind: (question, _count, declined) => confirm(question, yes, declined),
-  hotfixes: () => confirm('Were they all ported?', yes),
 });
 
-/**
- * Phase mode's answers. The engine asked before each pushing step, so a push goes ahead. A release behind
- * origin/develop goes on: the planned release is develop as it was at `start`. Hotfixes are a judgement only
- * the maintainer can make, on a terminal.
- */
+/** Phase mode's answer: the engine asked before the start step, so the push goes ahead. */
 export const PHASE_ASK: Ask = {
   push: async () => {},
-  behind: async (_question, count) => {
-    say(`going on without ${count === 1 ? 'it' : 'them'}: the planned release is develop as it was when the start step cut it`);
-  },
-  hotfixes: async (list) => {
-    throw new Refusal(
-      `these commits are on main but not in the release, which undoes any not ported to develop:\n${list.map((c) => `  ${c.sha} ${c.subject}`).join('\n')}\nPort them to develop, answer the question with \`npm run release\` on a terminal, then run forge release run again`,
-    );
-  },
 };
 
 function editNotes(file: string): void {
@@ -609,173 +554,77 @@ const localTip = (root: string, branch: string): string | null => {
   return r.status === 0 && SHA.test(sha) ? sha : null;
 };
 const notARelease = (branch: string, tip: string) =>
-  new Refusal(`${branch} is at ${tip.slice(0, 7)}, which is neither a release commit nor a main update of one (a hotfix branch?): finish it by hand (docs/RELEASES.md › Hotfixes)`);
+  new Refusal(`${branch} is at ${tip.slice(0, 7)}, which is not a release commit npm run release made: close its PR if one is open, delete it (git push origin --delete ${branch}; git branch -D ${branch}) and start again`);
 
-/** Prints the PR and the head `npm run release` checked, the one commit a merge should publish. */
-function showPr(url: string, head: string): void {
+/** Says the PR is open and what comes next; returns its URL, the line stdout gets. */
+function showPr(url: string, version: string): string {
   say(`the release PR is open: ${url}`);
-  say(`checked head: ${head}`);
-  say(mergeHint(head));
-  process.stdout.write(`${url}\n`);
+  say(mergeHint(version));
+  return url;
 }
 
-/** Runs `use` with the `dashboard-dist` artifact of `build` downloaded into a temp dir, removed afterwards. */
-function withDist<T>(repo: string, build: Run, use: (dist: string) => T): T {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-release-dist-'));
-  try {
-    try {
-      sh('gh', ['run', 'download', String(build.id), '--repo', repo, '--name', 'dashboard-dist', '--dir', tmp]);
-    } catch (e) {
-      throw new Refusal(`${(e as Error).message}\nIf the artifact has expired, "Re-run all jobs" on ${build.html_url} builds it again for the same commit; then run npm run release again.`);
-    }
-    return use(tmp);
-  } finally {
-    fs.rmSync(tmp, { recursive: true, force: true });
-  }
-}
-
-/** Before the PR merges: the release commit pushed, the main update on top of main pushed, the PR open. */
-async function toPr(root: string, repo: string, previous: string, version: string, pr: ReleasePr | null, ask: Ask): Promise<void> {
+/** Opens the release PR from release/v<version> (at `tip`) into develop and returns its URL. */
+function openPr(root: string, repo: string, previous: string, version: string, tip: string): string {
   const branch = `release/v${version}`;
-  const remote = remoteTip(root, branch);
-  let tip = remote ?? localTip(root, branch);
-  if (!tip) throw new Refusal(`origin/main is at ${version} but there is no ${branch} branch and \`gh pr list\` found no release PR from it: if it is a hotfix, port it to develop (docs/RELEASES.md › Hotfixes); if a release PR merged, check that \`gh pr list --head ${branch} --state all\` lists it`);
-  const release = releaseCommitOf(root, tip, version);
-  // Only the release commit itself is pushed from a local branch: its main update is built below, never taken from one.
-  if (!release || (!remote && release !== tip)) throw notARelease(branch, tip);
-  // A release commit on an older develop commit is a release commit too, and would quietly leave out what came after.
-  const behind = behindDevelop(root, release);
-  if (behind > 0) {
-    say(`origin/develop has ${behind} commit${behind === 1 ? '' : 's'} that Release ${version} (${release.slice(0, 7)}) lacks, and the release would ship without them: git log --oneline ${release.slice(0, 7)}..origin/develop lists them`);
-    await ask.behind(`Go on with Release ${version} without them?`, behind, `stopped: nothing more was pushed. To release develop as it is now, close the release PR if one is open, delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start again`);
-  }
-  if (!remote) {
-    await ask.push(`Push Release ${version} (${tip.slice(0, 7)}) to origin ${branch}?`);
-    gitOut(root, ['push', '--quiet', 'origin', `${tip}:refs/heads/${branch}`]);
-  }
-  const main = git(root, 'rev-parse', 'refs/remotes/origin/main');
-  if (tip !== release) {
-    const pushed = tip;
-    if (git(root, 'rev-parse', `${pushed}^1`) !== main)
-      throw new Refusal(`origin/main moved past the main update's first parent: close the PR, delete ${branch}, port main's commits to develop, and start again`);
-    // Whoever can push the branch can push a commit shaped like the main update, and the PR would carry it into main.
-    // Only the tree this script derives from the release commit and its CI-built dist is accepted.
-    const build = await waitForRun(repo, 'main-update.yml', release, branch);
-    if (!withDist(repo, build, (dist) => isMainUpdate(main, release, pushed, dist)))
-      throw new Refusal(`${branch}'s tip ${pushed.slice(0, 7)} is not the main update of Release ${version}: its tree is not the release commit's plus the dashboard from ${build.html_url}. Something other than npm run release pushed it: close the PR if one is open, delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start the release again`);
-  }
-  if (pr) {
-    if (pr.head !== tip) throw new Refusal(`the release PR ${pr.url} is at ${pr.head.slice(0, 7)}, not ${branch}'s tip ${tip.slice(0, 7)}: check what was pushed to ${branch}`);
-    return showPr(pr.url, tip);
-  }
-
-  if (tip === release) {
-    const build = await waitForRun(repo, 'main-update.yml', release, branch);
-    const hotfixes = mainOnlyCommits(main, release);
-    if (hotfixes.length) {
-      say('These commits are on main but not in the release; it undoes any not ported to develop:');
-      for (const c of hotfixes) say(`  ${c.sha} ${c.subject}`);
-      await ask.hotfixes(hotfixes);
-    }
-    const update = withDist(repo, build, (dist) => mainCommit(main, release, dist));
-    if (!SHA.test(update)) throw new Refusal(`the main update is ${JSON.stringify(update)}`);
-    await ask.push(`Push the main update (${update.slice(0, 7)}: Release ${version} plus the dashboard from ${build.html_url}) to ${branch}?`);
-    try {
-      gitOut(root, ['push', '--quiet', 'origin', `${update}:refs/heads/${branch}`]);
-    } catch (e) {
-      throw new Refusal(`${(e as Error).message}\nIf GitHub refused a workflow file, your credential lacks the workflow scope (gh auth refresh -s workflow), then run npm run release again.`);
-    }
-    tip = update;
-  }
-
-  const section = changelogSection(gitOut(root, ['show', `${release}:CHANGELOG.md`]), version) ?? '';
+  const section = changelogSection(gitOut(root, ['show', `${tip}:CHANGELOG.md`]), version) ?? '';
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-release-pr-'));
   try {
     const body = path.join(tmp, 'body.md');
-    fs.writeFileSync(body, prBody({ section, repo, previous, version, head: tip }));
-    const out = sh('gh', ['pr', 'create', '--repo', repo, '--base', 'main', '--head', branch, '--title', `Release ${version}`, '--body-file', body]);
+    fs.writeFileSync(body, prBody({ section, repo, previous, version }));
+    const out = sh('gh', ['pr', 'create', '--repo', repo, '--base', 'develop', '--head', branch, '--title', `Release ${version}`, '--body-file', body]);
     const url = out.trim().split('\n').at(-1) ?? '';
     if (!/^https:\/\/\S+$/.test(url)) throw new Refusal(`gh pr create printed ${JSON.stringify(out.trim())}`);
-    showPr(url, tip);
+    return showPr(url, version);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
 /**
- * Makes local develop hold `release` and returns the sha to push, or null when origin/develop already has it:
- * a fast-forward when origin/develop is still its parent, else a `Release <version>` merge of it on a develop that
- * equals origin/develop (a conflict aborts and refuses). A develop that is exactly that landing already, `release`
- * with origin/develop as its parent or a merge with parents `[origin/develop, release]` (one an earlier run made
- * whose push was declined, or a merge by hand after a conflict), is returned as it is. Anything more refuses: it
- * would be pushed with the landing.
+ * Before the PR merges: the release commit on origin (pushed after `ask.push` when only here) and the PR into
+ * develop open. Returns the PR's URL. The branch tip is adopted only when it is a release commit of develop.
  */
-export function landOnDevelop(root: string, release: string, version: string): string | null {
-  const remote = git(root, 'rev-parse', 'refs/remotes/origin/develop');
-  if (gitOk(root, ['merge-base', '--is-ancestor', release, remote])) return null;
-  const head = git(root, 'rev-parse', 'HEAD');
-  if (head !== remote) {
-    const landing = head === release ? [remote] : [remote, release];
-    if (parentsOf(root, head).join(' ') === landing.join(' ')) return head;
-    throw new Refusal('develop differs from origin/develop: if it holds only a declined landing, put it back on origin/develop (git fetch origin develop, then git reset --keep origin/develop) and run npm run release again');
+async function toPr(root: string, repo: string, previous: string, version: string, pr: ReleasePr | null, ask: Ask): Promise<string> {
+  const branch = `release/v${version}`;
+  const remote = remoteTip(root, branch);
+  const tip = remote ?? localTip(root, branch);
+  if (!tip) throw new Refusal(`there is no ${branch} branch here or on origin, and no release PR from it merged: name the next version to start a release`);
+  if (releaseCommitOf(root, tip, version) !== tip) throw notARelease(branch, tip);
+  if (!remote) {
+    await ask.push(`Push Release ${version} (${tip.slice(0, 7)}) to origin ${branch}?`);
+    gitOut(root, ['push', '--quiet', 'origin', `${tip}:refs/heads/${branch}`]);
+    say(`pushed Release ${version} (${tip.slice(0, 7)}) to origin ${branch}`);
   }
-  if (git(root, 'rev-parse', `${release}^1`) === remote) gitOut(root, ['merge', '--quiet', '--ff-only', release]);
-  else {
-    const merged = gitSync(['merge', '--quiet', '--no-ff', '--no-edit', '-m', `Release ${version}`, release], { cwd: root });
-    if (merged.status !== 0) {
-      gitOk(root, ['merge', '--abort']);
-      throw new Refusal(`Release ${version} does not merge cleanly into develop: merge it by hand (git merge --no-ff -m "Release ${version}" ${release}), push develop, then run npm run release`);
-    }
+  if (pr) {
+    if (pr.head !== tip) throw new Refusal(`the release PR ${pr.url} is at ${pr.head.slice(0, 7)}, not ${branch}'s tip ${tip.slice(0, 7)}: check what was pushed to ${branch}`);
+    return showPr(pr.url, version);
   }
-  return git(root, 'rev-parse', 'HEAD');
-}
-
-/** Waits for release.yml's run on the merge commit unless `v<version>` is already on origin, fetches the tag and refuses unless it peels to the merge. */
-async function waitForTag(root: string, repo: string, version: string, pr: ReleasePr): Promise<void> {
-  const merge = pr.merge as string;
-  const tag = `v${version}`;
-  if (!gitOk(root, ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/${tag}`])) await waitForRun(repo, 'release.yml', merge, 'main');
-  gitOut(root, ['fetch', '--quiet', 'origin', `refs/tags/${tag}:refs/tags/${tag}`]);
-  const peeled = git(root, 'rev-parse', '--verify', `refs/tags/${tag}^{commit}`);
-  if (peeled !== merge) throw new Refusal(`${tag} points at ${peeled.slice(0, 7)}, not the release PR's merge commit ${merge.slice(0, 7)}: check the tag by hand; nothing landed on develop`);
+  return openPr(root, repo, previous, version, tip);
 }
 
 /**
- * After the PR merged: release.yml's tag on the merge commit, the merged head derived once more, then the release
- * commit landed on develop. The merge published whatever the head was when it happened (a push after the resume
- * vouched for it counts) and release.yml reads no tree, while landing moves develop's marketplace.json, the switch
- * every install reads, to the tag. This is the last place to stop installs from following a bad tag.
+ * After the PR merged: waits for release.yml's run on the merge commit unless `v<version>` is already on origin,
+ * fetches the tag and stable, and refuses unless the tag peels to the stable commit of this merge (second parent
+ * the merge commit, on origin/stable). Returns the Release URL. Read with replace objects and grafts off, which
+ * could make two commits look related.
  */
-async function land(root: string, repo: string, version: string, pr: ReleasePr, ask: Ask): Promise<void> {
-  const merge = pr.merge as string;
+async function waitForTag(root: string, repo: string, version: string, pr: ReleasePr): Promise<string> {
+  const merge = pr.merge;
+  if (!merge || !SHA.test(merge)) throw new Refusal(`the release PR ${pr.url} has no merge commit`);
   const tag = `v${version}`;
-  const branch = `release/v${version}`;
-  await waitForTag(root, repo, version, pr);
-  const release = releaseCommitOf(root, pr.head, version);
-  if (!release) throw notARelease(branch, pr.head);
-
-  const unlanded = `Nothing landed on develop, so installs still follow the previous tag. Delete the ${tag} Release and tag by hand (gh release delete ${tag} --cleanup-tag --repo ${repo}) and undo the merge on main with a hotfix PR (docs/RELEASES.md › Recovery)`;
-  const tree = (rev: string) => git(root, 'rev-parse', '--verify', `${rev}^{tree}`);
-  if (tree(merge) !== tree(pr.head))
-    throw new Refusal(`the merge commit ${merge.slice(0, 7)} does not have the tree of the release PR's head ${pr.head.slice(0, 7)}: main took another commit while the PR was open, or the merge is not of the head that was checked. ${unlanded}`);
-  const build = await waitForRun(repo, 'main-update.yml', release, branch);
-  if (!withDist(repo, build, (dist) => isMainUpdate(git(root, 'rev-parse', '--verify', `${pr.head}^1`), release, pr.head, dist)))
-    throw new Refusal(`the release PR's head ${pr.head.slice(0, 7)} is not the main update of Release ${version}: its tree is not the release commit's plus the dashboard from ${build.html_url}. It was pushed after npm run release checked the branch, or by something else. ${unlanded}`);
-
-  const head = landOnDevelop(root, release, version);
-  if (head === null) say(`Release ${version} is already on develop`);
-  else {
-    const state = `develop (${head.slice(0, 7)}) holds Release ${version} and origin/develop does not`;
-    await ask.push(`Push develop (${head.slice(0, 7)}, with Release ${version}) to origin?`, `stopped: local ${state}; the next npm run release pushes it`);
-    try {
-      gitOut(root, ['push', '--quiet', 'origin', `${head}:refs/heads/develop`]);
-    } catch (e) {
-      throw new Refusal(`${(e as Error).message}\nLocal ${state}: if origin/develop moved, put develop back on it (git fetch origin develop, then git reset --keep origin/develop) and run npm run release again, which lands the release on the new tip`);
-    }
-  }
+  if (!gitOk(root, ['ls-remote', '--exit-code', '--tags', 'origin', `refs/tags/${tag}`])) await waitForRun(repo, 'release.yml', merge, 'develop');
+  gitOut(root, ['fetch', '--quiet', 'origin', `refs/tags/${tag}:refs/tags/${tag}`, '+refs/heads/stable:refs/remotes/origin/stable']);
+  const history = (args: string[]) => gitSync(args, { cwd: root, env: historyEnv() });
+  const commit = history(['rev-parse', '-q', '--verify', `refs/tags/${tag}^{commit}`]).stdout.trim();
+  if (!SHA.test(commit)) throw new Refusal(`${tag} on origin is not a commit`);
+  const second = history(['rev-parse', '-q', '--verify', `${commit}^2`]).stdout.trim();
+  if (second !== merge)
+    throw new Refusal(`${tag} points at ${commit.slice(0, 7)}, which is not the stable commit of the release PR's merge ${merge.slice(0, 7)} (its second parent is ${second ? second.slice(0, 7) : 'missing'}): check the tag by hand (docs/RELEASES.md "Recovery")`);
+  if (history(['merge-base', '--is-ancestor', commit, 'refs/remotes/origin/stable']).status !== 0)
+    throw new Refusal(`${tag} points at ${commit.slice(0, 7)}, which is not on origin/stable: check the tag by hand (docs/RELEASES.md "Recovery")`);
   const url = sh('gh', ['release', 'view', tag, '--repo', repo, '--json', 'url', '--jq', '.url']).trim();
-  say(`released ${version}`);
-  process.stdout.write(`${url}\n`);
+  say(`released ${version}: ${tag} is ${commit.slice(0, 7)} on stable`);
+  return url;
 }
 
 export interface Args {
@@ -798,46 +647,49 @@ export function parseArgs(argv: string[]): Args | null {
 }
 
 /**
- * The versions of origin/develop and origin/main and the release in flight, from the refs a fetch just updated.
- * develop's version is origin/develop's, not the working tree's: a landing made on local develop whose push was
- * declined or rejected must still read as in flight, so the next run finds the merged PR and pushes it.
+ * origin/develop's version, whether it is tagged, and the release in flight, from the refs a fetch just updated.
+ * develop's version is origin/develop's, not the working tree's.
  */
-export function releaseState(root: string): { developVersion: string; mainVersion: string; flight: ReturnType<typeof inFlight> } {
+export function releaseState(root: string): { developVersion: string; developTagged: boolean; flight: ReturnType<typeof inFlight> } {
   const developVersion = readVersion(gitOut(root, ['show', 'refs/remotes/origin/develop:package.json']), "origin/develop's package.json");
-  const mainVersion = readVersion(gitOut(root, ['show', 'refs/remotes/origin/main:package.json']), "origin/main's package.json");
+  const developTagged = tagged(root, developVersion);
   const refs = gitOut(root, ['for-each-ref', '--format=%(objectname) %(refname)', 'refs/heads/release/', 'refs/remotes/origin/release/']);
-  return { developVersion, mainVersion, flight: inFlight(developVersion, mainVersion, releaseBranches(refs, developVersion)) };
+  return { developVersion, developTagged, flight: inFlight(developVersion, developTagged, releaseBranches(refs, developVersion)) };
 }
 
-/** On develop, with a clean tree: fetches develop, main, the release branches and the tags, and reads the release state. */
+/** On develop, with a clean tree: fetches develop, the release branches and the tags, and reads the release state. */
 function preamble(root: string): ReturnType<typeof releaseState> {
   if (git(root, 'symbolic-ref', '--short', 'HEAD') !== 'develop') throw new Refusal('check out develop first');
   const dirty = gitOut(root, ['status', '--porcelain', '--untracked-files=all']).trimEnd();
   if (dirty) throw new Refusal(`the working tree is not clean:\n${dirty}`);
-  say('fetching develop, main, the release branches and the tags');
-  gitOut(root, ['fetch', '--quiet', '--prune', '--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/main:refs/remotes/origin/main', '+refs/heads/release/*:refs/remotes/origin/release/*']);
+  say('fetching develop, the release branches and the tags');
+  gitOut(root, ['fetch', '--quiet', '--prune', '--tags', 'origin', '+refs/heads/develop:refs/remotes/origin/develop', '+refs/heads/release/*:refs/remotes/origin/release/*']);
   return releaseState(root);
 }
 
 const inFlightRefusal = (flight: NonNullable<ReturnType<typeof inFlight>>) => {
-  const where = flight.from === 'branch' ? `branch release/v${flight.version}` : `origin/main is at ${flight.version}`;
-  return new Refusal(`Release ${flight.version} is in flight (${where}): run \`npm run release\` with no version to finish it, or, for a hotfix on main, port it to develop first`);
+  const where = flight.from === 'branch' ? `branch release/v${flight.version}` : `develop is at ${flight.version}, which is not tagged yet`;
+  return new Refusal(`Release ${flight.version} is in flight (${where}): run \`npm run release\` with no version to finish it`);
 };
 const closedRefusal = (pr: ReleasePr, branch: string) =>
   new Refusal(`the release PR ${pr.url} was closed without merging: reopen it, or delete ${branch} (git push origin --delete ${branch}; git branch -D ${branch}) and start over`);
+/** develop carries an untagged version that no merged release PR brought: nothing here can publish it. */
+const unreleasedRefusal = (version: string) =>
+  new Refusal(`develop is at ${version}, but v${version} is not tagged and no release PR from release/v${version} into develop merged: a version bump only a release PR makes publishes (docs/RELEASES.md "Recovery")`);
 
-/** This repo's release PR from release/v<version> into main, or null. */
+/** This repo's release PR from release/v<version> into develop, or null. */
 const releasePr = (repo: string, version: string): ReleasePr | null =>
-  pickReleasePr(JSON.parse(sh('gh', ['pr', 'list', '--repo', repo, '--base', 'main', '--head', `release/v${version}`, '--state', 'all', '--json', PR_FIELDS])), { version });
+  pickReleasePr(JSON.parse(sh('gh', ['pr', 'list', '--repo', repo, '--base', 'develop', '--head', `release/v${version}`, '--state', 'all', '--json', PR_FIELDS])), { version });
 
-async function release(args: Args): Promise<void> {
+/** `npm run release`: starts a release, or resumes the one in flight. Returns the line for stdout: the PR or Release URL. */
+async function release(args: Args): Promise<string> {
   const root = ROOT;
   const { developVersion, flight } = preamble(root);
 
   let version: string;
   if (args.want) {
+    // An untagged develop version is in flight too: a merged release whose release.yml has not tagged it yet.
     if (flight) throw inFlightRefusal(flight);
-    if (!tagged(root, developVersion)) throw new Refusal(`${developVersion} is not tagged: finish or fix that release first (docs/RELEASES.md "Recovery")`);
     if (git(root, 'rev-parse', 'HEAD') !== git(root, 'rev-parse', 'refs/remotes/origin/develop')) throw new Refusal('develop differs from origin/develop: pull or push first');
     const next = nextVersion(developVersion, args.want);
     if (tagged(root, next)) throw new Refusal(`v${next} is already tagged`);
@@ -851,13 +703,14 @@ async function release(args: Args): Promise<void> {
   const repo = repoName();
   const branch = `release/v${version}`;
   const pr = releasePr(repo, version);
-  if (pr?.state === 'merged') return land(root, repo, version, pr, plainAsk(args.yes));
+  if (pr?.state === 'merged') return waitForTag(root, repo, version, pr);
   if (pr?.state === 'closed') throw closedRefusal(pr, branch);
+  if (flight?.from === 'develop') throw unreleasedRefusal(version);
   return toPr(root, repo, `v${developVersion}`, version, pr, plainAsk(args.yes));
 }
 
 export type Bump = (typeof BUMPS)[number];
-const PHASES = ['start', 'wait-build', 'pr', 'wait-tag', 'land'] as const;
+const PHASES = ['start', 'wait-tag'] as const;
 export type Phase = (typeof PHASES)[number];
 export type PhaseMode = { kind: 'phase'; phase: Phase; version: string; notesFile: string | null } | { kind: 'check'; version: string };
 export type Mode = { kind: 'release'; args: Args } | PhaseMode | { kind: 'draft'; bump: Bump | null };
@@ -935,91 +788,69 @@ export function phaseSection(text: string, version: string): string {
   return section;
 }
 
-/** Whether `version` is released and landed: origin/develop is at it and `v<version>` exists. Reads the refs the preamble fetched. */
-export function isLanded(root: string, version: string): boolean {
-  const developVersion = readVersion(gitOut(root, ['show', 'refs/remotes/origin/develop:package.json']), "origin/develop's package.json");
-  return developVersion === version && tagged(root, version);
-}
-
-/** `--phase start`: cut the release commit from `notesFile` and push it, or push the one cut already. */
-function phaseStart(root: string, version: string, developVersion: string, flight: ReturnType<typeof inFlight>, notesFile: string): void {
+/**
+ * `--phase start`: cut the release commit from `notesFile`, push it and open the release PR into develop, each only
+ * when not done yet. Returns the PR's URL, or null once the PR has merged.
+ */
+async function phaseStart(root: string, version: string, developVersion: string, flight: ReturnType<typeof inFlight>, notesFile: string): Promise<string | null> {
   const branch = `release/v${version}`;
   if (flight) {
-    if (flight.from === 'main' || remoteTip(root, branch)) {
-      say(`${branch} is already on origin: nothing to do`);
-      return;
+    if (flight.from === 'develop') {
+      say(`Release ${version} is merged into develop: nothing to cut`);
+      return null;
     }
-    const local = localTip(root, branch);
-    if (!local) throw new Refusal(`${branch} is neither on origin nor here: run forge release plan again`);
-    if (releaseCommitOf(root, local, version) !== local) throw notARelease(branch, local);
-    gitOut(root, ['push', '--quiet', 'origin', `${local}:refs/heads/${branch}`]);
-    say(`pushed Release ${version} (${local.slice(0, 7)}) to origin ${branch}`);
-    return;
+    const repo = repoName();
+    const pr = releasePr(repo, version);
+    if (pr?.state === 'merged') {
+      say(`the release PR ${pr.url} is merged: nothing to do`);
+      return null;
+    }
+    if (pr?.state === 'closed') throw closedRefusal(pr, branch);
+    return toPr(root, repo, `v${developVersion}`, version, pr, PHASE_ASK);
   }
-  if (!tagged(root, developVersion)) throw new Refusal(`${developVersion} is not tagged: finish or fix that release first (docs/RELEASES.md "Recovery")`);
   if (git(root, 'rev-parse', 'HEAD') !== git(root, 'rev-parse', 'refs/remotes/origin/develop')) throw new Refusal('develop differs from origin/develop: pull or push first');
-  if (tagged(root, version)) throw new Refusal(`v${version} is already tagged`);
   if (!BUMPS.some((b) => nextVersion(developVersion, b) === version)) throw new Refusal(`${version} is not the patch, minor or major release after ${developVersion}: run forge release plan again`);
   const section = phaseSection(fs.readFileSync(path.resolve(notesFile), 'utf8'), version);
   const commit = prepare(root, developVersion, version, { section });
   gitOut(root, ['push', '--quiet', 'origin', `${commit}:refs/heads/${branch}`]);
   say(`pushed Release ${version} (${commit.slice(0, 7)}) to origin ${branch}`);
+  return toPr(root, repoName(), `v${developVersion}`, version, null, PHASE_ASK);
 }
 
 /**
  * One phase of the release in flight, or the merged check. A phase does nothing once its release is past it, and
  * refuses another version while one is in flight. Every check `npm run release` makes stays in the functions it calls.
+ * Returns the line for stdout (the PR or Release URL), or null.
  */
-export async function runPhase(root: string, mode: PhaseMode): Promise<void> {
+export async function runPhase(root: string, mode: PhaseMode): Promise<string | null> {
   const branch = `release/v${mode.version}`;
   if (mode.kind === 'check') {
     const pr = releasePr(repoName(), mode.version);
-    if (pr?.state !== 'merged') throw new Refusal(pr ? `the release PR ${pr.url} is ${pr.state}, not merged` : `there is no release PR from ${branch} into main`);
+    if (pr?.state !== 'merged') throw new Refusal(pr ? `the release PR ${pr.url} is ${pr.state}, not merged` : `there is no release PR from ${branch} into develop`);
     say(`the release PR ${pr.url} is merged`);
-    return;
+    return null;
   }
   const { version, phase } = mode;
   const { developVersion, flight } = preamble(root);
-  if (isLanded(root, version)) {
-    say(`Release ${version} is already landed on develop: nothing to do`);
-    if (phase === 'land') {
-      try {
-        process.stdout.write(`${sh('gh', ['release', 'view', `v${version}`, '--repo', repoName(), '--json', 'url', '--jq', '.url']).trim()}\n`);
-      } catch {
-        // Best effort: the release is landed either way.
-      }
-    }
-    return;
-  }
   if (flight && flight.version !== version) throw inFlightRefusal(flight);
-  if (phase === 'start') return phaseStart(root, version, developVersion, flight, mode.notesFile as string);
-  if (!flight) throw new Refusal(`Release ${version} is not in flight: the start step cuts it`);
+  if (phase === 'start') {
+    if (tagged(root, version)) {
+      say(`v${version} is already tagged: nothing to do`);
+      return null;
+    }
+    return phaseStart(root, version, developVersion, flight, mode.notesFile as string);
+  }
+  // wait-tag checks the tag even once it exists: that check is the step.
   const repo = repoName();
   const pr = releasePr(repo, version);
-  const merged = pr?.state === 'merged' ? pr : null;
-  if (phase === 'wait-build' || phase === 'pr') {
-    if (merged) {
-      say(`the release PR ${merged.url} is merged: nothing to do`);
-      return;
-    }
-    if (pr?.state === 'closed') throw closedRefusal(pr, branch);
-    if (phase === 'pr') return toPr(root, repo, `v${developVersion}`, version, pr, PHASE_ASK);
-    const tip = remoteTip(root, branch);
-    if (!tip) throw new Refusal(`${branch} is not on origin yet: the start step pushes it`);
-    const release = releaseCommitOf(root, tip, version);
-    if (!release) throw notARelease(branch, tip);
-    await waitForRun(repo, 'main-update.yml', release, branch);
-    return;
-  }
-  if (!merged) throw pr?.state === 'closed' ? closedRefusal(pr, branch) : new Refusal(`the release PR from ${branch} is not merged yet: merge it first (the merge step)`);
-  if (phase === 'wait-tag') return waitForTag(root, repo, version, merged);
-  return land(root, repo, version, merged, PHASE_ASK);
+  if (pr?.state !== 'merged') throw pr?.state === 'closed' ? closedRefusal(pr, branch) : new Refusal(`the release PR from ${branch} into develop is not merged yet: merge it first (the merge step)`);
+  return waitForTag(root, repo, version, pr);
 }
 
 const USAGE = [
   'usage: npm run release -- [patch|minor|major|X.Y.Z [--notes-file <file>]] [--yes]',
   '       node scripts/release.ts --draft-notes [--bump patch|minor|major]',
-  '       node scripts/release.ts --phase start <X.Y.Z> --notes-file <file> | --phase wait-build|pr|wait-tag|land <X.Y.Z>',
+  '       node scripts/release.ts --phase start <X.Y.Z> --notes-file <file> | --phase wait-tag <X.Y.Z>',
   '       node scripts/release.ts --check merged <X.Y.Z>',
 ].join('\n');
 
@@ -1029,15 +860,14 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.stderr.write(`${USAGE}\n`);
     process.exit(2);
   }
-  const work = async (): Promise<void> => {
+  const work = async (): Promise<string | null> => {
     if (mode.kind === 'release') return release(mode.args);
-    if (mode.kind === 'draft') {
-      process.stdout.write(`${JSON.stringify(draftNotes(ROOT, mode.bump))}\n`);
-      return;
-    }
+    if (mode.kind === 'draft') return JSON.stringify(draftNotes(ROOT, mode.bump));
     return runPhase(ROOT, mode);
   };
-  work().catch((e) => {
+  work().then((line) => {
+    if (line !== null) process.stdout.write(`${line}\n`);
+  }).catch((e) => {
     process.stderr.write(`release: ${(e as Error).message}\n`);
     process.exit(1);
   });

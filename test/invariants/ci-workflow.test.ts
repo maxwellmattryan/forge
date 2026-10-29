@@ -394,8 +394,9 @@ test('the release check picks --dist from the PR base or the branch', POSIX, () 
       return r.stdout.trim();
     };
     assert.equal(ran('develop'), 'run release:check -- --dist absent');
-    assert.equal(ran('main'), 'run release:check -- --dist present');
-    for (const other of ['ci/main-update', 'forge/309-x', 'release/v1.2.3', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
+    // The stable tree is checked in release.yml's build, never here: main and stable get the plain check.
+    for (const other of ['main', 'stable', 'forge/309-x', 'release/v1.2.3', 'develop2', 'main/x', '']) assert.equal(ran(other), 'run release:check', JSON.stringify(other));
+    assert.deepEqual(WF.on.push, { branches: ['develop'] }, 'pushes run on develop only');
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

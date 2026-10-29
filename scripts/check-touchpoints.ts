@@ -177,14 +177,14 @@ export const RULES: readonly Rule[] = [
   },
   {
     id: 'release-docs',
-    fires: net(['.github/workflows/release.yml', '.github/workflows/main-update.yml'], 'yaml'),
+    fires: net(['.github/workflows/release.yml'], 'yaml'),
     satisfied: changed(['docs/RELEASES.md']),
     fix: () => 'describe the release pipeline change in docs/RELEASES.md',
   },
   {
     id: 'release-tests',
-    fires: net(['scripts/release*.ts', 'scripts/main-update.ts'], 'code', ['**/*.test.ts']),
-    satisfied: changed(['test/integration/scripts/**', 'test/invariants/release-workflow.test.ts', 'test/invariants/main-update-workflow.test.ts']),
+    fires: net(['scripts/release*.ts', 'scripts/stable-tree.ts'], 'code', ['**/*.test.ts']),
+    satisfied: changed(['test/integration/scripts/**', 'test/invariants/release-workflow.test.ts']),
     fix: () => 'cover the change in test/integration/scripts/ (or the release workflow invariants)',
   },
   {

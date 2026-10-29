@@ -7,7 +7,7 @@ import path from 'node:path';
 import { ForgeError } from '../errors.ts';
 
 /** A full URL, not a relative path: doctor runs in other repos, where docs/ is not Forge's. */
-export const SUPPORT_URL = 'https://github.com/maxwellmattryan/forge/blob/main/docs/SUPPORT.md';
+export const SUPPORT_URL = 'https://github.com/maxwellmattryan/forge/blob/develop/docs/SUPPORT.md';
 
 const TIERS = ['supported', 'supported-with-notes', 'unsupported'] as const;
 export type Tier = (typeof TIERS)[number];

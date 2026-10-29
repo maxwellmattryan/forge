@@ -14,8 +14,10 @@ const SCRIPT = path.join(ROOT, 'scripts', 'release-check.ts');
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 const USAGE = 'usage: node scripts/release-check.ts [--root <dir>] [--dist absent|present]';
 const MARKETPLACE = '.claude-plugin/marketplace.json';
-const marketplace = (ref: string | null, name = 'forge') =>
-  JSON.stringify({ name: 'forge', plugins: [{ name, source: { source: 'url', url: 'https://github.com/o/forge.git', ...(ref === null ? {} : { ref }) } }] }, null, 2);
+const STABLE = { source: 'github', repo: 'maxwellmattryan/forge', ref: 'stable' };
+/** marketplace.json with the forge plugin (or `name`) at `source`; null leaves the plugin without one. */
+const marketplace = (source: unknown = STABLE, name = 'forge') =>
+  JSON.stringify({ name: 'forge', plugins: [{ name, ...(source === null ? {} : { source }) }] }, null, 2);
 
 type Repo = { dir: string; git: (...args: string[]) => Buffer; cleanup: () => void };
 const write = (dir: string, rel: string, text: string) => {
@@ -32,7 +34,7 @@ const fixture: () => Repo = repoTemplate((dir) => {
   const version = JSON.stringify({ name: 'forge', version: '1.2.3' });
   write(dir, 'package.json', version);
   write(dir, '.claude-plugin/plugin.json', version);
-  write(dir, MARKETPLACE, marketplace('v1.2.3'));
+  write(dir, MARKETPLACE, marketplace());
   write(dir, 'CHANGELOG.md', '# Changelog\n\n## 1.2.3\n\n- Release tags.\n\n## 1.2.2\n\n- Older.\n');
   write(dir, 'package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { '': {} } }));
   write(dir, 'dashboard/index.html', '<!doctype html>\n');
@@ -103,13 +105,20 @@ test('releaseProblems passes a clean release checkout and names each problem', P
       assert.ok(problems.some((p) => (typeof problem === 'string' ? p === problem : problem.test(p))), `${what}: ${JSON.stringify(problems)}`);
     }
 
-    // The marketplace ref names the version's tag, whatever the dist mode.
+    // The marketplace names the stable branch of this repository, whatever the dist mode.
+    const wrong = (got: unknown) => `.claude-plugin/marketplace.json must point the forge plugin at {"source":"github","repo":"maxwellmattryan/forge","ref":"stable"}, got ${JSON.stringify(got)}`;
+    const url = { source: 'url', url: 'https://github.com/maxwellmattryan/forge.git', ref: 'stable' };
     const refRows: [string, (dir: string) => void, string | RegExp | null][] = [
-      ['the tag', (d) => write(d, MARKETPLACE, marketplace('v1.2.3')), null],
-      ['ref: main', (d) => write(d, MARKETPLACE, marketplace('main')), '.claude-plugin/marketplace.json points installs at "main", not v1.2.3'],
-      ['the previous tag', (d) => write(d, MARKETPLACE, marketplace('v1.2.2')), '.claude-plugin/marketplace.json points installs at "v1.2.2", not v1.2.3'],
-      ['no forge plugin', (d) => write(d, MARKETPLACE, marketplace('v1.2.3', 'other')), '.claude-plugin/marketplace.json has no forge plugin with a source.ref'],
-      ['no source.ref', (d) => write(d, MARKETPLACE, marketplace(null)), '.claude-plugin/marketplace.json has no forge plugin with a source.ref'],
+      ['the stable branch', (d) => write(d, MARKETPLACE, marketplace()), null],
+      ['the same keys in another order', (d) => write(d, MARKETPLACE, marketplace({ ref: 'stable', repo: 'maxwellmattryan/forge', source: 'github' })), null],
+      ['a url source', (d) => write(d, MARKETPLACE, marketplace(url)), wrong(url)],
+      ['a version tag', (d) => write(d, MARKETPLACE, marketplace({ ...STABLE, ref: 'v1.2.3' })), wrong({ ...STABLE, ref: 'v1.2.3' })],
+      ['another repo', (d) => write(d, MARKETPLACE, marketplace({ ...STABLE, repo: 'fork/forge' })), wrong({ ...STABLE, repo: 'fork/forge' })],
+      ['another ref', (d) => write(d, MARKETPLACE, marketplace({ ...STABLE, ref: 'main' })), wrong({ ...STABLE, ref: 'main' })],
+      ['no ref', (d) => write(d, MARKETPLACE, marketplace({ source: 'github', repo: 'maxwellmattryan/forge' })), wrong({ source: 'github', repo: 'maxwellmattryan/forge' })],
+      ['an extra key', (d) => write(d, MARKETPLACE, marketplace({ ...STABLE, sha: 'a'.repeat(40) })), wrong({ ...STABLE, sha: 'a'.repeat(40) })],
+      ['no forge plugin', (d) => write(d, MARKETPLACE, marketplace(STABLE, 'other')), wrong(null)],
+      ['no source', (d) => write(d, MARKETPLACE, marketplace(null)), wrong(null)],
       ['no file', (d) => fs.rmSync(path.join(d, MARKETPLACE)), /^cannot read marketplace\.json: /],
       ['not JSON', (d) => write(d, MARKETPLACE, '{ "plugins": ['), /^cannot read marketplace\.json: /],
     ];
@@ -135,16 +144,25 @@ test('dist mode absent/present/default', POSIX, () => {
     write(d, '.gitignore', 'dashboard/dist/\n');
   });
   const edited = changed((d) => write(d, 'dashboard/dist/x.js', 'export const edited = 1;\n'));
+  // The stable tree drops .github/workflows: GITHUB_TOKEN can't move a ref across a change to one.
+  const workflows = changed((d) => write(d, '.github/workflows/ci.yml', 'name: CI\n'));
+  const untrackedWorkflows = changed((d, r) => {
+    r.git('rm', '-rq', 'dashboard/dist');
+    write(d, '.github/workflows/ci.yml', 'name: CI\n');
+  });
   try {
     assert.deepEqual(releaseProblems(tracked.dir, { dist: 'present' }), []);
     assert.deepEqual(releaseProblems(tracked.dir), []);
-    assert.deepEqual(releaseProblems(tracked.dir, { dist: 'absent' }), ['dashboard/dist is tracked: develop never commits the build (CI builds it for the main update)']);
+    assert.deepEqual(releaseProblems(tracked.dir, { dist: 'absent' }), ['dashboard/dist is tracked: develop never commits the build (CI builds it for stable)']);
     assert.ok(releaseProblems(edited.dir, { dist: 'present' }).some((p) => /edited by hand/.test(p)));
     assert.ok(releaseProblems(edited.dir).some((p) => /edited by hand/.test(p)));
+    assert.deepEqual(releaseProblems(workflows.dir, { dist: 'present' }), ['the stable tree tracks .github/workflows: CI drops it so GITHUB_TOKEN can move stable']);
+    assert.deepEqual(releaseProblems(workflows.dir), [], 'develop keeps its workflows');
+    assert.deepEqual(releaseProblems(untrackedWorkflows.dir, { dist: 'absent' }), [], 'develop keeps its workflows');
 
     for (const [what, repo] of [['untracked', untracked], ['built but gitignored', ignored]] as const) {
       assert.deepEqual(releaseProblems(repo.dir, { dist: 'absent' }), [], what);
-      assert.deepEqual(releaseProblems(repo.dir, { dist: 'present' }), ['dashboard/dist is not committed: main needs the built dashboard'], what);
+      assert.deepEqual(releaseProblems(repo.dir, { dist: 'present' }), ['dashboard/dist is not committed: stable needs the built dashboard'], what);
     }
     assert.deepEqual(releaseProblems(untracked.dir), [], 'no stamp check without a tracked dist');
 
@@ -152,9 +170,9 @@ test('dist mode absent/present/default', POSIX, () => {
     assert.equal(ok.status, 0, ok.stderr);
     const bad = run('--root', untracked.dir, '--dist', 'present');
     assert.equal(bad.status, 1);
-    assert.match(bad.stderr, /^dashboard\/dist is not committed: main needs the built dashboard$/m);
+    assert.match(bad.stderr, /^dashboard\/dist is not committed: stable needs the built dashboard$/m);
   } finally {
-    for (const r of [tracked, untracked, ignored, edited]) r.cleanup();
+    for (const r of [tracked, untracked, ignored, edited, workflows, untrackedWorkflows]) r.cleanup();
   }
 });
 
@@ -173,7 +191,7 @@ test('a version already tagged at another commit fails the present check', POSIX
     atHead.git('tag', '-a', 'v1.2.3', '-m', 'Forge 1.2.3');
     assert.deepEqual(releaseProblems(atHead.dir, { dist: 'present' }), [], 'tagged at HEAD');
 
-    // A hotfix on main without a bump: v1.2.3 tags the commit before it.
+    // A change after the release without a bump: v1.2.3 tags the commit before it.
     const hotfix = fresh();
     hotfix.git('tag', '-a', 'v1.2.3', '-m', 'Forge 1.2.3');
     const tagged = sha(hotfix);
@@ -182,7 +200,7 @@ test('a version already tagged at another commit fails the present check', POSIX
     const head = sha(hotfix);
     assert.deepEqual(releaseProblems(hotfix.dir, { dist: 'present' }), [`v1.2.3 is already tagged at ${tagged.slice(0, 7)}, not this commit (${head.slice(0, 7)}): bump the version to release again`]);
     assert.deepEqual(releaseProblems(hotfix.dir), [], 'the default mode');
-    assert.deepEqual(releaseProblems(hotfix.dir, { dist: 'absent' }), ['dashboard/dist is tracked: develop never commits the build (CI builds it for the main update)'], 'absent: no tag problem');
+    assert.deepEqual(releaseProblems(hotfix.dir, { dist: 'absent' }), ['dashboard/dist is tracked: develop never commits the build (CI builds it for stable)'], 'absent: no tag problem');
     // A tag of another version decides nothing.
     const other = fresh();
     other.git('tag', 'v1.2.30', 'HEAD');

@@ -1,7 +1,8 @@
 // The script release mechanism's engine side (docs/CONFIG.md "Release strategy"): the notes file's path,
 // the plan's draft through the script's `--draft-notes`, the bump a recompute takes back from release.json,
-// and the `pr-merged` check. The engine only ever spawns `node <script> …` for a script repo: every check
-// on release branches, PRs and tags stays in the script. It imports only types from plan.ts.
+// and the `pr-merged` check (the release PR into the repo's base). The engine only ever spawns `node <script> …`
+// for a script repo: every check on release branches, PRs and tags stays in the script. It imports only types
+// from plan.ts.
 
 import path from 'node:path';
 import { paths } from '#core/paths.ts';

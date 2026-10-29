@@ -1,13 +1,15 @@
 // `npm run release:check [-- --root <dir>] [--dist absent|present]`: is this checkout fit to be a
 // release commit? Versions agree, CHANGELOG has the version's notes, .claude-plugin/marketplace.json
-// points installs at the version's tag, the tree is clean, and the built dashboard is untracked
-// (`absent`, develop and the release commit) or tracked and fresh (`present`, main, the main update and
-// any PR into main, where the version must also not be tagged at another commit); with no `--dist` the
-// stamp is checked only when dist is tracked.
+// points installs at the `stable` branch, the tree is clean, and the built dashboard is untracked
+// (`absent`: develop, the release commit and every PR into develop) or tracked and fresh (`present`: the
+// stable tree release.yml's build checks through scripts/stable-tree.ts, which must also hold no
+// .github/workflows/ and whose version must not be tagged at another commit); with no `--dist` the stamp
+// is checked only when dist is tracked.
 // Built-ins only, so CI's `release check` job runs it without `npm ci` (docs/RELEASES.md).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { findAttribution } from '../lib/engine/guard/attribution.ts';
 import { gitSync } from './git.ts';
 import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
@@ -39,20 +41,26 @@ function version(file: string): { value: unknown; problem?: string } {
   }
 }
 
-/** The forge plugin's `source.ref` in a parsed marketplace.json: the ref plugin installs get. */
-export const forgeRef = (marketplace: any): unknown =>
-  Array.isArray(marketplace?.plugins) ? marketplace.plugins.find((p: any) => p?.name === 'forge')?.source?.ref : undefined;
+/**
+ * The one source installs follow: the `stable` branch, which release.yml moves, once per release. It never
+ * changes per release, so a release commit leaves marketplace.json alone.
+ */
+export const STABLE_SOURCE = Object.freeze({ source: 'github', repo: 'maxwellmattryan/forge', ref: 'stable' });
 
-/** Why marketplace.json does not point installs at `v<version>`, or null when it does. */
-function marketplaceProblem(root: string, version: string): string | null {
-  let ref: unknown;
+/** The forge plugin's `source` in a parsed marketplace.json: where plugin installs come from. */
+export const forgeSource = (marketplace: any): unknown =>
+  Array.isArray(marketplace?.plugins) ? marketplace.plugins.find((p: any) => p?.name === 'forge')?.source : undefined;
+
+/** Why marketplace.json does not point the forge plugin at STABLE_SOURCE, or null when it does. */
+function marketplaceProblem(root: string): string | null {
+  let source: unknown;
   try {
-    ref = forgeRef(JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')));
+    source = forgeSource(JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'marketplace.json'), 'utf8')));
   } catch (e) {
     return `cannot read marketplace.json: ${(e as Error).message}`;
   }
-  if (typeof ref !== 'string') return '.claude-plugin/marketplace.json has no forge plugin with a source.ref';
-  return ref === `v${version}` ? null : `.claude-plugin/marketplace.json points installs at ${JSON.stringify(ref)}, not v${version}`;
+  if (isDeepStrictEqual(source, { ...STABLE_SOURCE })) return null;
+  return `.claude-plugin/marketplace.json must point the forge plugin at ${JSON.stringify(STABLE_SOURCE)}, got ${JSON.stringify(source ?? null)}`;
 }
 
 export type DistMode = 'absent' | 'present';
@@ -60,7 +68,7 @@ const DIST_MODES: readonly string[] = ['absent', 'present'];
 
 /**
  * Every reason `root` is not a releasable commit; [] when it is. `dist` says whether dashboard/dist
- * must be untracked (develop) or tracked (main); without it the stamp is checked only when tracked.
+ * must be untracked (develop) or tracked (the stable tree); without it the stamp is checked only when tracked.
  */
 export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): string[] {
   const problems: string[] = [];
@@ -84,14 +92,12 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
     else if (findAttribution(section).length) problems.push(`CHANGELOG.md "## ${v}" has an AI attribution line: ${findAttribution(section)[0]}`);
   }
 
-  // Installs read develop's marketplace.json: its ref names the tag of the version it carries.
-  if (v && SEMVER.test(v)) {
-    const marketplace = marketplaceProblem(root, v);
-    if (marketplace) problems.push(marketplace);
-  }
+  // Installs read develop's marketplace.json: it names the stable branch, in every mode.
+  const marketplace = marketplaceProblem(root);
+  if (marketplace) problems.push(marketplace);
 
-  // main moves only to release: a commit for main whose version is already tagged elsewhere (a hotfix
-  // without a bump) would never be tagged or published. Needs the tags in the checkout.
+  // stable moves only to release: a stable tree whose version is already tagged elsewhere would never be
+  // tagged or published. Needs the tags in the checkout.
   if (opts.dist === 'present' && v && SEMVER.test(v)) {
     const tag = gitSync(['--no-optional-locks', '-C', root, 'rev-parse', '-q', '--verify', `refs/tags/v${v}^{commit}`]);
     const head = gitSync(['--no-optional-locks', '-C', root, 'rev-parse', '-q', '--verify', 'HEAD^{commit}']);
@@ -110,7 +116,14 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
     }
   }
 
-  // develop never commits the build; main must carry it.
+  // GITHUB_TOKEN can't move a ref across a change to workflow files, so stable never holds any.
+  if (opts.dist === 'present') {
+    const workflows = gitSync(['--no-optional-locks', '-C', root, 'ls-files', '--', '.github/workflows']);
+    if (workflows.error || workflows.status !== 0) problems.push(`git ls-files failed in ${root}: ${(workflows.stderr || workflows.error?.message || '').trim()}`);
+    else if (workflows.stdout.trim() !== '') problems.push('the stable tree tracks .github/workflows: CI drops it so GITHUB_TOKEN can move stable');
+  }
+
+  // develop never commits the build; the stable tree must carry it.
   const tracked = gitSync(['--no-optional-locks', '-C', root, 'ls-files', '--', 'dashboard/dist']);
   if (tracked.error || tracked.status !== 0) {
     problems.push(`git ls-files failed in ${root}: ${(tracked.stderr || tracked.error?.message || '').trim()}`);
@@ -118,11 +131,11 @@ export function releaseProblems(root: string, opts: { dist?: DistMode } = {}): s
   }
   const distTracked = tracked.stdout.trim() !== '';
   if (opts.dist === 'absent') {
-    if (distTracked) problems.push('dashboard/dist is tracked: develop never commits the build (CI builds it for the main update)');
+    if (distTracked) problems.push('dashboard/dist is tracked: develop never commits the build (CI builds it for stable)');
     return problems;
   }
   if (opts.dist === 'present' && !distTracked) {
-    problems.push('dashboard/dist is not committed: main needs the built dashboard');
+    problems.push('dashboard/dist is not committed: stable needs the built dashboard');
     return problems;
   }
   if (!distTracked) return problems;

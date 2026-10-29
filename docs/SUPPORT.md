@@ -14,7 +14,7 @@ gh is needed only for pull requests (`pr.enabled`) and the GitHub tracker. `forg
 
 ## What each tier means
 
-- **Supported**: the full verify list (typecheck, dashboard checks and build, every test, plugin validation) runs on Ubuntu and macOS, on Node 22.18.0 and the latest Node 24, on every pull request and every push to `main`. A bug here is a bug.
+- **Supported**: the full verify list (typecheck, dashboard checks and build, every test, plugin validation) runs on Ubuntu and macOS, on Node 22.18.0 and the latest Node 24, on every pull request and every push to `develop`. A bug here is a bug.
 - **Supported with notes**: expected to work, because WSL2 is Linux to Node, but no CI runs it. Bugs are fixed on a best-effort basis. The notes below are requirements, not tips.
 - **Unsupported**: Forge refuses the features it knows break, with a message that links here, instead of failing later. Everything else may run but is not supported, and bugs that only reproduce there may be closed.
 

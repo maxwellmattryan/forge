@@ -8,12 +8,12 @@
 # majors and minors are ignored, because @types/node must track the Node floor (22.18), not the
 # newest Node: 22.20 types would type-check APIs that 22.18 does not have.
 #
-# Both entries target develop, the working branch; main takes only the main update and hotfixes.
+# Both entries target develop, the working branch and the only one that takes PRs.
 #
 # Before merging an npm bump, a maintainer runs `npm run build:dashboard` and the tests on the
 # Dependabot branch. The dashboard/dist/ build stamp hashes the resolved versions in
 # package-lock.json, but dist/ is gitignored on develop and never committed there: CI rebuilds it
-# for the next main update.
+# onto stable at the next release.
 #
 # The 7-day cooldown lets a fresh release age before it is proposed, a hedge against a
 # compromised publish.
