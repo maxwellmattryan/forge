@@ -42,6 +42,21 @@ test('recordPrompt keeps at most 10 printable rules', (t) => {
   assert.deepEqual(lines(file).slice(1).map((l) => [l.tool, l.rules]), [['unknown', []], ['unknown', []]]);
 });
 
+test('recordPrompt leaves out a rule that holds a known secret', (t) => {
+  const { root, file } = scratch(t);
+  // A rule is claude's pattern and can be the whole command, so a value the session knows is secret never reaches disk, raw or JSON-escaped.
+  const plain = 'tok-9f3a7c21e5';
+  const quoted = 'pa"ss-word-1234';
+  const rules = [`Bash(curl -H "Authorization: Bearer ${plain}" https://x.test:*)`, `Bash(echo ${quoted}:*)`, 'Bash(npm test:*)'];
+  recordPrompt(root, { ...allow(rules), known: [plain, quoted, 'short'] });
+  recordPrompt(root, { ...allow(rules), known: [] });
+  const [redacted, unredacted] = lines(file);
+  assert.deepEqual(redacted.rules, ['Bash(npm test:*)']);
+  assert.deepEqual(unredacted.rules, rules, 'with no known value every good rule stays');
+  assert.ok(!fs.readFileSync(file, 'utf8').split('\n')[0].includes(plain));
+  assert.ok(!fs.readFileSync(file, 'utf8').split('\n')[0].includes('ss-word'));
+});
+
 test('the history stays under its cap and refuses a planted link', (t) => {
   const { root, file } = scratch(t);
   const max = 1200;
@@ -116,9 +131,10 @@ test('readPromptHistory skips forged lines and bad rules', (t) => {
       [onlyBad.at, []],
     ],
   );
-  assert.deepEqual(readPromptHistory(root, { since: '2026-10-03T00:00:00.000Z' }).map((e) => e.at), [mixed.at, onlyBad.at]);
-  const report = promptReport(read, { min: 1, since: null, allowedTools: [], roots: [root] });
+  const roots = { files: [root], commands: [root] };
+  const report = promptReport(read, { min: 1, since: null, allowedTools: [], roots });
   assert.deepEqual(report.suggest, ['Bash(npm test:*)', 'Read(src/**)'], 'a bare, wildcard or non-ASCII rule is never suggested');
+  assert.equal(promptReport(read, { min: 1, since: '2026-10-03T00:00:00.000Z', allowedTools: [], roots }).entries, 2, 'the report, not the reader, applies since');
   assert.deepEqual(report.groups.find((g) => g.rule === null)?.tool, 'Read');
 
   // Only the last maxBytes are read, from the first whole line in them.

@@ -1,9 +1,12 @@
 // The prompt history: one line per permission prompt a pool session answered (`.forge/runtime/permission-prompts.jsonl`),
 // holding only the scope, tool, candidate rules, decision and reason, never the input, the agent's description, the
-// blocked path or the suggested folders. control.ts appends it; `forge daemon prompts` reads it (suggest.ts). The file
-// is untrusted on read (a human-allowed Bash call could write it), so every line and rule is checked again there.
+// blocked path or the suggested folders. A rule is claude's own pattern and can be most of the command, so a rule that
+// holds a value Forge knows is secret is dropped, not stored redacted. control.ts appends it; `forge daemon prompts`
+// reads it (suggest.ts). The file is untrusted on read (a human-allowed Bash call could write it), so every line and
+// rule is checked again there.
 import fs from 'node:fs';
 import path from 'node:path';
+import { redactKnown } from '#engine/guard/known-secrets.ts';
 import { validScope } from '#core/job/requests.ts';
 import { appendConfined, openRead } from '#core/job/session-files.ts';
 import { confinedDir, writeAtomic } from '#core/os/fs.ts';
@@ -49,19 +52,23 @@ function goodRule(r: unknown): r is string {
   return m !== null && !WILDCARD_RULE.test(m[2]);
 }
 
-/** The good rules of `rules`, distinct, in order, at most MAX_RULES. */
-function keptRules(rules: unknown): string[] {
+/**
+ * The good rules of `rules`, distinct, in order, at most MAX_RULES. A rule `redactKnown` would change under `known`
+ * holds a secret value: it is left out (a redacted rule is useless as a suggestion), so the value never reaches disk.
+ */
+function keptRules(rules: unknown, known: readonly string[] = []): string[] {
   const out: string[] = [];
   for (const r of Array.isArray(rules) ? rules : []) {
     if (out.length >= MAX_RULES) break;
-    if (goodRule(r) && !out.includes(r)) out.push(r);
+    if (goodRule(r) && !out.includes(r) && redactKnown(r, known) === r) out.push(r);
   }
   return out;
 }
 
 /**
  * Appends one prompt's answer to the history: the tool (`unknown` unless SAFE_TOOL takes it), its kept rules,
- * the decision and the reason, nothing else. A scope validScope refuses records nothing. The append goes only
+ * the decision and the reason, nothing else. A rule holding any of `known` (the session's known secret values,
+ * as its log is redacted with) is left out. A scope validScope refuses records nothing. The append goes only
  * through real directories to a regular file (appendConfined), so a planted link or FIFO is refused, and past
  * `maxBytes` the file is rewritten atomically to its newest whole lines totalling at most half of it. Every
  * session of a project appends synchronously from the one `forge dash` process, so an append and a trim never
@@ -69,7 +76,7 @@ function keptRules(rules: unknown): string[] {
  */
 export function recordPrompt(
   root: string,
-  e: { scope: string; tool: string | null; rules: readonly string[]; decision: PermissionDecision; reason: PromptReason | null },
+  e: { scope: string; tool: string | null; rules: readonly string[]; decision: PermissionDecision; reason: PromptReason | null; known?: readonly string[] },
   opts: { maxBytes?: number } = {},
 ): void {
   try {
@@ -79,7 +86,7 @@ export function recordPrompt(
       at: now(),
       scope: e.scope,
       tool: typeof e.tool === 'string' && SAFE_TOOL.test(e.tool) ? e.tool : 'unknown',
-      rules: keptRules(e.rules),
+      rules: keptRules(e.rules, e.known),
       decision: e.decision,
       reason: e.reason,
     };
@@ -142,11 +149,12 @@ function parseEntry(line: string): PromptEntry | null {
 }
 
 /**
- * The history's well-formed entries at or after `since`, oldest first. Reads at most the file's last `maxBytes`
- * (from the first whole line in them), through one descriptor that never follows a link or blocks on a FIFO;
- * anything but a regular file, or no file, reads as [].
+ * The history's well-formed entries, oldest first. Reads at most the file's last `maxBytes` (from the first whole
+ * line in them), through one descriptor that never follows a link or blocks on a FIFO; anything but a regular
+ * file, or no file, reads as []. It filters by no date: promptReport does, because a deny before `--since` must
+ * still block a suggestion.
  */
-export function readPromptHistory(root: string, opts: { since?: string | null; maxBytes?: number } = {}): PromptEntry[] {
+export function readPromptHistory(root: string, opts: { maxBytes?: number } = {}): PromptEntry[] {
   let fd: number;
   try {
     fd = openRead(paths(root).permissionPrompts);
@@ -161,9 +169,5 @@ export function readPromptHistory(root: string, opts: { since?: string | null; m
   } finally {
     fs.closeSync(fd);
   }
-  const since = opts.since ? Date.parse(opts.since) : NaN;
-  return text
-    .split('\n')
-    .map(parseEntry)
-    .filter((e): e is PromptEntry => e !== null && !(Date.parse(e.at) < since));
+  return text.split('\n').map(parseEntry).filter((e): e is PromptEntry => e !== null);
 }

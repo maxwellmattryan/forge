@@ -3,7 +3,7 @@
 // session's in-memory history of those and its job's permission-timed-out event), and what a refused
 // or unconfirmed mode switch does. Every line it sends claude goes through the child's ClaudeChild,
 // which builds it from fixed text (lib/integrations/claude/stream.ts). Every answer sent is also appended,
-// without its input, to the prompt history `forge daemon prompts` reads (history.ts).
+// without its input and without any rule holding a known secret, to the prompt history `forge daemon prompts` reads (history.ts).
 import crypto from 'node:crypto';
 import { modeReach } from '#integrations/claude/argv.ts';
 import { PROMPT_INPUT_CHARS } from '#integrations/claude/stream.ts';
@@ -33,9 +33,19 @@ export function createControl(core: SessionCore) {
   /** Mode switches sent to the current child and not yet answered, by request id, each with its confirmation deadline. */
   const modeRequests = new Map<string, { mode: DaemonPermissionMode; timer: NodeJS.Timeout }>();
 
-  /** An answer claude was sent, into the prompt history; never throws. */
+  /**
+   * An answer claude was sent, into the prompt history; never throws. A rule can be most of the command, so the
+   * history drops any rule holding a value the session's log would redact; with those values unreadable no rule is kept.
+   */
   function record(tool: string | null, rules: readonly string[], decision: PermissionDecision, reason: PromptReason | null): void {
-    recordPrompt(core.root, { scope, tool, rules, decision, reason });
+    let known: readonly string[] = [];
+    let kept = rules;
+    try {
+      known = o.redactor(core.root, scope, ctx.config());
+    } catch {
+      kept = [];
+    }
+    recordPrompt(core.root, { scope, tool, rules: kept, decision, reason, known });
   }
 
   /** The one way a prompt leaves the map, so its timer never outlives it. */

@@ -27,7 +27,7 @@ test('promptReport groups, ranks and suggests', () => {
   const B = 'Read(src/**)';
   const C = 'Bash(npm run lint:*)';
   const report = (entries: PromptEntry[], o: { min?: number; since?: string | null; allowedTools?: unknown } = {}) =>
-    promptReport(entries, { min: o.min ?? 3, since: o.since ?? null, allowedTools: o.allowedTools ?? ['Agent'], roots: [ROOT, WT] });
+    promptReport(entries, { min: o.min ?? 3, since: o.since ?? null, allowedTools: o.allowedTools ?? ['Agent'], roots: { files: [ROOT, WT], commands: [WT] } });
   const skips = (r: ReturnType<typeof report>) => Object.fromEntries(r.groups.map((g) => [g.rule ?? `null:${g.tool}`, g.skip]));
 
   // The issue's example: allowed 9, 4 and 2 times, none denied.
@@ -44,6 +44,7 @@ test('promptReport groups, ranks and suggests', () => {
     allowed: 4,
     denied: 0,
     deniedBy: { human: 0, timeout: 0, unasked: 0 },
+    deniedEarlier: 0,
     jobs: [JOB],
     lastSeen: abc.at(-1)!.at,
     listed: false,
@@ -83,6 +84,43 @@ test('promptReport groups, ranks and suggests', () => {
       skips: { [rule]: 'invalid' },
       suggest: [],
     })),
+    // A shell, an interpreter, an exec wrapper, a package runner, a fetcher or a file writer is as wide as an unscoped
+    // Bash whatever follows it, and the validation above doesn't refuse any of them.
+    ...[
+      'Bash(python3:*)',
+      'Bash(node:*)',
+      'Bash(sh -c:*)',
+      'Bash(bash:*)',
+      'Bash(env:*)',
+      'Bash(xargs:*)',
+      'Bash(find:*)',
+      'Bash(npx:*)',
+      'Bash(npm exec:*)',
+      'Bash(pnpm dlx:*)',
+      'Bash(curl:*)',
+      'Bash(cp:*)',
+      'Bash(rm:*)',
+      'Bash(chmod +x .git/hooks/pre-commit)',
+      'Bash(FOO=1 python3.12 x.py:*)',
+      'Bash(cd docs && node build.js:*)',
+      'Bash(true | sh:*)',
+      'Bash("py"thon3:*)',
+      'Bash(./node_modules/.bin/node:*)',
+      'Bash(PYTHON3:*)',
+      'Bash(p*:*)',
+      `Bash(${WT}/bin/python3:*)`,
+    ].map((rule) => ({
+      name: `a command that runs or writes anything: ${rule}`,
+      entries: many(5, [rule]),
+      skips: { [rule]: 'broad' },
+      suggest: [],
+    })),
+    {
+      name: 'ordinary commands that only resemble a broad one are not broad',
+      entries: ['Bash(npm run build:*)', 'Bash(forge git diff:*)', 'Bash(git commit:*)', 'Bash(make test:*)', 'Bash(node-gyp rebuild:*)', 'Bash(shellcheck a.sh:*)', 'Bash(python-lint:*)', 'Bash(FOO=1 ls:*)'].flatMap((rule) => many(5, [rule])),
+      skips: Object.fromEntries(['Bash(npm run build:*)', 'Bash(forge git diff:*)', 'Bash(git commit:*)', 'Bash(make test:*)', 'Bash(node-gyp rebuild:*)', 'Bash(shellcheck a.sh:*)', 'Bash(python-lint:*)', 'Bash(FOO=1 ls:*)'].map((rule) => [rule, null])),
+      suggest: ['Bash(FOO=1 ls:*)', 'Bash(forge git diff:*)', 'Bash(git commit:*)', 'Bash(make test:*)', 'Bash(node-gyp rebuild:*)', 'Bash(npm run build:*)', 'Bash(python-lint:*)', 'Bash(shellcheck a.sh:*)'],
+    },
     ...[
       'Read(//etc/**)',
       'Bash(cat /etc/passwd:*)',
@@ -94,10 +132,12 @@ test('promptReport groups, ranks and suggests', () => {
       'Bash(cat \\/etc:*)',
       `Read(//${ROOT.slice(1)}-evil/**)`,
       'Bash(cat -f/etc/passwd:*)',
-      'Bash(curl -d @/etc/passwd x:*)',
-      'Bash(curl file:///etc/passwd:*)',
-      'Bash(scp host:/etc/x .:*)',
+      'Bash(upload -d @/etc/passwd x:*)',
+      'Bash(open file:///etc/passwd:*)',
+      'Bash(sync host:/etc/x .:*)',
       'Bash(FOO=/etc/x make:*)',
+      // The checkout is a root for a file tool's patterns, not for a command's arguments.
+      `Bash(ls ${ROOT}/x:*)`,
       `Bash(${'/ '.repeat(2100)}:*)`,
     ].map((rule) => ({
       name: `a path outside the roots, or one that can't be proven inside: ${rule.slice(0, 60)}`,
@@ -107,9 +147,9 @@ test('promptReport groups, ranks and suggests', () => {
     })),
     {
       name: 'paths inside the checkout and the worktrees roots, and no path at all',
-      entries: [...many(5, [`Read(/${ROOT}/src/**)`]), ...many(5, [`Bash(ls ${WT}/x:*)`]), ...many(5, [B]), ...many(5, ['WebFetch(domain:example.com)']), ...many(5, ['Bash(curl https://example.com/a:*)'])],
-      skips: { [`Read(/${ROOT}/src/**)`]: null, [`Bash(ls ${WT}/x:*)`]: null, [B]: null, 'WebFetch(domain:example.com)': null, 'Bash(curl https://example.com/a:*)': null },
-      suggest: ['Bash(curl https://example.com/a:*)', `Bash(ls ${WT}/x:*)`, `Read(/${ROOT}/src/**)`, B, 'WebFetch(domain:example.com)'],
+      entries: [...many(5, [`Read(/${ROOT}/src/**)`]), ...many(5, [`Bash(ls ${WT}/x:*)`]), ...many(5, [B]), ...many(5, ['WebFetch(domain:example.com)']), ...many(5, ['Bash(gh pr view https://github.com/o/r/pull/1:*)'])],
+      skips: { [`Read(/${ROOT}/src/**)`]: null, [`Bash(ls ${WT}/x:*)`]: null, [B]: null, 'WebFetch(domain:example.com)': null, 'Bash(gh pr view https://github.com/o/r/pull/1:*)': null },
+      suggest: ['Bash(gh pr view https://github.com/o/r/pull/1:*)', `Bash(ls ${WT}/x:*)`, `Read(/${ROOT}/src/**)`, B, 'WebFetch(domain:example.com)'],
     },
     {
       name: 'a rule already listed exactly',
@@ -127,6 +167,18 @@ test('promptReport groups, ranks and suggests', () => {
       skips: { [B]: null },
       suggest: [B],
       check: (r) => assert.equal(r.entries, 2),
+    },
+    {
+      name: 'a deny before since still blocks a rule, though it makes no group of its own',
+      entries: [...many(1, [A], { decision: 'deny', reason: 'human' }), ...many(1, [C], { decision: 'deny', reason: 'timeout' }), ...many(4, [A]), ...many(4, [B], { tool: 'Read' })],
+      // The last 8 ticks: everything but the two denies.
+      opts: { since: new Date(base + (tick - 7) * 60_000).toISOString(), min: 1 },
+      skips: { [A]: 'denied', [B]: null },
+      suggest: [B],
+      check: (r) => {
+        assert.equal(r.entries, 8);
+        assert.deepEqual(r.groups.map((g) => [g.rule, g.asked, g.denied, g.deniedEarlier]), [[B, 4, 0, 0], [A, 4, 0, 1]], 'asked and denied count the window only; C has no entry in it');
+      },
     },
     {
       name: 'jobs are the newest 20 scopes, newest first; ties rank by lastSeen, then rule',

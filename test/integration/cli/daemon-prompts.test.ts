@@ -25,6 +25,9 @@ test('daemon prompts reports, suggests and writes nothing', async (t) => {
   const line = (rules: string[], decision = 'allow', reason: string | null = null) =>
     JSON.stringify({ v: 1, at: new Date(Date.UTC(2026, 9, 2, 10, 0, n++)).toISOString(), scope: '42-add-login', tool: rules[0]?.split('(')[0] ?? 'WebSearch', rules, decision, reason });
   const seeded = [
+    line(['Bash(npm run lint:*)'], 'deny', 'human'),
+    line(['Bash(npm run lint:*)']),
+    line(['Bash(npm run lint:*)']),
     line(['Bash(npm test:*)']),
     line(['Bash(npm test:*)'], 'session'),
     line([inRepo]),
@@ -34,6 +37,8 @@ test('daemon prompts reports, suggests and writes nothing', async (t) => {
     line(['Bash(forge:*)']),
     line(['Bash(forge:*)']),
     line(['Bash(make:*)']),
+    line(['Bash(python3:*)']),
+    line(['Bash(python3:*)']),
     line(['Bash(rm -r build:*)']),
     line(['Bash(rm -r build:*)'], 'deny', 'timeout'),
     line(['Bash(cat /etc/hosts:*)']),
@@ -45,8 +50,11 @@ test('daemon prompts reports, suggests and writes nothing', async (t) => {
   fs.writeFileSync(paths(root).permissionPrompts, seeded);
   const before = { config: fs.readFileSync(config), history: fs.readFileSync(paths(root).permissionPrompts) };
 
-  const [report, badSince, badMin, extra] = await Promise.all([
+  // After the lint rule's one deny: the report counts the entries since, and the deny still blocks.
+  const since = new Date(Date.UTC(2026, 9, 2, 10, 0, 1)).toISOString();
+  const [report, dated, badSince, badMin, extra] = await Promise.all([
     forgeAsync(root, ['daemon', 'prompts', '--json', '--min', '2']),
+    forgeAsync(root, ['daemon', 'prompts', '--json', '--min', '2', '--since', since]),
     forgeAsync(root, ['daemon', 'prompts', '--json', '--since', 'nope']),
     forgeAsync(root, ['daemon', 'prompts', '--json', '--min', '0']),
     forgeAsync(root, ['daemon', 'prompts', 'extra', '--json']),
@@ -54,17 +62,27 @@ test('daemon prompts reports, suggests and writes nothing', async (t) => {
   assert.equal(report.status, 0, report.stderr);
   const out = JSON.parse(report.stdout);
   assert.deepEqual(out.suggest, ['Bash(npm test:*)', inRepo]);
-  assert.equal(out.entries, 14);
-  assert.deepEqual(Object.fromEntries(out.groups.map((g: any) => [g.rule ?? `null:${g.tool}`, g.skip])), {
+  assert.equal(out.entries, 19);
+  const skips = (r: any) => Object.fromEntries(r.groups.map((g: any) => [g.rule ?? `null:${g.tool}`, g.skip]));
+  const expected = {
+    'Bash(npm run lint:*)': 'denied',
     'Bash(npm test:*)': null,
     [inRepo]: null,
     'Bash(git log:*)': 'invalid',
     'Bash(forge:*)': 'listed',
     'Bash(make:*)': 'below-min',
+    'Bash(python3:*)': 'broad',
     'Bash(rm -r build:*)': 'denied',
     'Bash(cat /etc/hosts:*)': 'outside-repo',
     'null:WebSearch': 'no-rule',
-  });
+  };
+  assert.deepEqual(skips(out), expected);
+  assert.equal(dated.status, 0, dated.stderr);
+  const after = JSON.parse(dated.stdout);
+  assert.equal(after.entries, 18);
+  assert.deepEqual(after.suggest, out.suggest);
+  assert.deepEqual(skips(after), expected, 'a deny before --since still blocks');
+  assert.deepEqual(after.groups.find((g: any) => g.rule === 'Bash(npm run lint:*)').deniedEarlier, 1);
   for (const [name, r] of Object.entries({ badSince, badMin, extra })) assert.equal(r.status, 2, `${name}: ${r.stderr}`);
   assert.deepEqual(fs.readFileSync(config), before.config, 'the config is untouched');
   assert.deepEqual(fs.readFileSync(paths(root).permissionPrompts), before.history, 'the history is untouched');

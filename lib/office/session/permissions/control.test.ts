@@ -14,7 +14,7 @@ import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import { confineDigest } from '../confine.ts';
 import { MAX_TIMED_OUT, createControl } from './control.ts';
 import { createSession } from '../lifecycle.ts';
-import { sessionOptions, type DaemonChild, type LogSink, type SessionContext, type SessionCore } from '../contract.ts';
+import { sessionOptions, type DaemonChild, type LogSink, type Redactor, type SessionContext, type SessionCore } from '../contract.ts';
 import type { Config } from '#core/types.ts';
 
 const repo = repoTemplate((dir) => {
@@ -42,7 +42,7 @@ const asked = (requestId: string, over: Partial<Extract<ClaudeEvent, { kind: 'pe
  * (undefined leaves it unset), `minutes` daemon.permissionTimeoutMinutes. spawn() makes a new child the
  * session's current one, as a respawn does, without the old one exiting.
  */
-function rig(t: any, opts: { scope?: 'job' | string; ms?: number; minutes?: number | null } = {}) {
+function rig(t: any, opts: { scope?: 'job' | string; ms?: number; minutes?: number | null; redactor?: Redactor } = {}) {
   const r = repo();
   t.after(r.cleanup);
   const root = r.dir;
@@ -58,7 +58,7 @@ function rig(t: any, opts: { scope?: 'job' | string; ms?: number; minutes?: numb
     root,
     scope,
     ctx,
-    o: sessionOptions({ claude: claude.adapter, ...(opts.ms === undefined ? {} : { permissionTimeoutMs: opts.ms }) }),
+    o: sessionOptions({ claude: claude.adapter, ...(opts.ms === undefined ? {} : { permissionTimeoutMs: opts.ms }), ...(opts.redactor ? { redactor: opts.redactor } : {}) }),
     get child() {
       return current;
     },
@@ -210,6 +210,30 @@ test('answered prompts are recorded without their input', (t) => {
   }
   const raw = r.historyText();
   for (const leak of ['secret-input-7f3a', 'agent-words-9c1e', 'blocked-path-x', 'suggested-dir-y']) assert.ok(!raw.includes(leak), leak);
+});
+
+test('a rule holding a known secret is not recorded', (t) => {
+  // A rule can be the whole command, so one the session log would redact never reaches the history.
+  const secret = 'tok-9f3a7c21e5';
+  const leaky = `Bash(curl -H "Authorization: Bearer ${secret}" https://x.test:*)`;
+  const r = rig(t, { redactor: () => [secret] });
+  const c = r.spawn();
+  c.emit(asked('k1', { rules: [leaky, 'Bash(npm test:*)'] }));
+  assert.equal(r.control.answerPermission(r.control.permissions()[0].id, 'session'), 'Bash');
+  c.emit(asked('k2', { input: null, rules: [leaky] }));
+  assert.deepEqual(r.history().map((l) => [l.decision, l.reason, l.rules]), [['session', null, ['Bash(npm test:*)']], ['deny', 'unserialisable-input', []]]);
+  assert.ok(!r.historyText().includes(secret));
+
+  // With the known values unreadable nothing can be proven clean: the answer is recorded with no rule.
+  const broken = rig(t, {
+    redactor: () => {
+      throw new Error('unreadable');
+    },
+  });
+  const bc = broken.spawn();
+  bc.emit(asked('k3', { rules: [leaky, 'Bash(npm test:*)'] }));
+  assert.equal(broken.control.answerPermission(broken.control.permissions()[0].id, 'allow'), 'Bash');
+  assert.deepEqual(broken.history().map((l) => [l.decision, l.rules]), [['allow', []]]);
 });
 
 test('unasked denies are recorded; cancelled and dropped prompts are not', (t) => {

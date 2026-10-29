@@ -47,7 +47,7 @@ const DAEMON: HelpGroup = {
       args: '[--since DATE] [--min N]',
       summary: 'the permission prompts pool sessions raised, grouped by candidate rule, with suggested daemon.allowedTools entries (read-only)',
       flags: [
-        ['--since DATE', 'only prompts answered at or after DATE (YYYY-MM-DD or a full ISO timestamp)'],
+        ['--since DATE', 'only count prompts answered at or after DATE (YYYY-MM-DD or a full ISO timestamp); a deny before it still blocks a suggestion'],
         ['--min N', `suggest a rule only once allowed at least N times (1-${MAX_MIN}, default ${DEFAULT_MIN})`],
       ],
       exits: [[2, `a --since that is not a date, a --min outside 1-${MAX_MIN}, or an argument (usage)`]],
@@ -102,7 +102,8 @@ function prompts(root: string, rest: string[], flags: Record<string, any>): Prom
   if (!(min >= 1 && min <= MAX_MIN))
     throw new ForgeError(`--min must be an integer from 1 to ${MAX_MIN} (got ${JSON.stringify(String(flags.min)).slice(0, 60)})`, 'usage');
   const config = loadConfig(root).config;
-  return promptReport(readPromptHistory(root, { since }), { min, since, allowedTools: config.daemon?.allowedTools, roots: promptRoots(root, config) });
+  // The whole history is read and promptReport applies `since`: a deny before it must still block a suggestion.
+  return promptReport(readPromptHistory(root), { min, since, allowedTools: config.daemon?.allowedTools, roots: promptRoots(root, config) });
 }
 
 function str(v: unknown): string | null {
