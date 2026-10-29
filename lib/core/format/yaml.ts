@@ -34,7 +34,9 @@ function stripComment(line: string): string {
   return line.trimEnd();
 }
 
-const KEY_RE = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s"'#{\[\]},&*!|>%@`-][^:]*?|-[^\s:][^:]*?)\s*:(?:\s+(.*))?$/;
+// A plain key ends on a non-space, so no quantifier but the one after it can take the spaces before
+// its colon: a lazy tail there backtracks quadratically on a long line (test/invariants/security-scan.test.ts).
+const KEY_RE = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s"'#{\[\]},&*!|>%@`-](?:[^:]*[^\s:])?|-[^\s:](?:[^:]*[^\s:])?)\s*:(?:\s+(.*))?$/;
 
 interface Line {
   indent: number;

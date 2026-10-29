@@ -76,11 +76,12 @@ export function approachSection(specText: string): string | null {
   let out: string[] | null = null;
   for (const line of lines) {
     if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
-    const h = fenced ? null : /^(#{1,6})\s+(.*?)\s*$/.exec(line);
+    // Linear on long lines for the reason on HEADING in ./acs.ts (which imports this file, so it can't share it).
+    const h = fenced ? null : /^(#{1,6})\s+(.*)$/.exec(line);
     if (out) {
       if (h && h[1].length <= level) break;
       out.push(line);
-    } else if (h && /^approach$/i.test(h[2])) {
+    } else if (h && /^approach$/i.test(h[2].trim())) {
       level = h[1].length;
       out = [];
     }

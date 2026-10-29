@@ -36,7 +36,7 @@ test('daemonProblems polices file rules and MCP tools', () => {
 
 test('allowedToolProblem refuses one entry as daemonProblems would', () => {
   for (const ok of ['Bash(npm test:*)', 'Read(src/**)', 'Agent', 'Edit', 'Bash(forge:*)', 'WebFetch(domain:example.com)']) assert.equal(allowedToolProblem(ok), null, ok);
-  for (const bad of ['Bash(git log:*)', 'Bash(gh api:*)', 'Bash', 'Bash(*)', 'Edit(src/**)', 'Write(~/**)', 'mcp__x__y(z)', 'mcp__fs__write_file', 'Bash(a,b)', '', '  ', 7, null]) {
+  for (const bad of ['Bash(git log:*)', 'Bash(git log *)', 'Bash(git log  *)', 'Bash(gh api:*)', 'Bash', 'Bash(*)', 'Edit(src/**)', 'Write(~/**)', 'mcp__x__y(z)', 'mcp__fs__write_file', 'Bash(a,b)', '', '  ', 7, null]) {
     assert.equal(typeof allowedToolProblem(bad), 'string', JSON.stringify(bad));
     // The same entry in the list: daemonProblems reports it too.
     const c = defaults();
