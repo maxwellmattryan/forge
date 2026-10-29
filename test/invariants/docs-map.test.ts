@@ -99,6 +99,10 @@ test('docs:map reads header comments and stops at nested maps', () => {
   assert.equal(headerSentence('/// <reference types="vite/client" />\n'), null, 'a /// directive alone is no header');
   assert.equal(headerSentence("import x from './x.ts';\n// Too late."), null, 'a comment after the first import is no header');
   assert.equal(headerSentence(''), null);
+  assert.equal(headerSentence('<!-- An empty state. -->\n<script lang="ts"></script>'), 'An empty state.', 'a one-line <!-- --> header');
+  assert.equal(headerSentence('<!-- The job panel, inside the shell. It renders\n     the snapshot. -->\n'), 'The job panel, inside the shell.', 'a multi-line <!-- --> header');
+  assert.equal(headerSentence('<!-- First paragraph\n\n     Second. -->'), 'First paragraph', 'a <!-- --> header stops at a blank line');
+  assert.equal(headerSentence('<script lang="ts">\n  // Too late.\n</script>'), null, 'a component that opens with <script> has no header');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docs-map-'));
   try {
@@ -114,6 +118,7 @@ test('docs:map reads header comments and stops at nested maps', () => {
     put('flat/d.ts', '// Nested without a map.\n');
     put('mapped/AGENTS.md', `# mapped/\n\nThe mapped folder. More.\n\n${MAP_START}\n${MAP_END}\n`);
     put('mapped/e.ts', 'export {};\n');
+    put('w.svelte', '<!-- A widget. More. -->\n<p></p>\n');
     assert.equal(renderMap(dir), [
       '| File | What it holds |',
       '|---|---|',
@@ -122,12 +127,14 @@ test('docs:map reads header comments and stops at nested maps', () => {
       '| `c.ts` | Shebang file. |',
       '| `flat/d.ts` | Nested without a map. |',
       '| `mapped/` | The mapped folder. |',
+      '| `w.svelte` | A widget. |',
     ].join('\n'));
     assert.throws(() => renderMap(path.join(dir, 'mapped')), /e\.ts/, 'a mapped file without a header is named');
 
     put('g.ts', 'export {};\n');
     put('flat/h.ts', 'export {};\n');
-    assert.throws(() => renderMap(dir), (err: Error) => /flat\/h\.ts/.test(err.message) && /g\.ts/.test(err.message));
+    put('v.svelte', '<script lang="ts"></script>\n<p></p>\n');
+    assert.throws(() => renderMap(dir), (err: Error) => /flat\/h\.ts/.test(err.message) && /g\.ts/.test(err.message) && /v\.svelte/.test(err.message));
 
     const doc = `# x\n\nIntro.\n\n${MAP_START}\nold\n${MAP_END}\nTail.\n`;
     assert.equal(syncMap(doc, 'new'), `# x\n\nIntro.\n\n${MAP_START}\nnew\n${MAP_END}\nTail.\n`);

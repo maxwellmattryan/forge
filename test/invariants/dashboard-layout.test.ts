@@ -21,6 +21,8 @@ interface Root {
   entry: RegExp;
   /** Whether source files may sit in the root itself rather than in a module folder. */
   filesAtRoot: boolean;
+  /** Whether `.svelte` entries must have PascalCase stems (`/^[A-Z][A-Za-z0-9]*$/`). */
+  pascal: boolean;
   /** Folders allowed under MIN entries for now. The list only shrinks. */
   small: string[];
   /** Folders whose files are entries in one table, so they may hold more than MAX. */
@@ -30,7 +32,7 @@ interface Root {
 }
 
 const ROOTS: Root[] = [
-  { root: 'dashboard/src/lib', entry: /\.ts$/, filesAtRoot: false, small: [], registries: [], allowed: { 'core/app.svelte.ts': 675 } },
+  { root: 'dashboard/src/lib', entry: /\.ts$/, filesAtRoot: false, pascal: false, small: [], registries: [], allowed: { 'core/app.svelte.ts': 675 } },
 ];
 
 /** A folder under a root: its root-relative path (`''` for the root, else ending in `/`) and its names, subfolders ending in `/`. */
@@ -45,10 +47,11 @@ const stem = (entry: string): string => entry.replace(/\/$/, '').replace(/\.svel
 
 /**
  * Everything wrong with a root's folders: files at the root, index files, entries that repeat their folder's
- * name, folders over MAX or under MIN entries, missing maps, and stale `small` or `registries` entries.
- * Each message names the path, prefixed with the root.
+ * name (case-insensitively), components whose names aren't PascalCase when `pascal` is on, folders over MAX
+ * or under MIN entries, missing maps, and stale `small` or `registries` entries. Each message names the path,
+ * prefixed with the root.
  */
-function layoutProblems(rootLabel: string, dirs: Dir[], cfg: Pick<Root, 'entry' | 'filesAtRoot' | 'small' | 'registries'>): string[] {
+function layoutProblems(rootLabel: string, dirs: Dir[], cfg: Pick<Root, 'entry' | 'filesAtRoot' | 'pascal' | 'small' | 'registries'>): string[] {
   const problems: string[] = [];
   const sizes = new Map(dirs.map((d) => [d.path, counted(d.entries, cfg.entry).length]));
   for (const d of [...dirs].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
@@ -60,9 +63,12 @@ function layoutProblems(rootLabel: string, dirs: Dir[], cfg: Pick<Root, 'entry' 
     if (name) {
       const names = new Set([name, name.replace(/s$/, '')]);
       for (const e of entries) {
-        const s = stem(e);
+        const s = stem(e).toLowerCase();
         if ([...names].some((n) => s === n || s.startsWith(`${n}-`))) problems.push(`${shown}${e}: repeats its folder's name`);
       }
+    }
+    if (cfg.pascal) {
+      for (const e of entries) if (e.endsWith('.svelte') && !/^[A-Z][A-Za-z0-9]*$/.test(stem(e))) problems.push(`${shown}${e}: a component's name is PascalCase`);
     }
     if (entries.length > MAX && !cfg.registries.includes(d.path)) problems.push(`${shown}: ${entries.length} entries, over ${MAX}: split it into modules`);
     if (entries.length < MIN && d.path && !cfg.small.includes(d.path)) problems.push(`${shown}: ${entries.length} entries, under ${MIN}: fold it into its parent`);
@@ -142,7 +148,7 @@ test('the dashboard layout check refuses planted violations', () => {
     { path: 'tiny/', entries: ['AGENTS.md', 'a.ts', 'b.ts', 'a.test.ts', 'b.test.ts', 'README.md'] },
     { path: 'bare/', entries: ['a.ts', 'b.ts', 'c.ts'] },
   ];
-  const cfg = { entry: /\.ts$/, filesAtRoot: false, small: [], registries: [] };
+  const cfg = { entry: /\.ts$/, filesAtRoot: false, pascal: false, small: [], registries: [] };
   assert.deepEqual(layoutProblems('dashboard/src/lib', dirs, cfg), [
     'dashboard/src/lib/loose.ts: files belong in a module folder',
     'dashboard/src/lib/bare/: no AGENTS.md map',
@@ -159,6 +165,20 @@ test('the dashboard layout check refuses planted violations', () => {
     "SMALL 'gone/' matches no folder: drop it",
     "REGISTRIES 'missing/' matches no folder: drop it",
   ], 'stale exemptions are named');
+
+  const components: Dir[] = [
+    { path: '', entries: ['AGENTS.md', 'Loose.svelte', 'drawer/', 'statusbar/', 'jobs/', 'ui/'] },
+    { path: 'drawer/', entries: ['AGENTS.md', 'Drawer.svelte', 'A.svelte', 'B.svelte'] },
+    { path: 'statusbar/', entries: ['AGENTS.md', 'StatusBar.svelte', 'A.svelte', 'B.svelte'] },
+    { path: 'jobs/', entries: ['AGENTS.md', 'JobCard.svelte', 'JobsTable.svelte', 'A.svelte'] },
+    { path: 'ui/', entries: ['AGENTS.md', 'chip.svelte', 'A.svelte', 'B.svelte'] },
+  ];
+  assert.deepEqual(layoutProblems('dashboard/src/components', components, { entry: /\.(svelte|ts)$/, filesAtRoot: false, pascal: true, small: [], registries: [] }), [
+    'dashboard/src/components/Loose.svelte: files belong in a module folder',
+    "dashboard/src/components/drawer/Drawer.svelte: repeats its folder's name",
+    "dashboard/src/components/statusbar/StatusBar.svelte: repeats its folder's name",
+    "dashboard/src/components/ui/chip.svelte: a component's name is PascalCase",
+  ], 'a component may keep a feature prefix, but not equal its folder or skip PascalCase');
 
   assert.equal(lineCount('a\nb\n'), 2);
   assert.equal(lineCount('a\nb'), 2);
