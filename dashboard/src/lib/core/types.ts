@@ -40,7 +40,7 @@ export const OFFICE_SCOPE = '_office' satisfies typeof ENGINE_OFFICE_SCOPE;
 export const CHAT_SCOPE_PREFIX = '_chat-' satisfies typeof ENGINE_CHAT_SCOPE_PREFIX;
 /** lib/api/constants.ts CHAT_MESSAGE_MAX: the longest owner message a chat takes, in characters. */
 export const CHAT_MESSAGE_MAX = 8000 satisfies typeof ENGINE_CHAT_MESSAGE_MAX;
-/** lib/core/job/requests.ts CHAT_ID's source, kept here so this file imports nothing from chats.ts. */
+/** lib/core/job/requests.ts CHAT_ID's source, kept here so this file imports nothing from office/chats.ts. */
 const CHAT_ID_RE = /^[0-9a-f]{12}$/;
 
 /** lib/core/job/requests.ts isChatScope: CHAT_SCOPE_PREFIX and a chat id (12 lowercase hex characters), nothing else. */

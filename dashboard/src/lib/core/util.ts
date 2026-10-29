@@ -1,5 +1,5 @@
 // Shared dashboard helpers. No DOM access (api touches fetch only when called), so node:test can import them.
-// Toasts live in toast.svelte.ts now that components render them.
+// Toasts live in ui/overlay/toast.svelte.ts now that components render them.
 import { projectApi } from './project.ts';
 
 export const esc = (v: unknown): string => String(v ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);

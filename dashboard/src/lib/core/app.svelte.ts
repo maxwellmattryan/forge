@@ -160,13 +160,13 @@ class AppState {
   cooling = $state.raw<Record<string, number>>({});
   /**
    * When the first good poll landed, moved by the first good poll after a failed one (epoch ms); null before. Heat and
-   * entry effects wait SETTLE_MS past it (motion.ts settled()). It changes only on those polls, so reading it never
+   * entry effects wait SETTLE_MS past it (ui/motion.ts settled()). It changes only on those polls, so reading it never
    * re-renders on every poll.
    */
   readyAt = $state<number | null>(null);
   /** Job id → the Thread marks last shown, for the tab's unread count. In memory, so it lasts the page's lifetime. */
   threadSeen = $state.raw<Record<string, string[]>>({});
-  /** Job id → the gate decision this tab sent, until the request leaves the queue (decision.ts). Per project. */
+  /** Job id → the gate decision this tab sent, until the request leaves the queue (gates/decision.ts). Per project. */
   sent = $state.raw<Record<string, SentDecision>>({});
 }
 
@@ -510,7 +510,7 @@ export function req(input: RequestInput, label?: string): Promise<boolean> | nul
     return null;
   }
   const job = r.body.job;
-  // A gate decision (a button with a label): the job's buttons give way to its status line (decision.ts) at once, so
+  // A gate decision (a button with a label): the job's buttons give way to its status line (gates/decision.ts) at once, so
   // nobody presses twice or presses another; the status line says it was queued, so it needs no toast.
   if (!label || !job) return request(r.body);
   S.sent = { ...S.sent, [job]: { label, id: null, at: null } };

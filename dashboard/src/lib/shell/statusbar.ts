@@ -180,7 +180,7 @@ export interface BarLamps {
  * The bar's lamps; the model button has none. Needs: you while anything waits on a person. Foreman: dark while it or the
  * daemon is off, you with office prompts, working while the office is busy or a gate run is live, else done. Workers: dark while the daemon is off, you with any prompt in the pool (the inbox's and the office's
  * included), working while any session works, else done. Inbox: dark while the daemon is off, else the inbox session's
- * own lamp (station.ts lampState). Connection: done when live, dark while connecting, fault offline, you when the server is newer.
+ * own lamp (logs/station.ts lampState). Connection: done when live, dark while connecting, fault offline, you when the server is newer.
  */
 export function barLamps(bar: BarModel, { needs, conn }: { needs: number; conn: ConnectionState }): BarLamps {
   const f = bar.foreman;

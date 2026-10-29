@@ -4,7 +4,7 @@
 export const SIDEBAR_MIN = 184;
 /** The widest the sidebar gets, px. */
 export const SIDEBAR_MAX = 360;
-/** The sidebar's width until the viewer resizes it: `--size-sidebar` in style.css and `PANE_GUTTER` in drawer.ts. */
+/** The sidebar's width until the viewer resizes it: `--size-sidebar` in style.css and `PANE_GUTTER` in jobs/drawer.ts. */
 export const SIDEBAR_DEFAULT = 236;
 /** The icon-only rail's width, px. */
 export const SIDEBAR_RAIL = 64;
