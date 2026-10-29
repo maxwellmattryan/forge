@@ -168,6 +168,17 @@ const standardsCheck = (n: number) => (a: any) => {
   assert.equal(lines.length, 16);
 };
 
+/** approval-notes.md, present, and a person's actor for the notes in it. */
+const NOTES_MD = path.join(JOB_DIR, 'approval-notes.md');
+const PERSON = { login: 'al', source: 'gh' };
+/** A review rework of round 1 (its builder started at minute 5) with approval-notes.md present and `events`. */
+const noteRework = (events: FixtureOpts['events']): FixtureOpts => ({
+  files: ['spec', 'tasks', 'build'],
+  present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md'), NOTES_MD],
+  job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6) } }),
+  events,
+});
+
 /** Verifiers: the round's run event at minute 8, its files, and the failing verify run a CHANGES record appends at 12. */
 const VF_RUN = ev('verifiers', 8, { phase: 'run', round: 1, sha: 's', selected: ['help-rows', 'docs-links'], problems: 0, truncated: false });
 const VF_INPUT = path.join(JOB_DIR, 'verify', 'round-1-verifiers-input.md');
@@ -760,6 +771,16 @@ export const rows: Row[] = [
     },
   },
   {
+    name: 'B4 the round-1 builder lists approval-notes.md after tasks.md',
+    fx: { files: ['spec', 'tasks'], present: [NOTES_MD], job: job({ stage: 'build', round: 1 }), events: [ev('human', 2, { action: 'approve-spec', note: 'build on main after #91', actor: PERSON }), ev('round', 4)] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'spec.md'), path.join(JOB_DIR, 'tasks.md'), NOTES_MD].join(', ')}`), a.brief);
+      assert.equal(lines.length, 14);
+    },
+  },
+  {
     name: "B4 the round-1 builder starts from the spec's file map",
     fx: {
       files: ['spec', 'tasks'],
@@ -835,6 +856,30 @@ export const rows: Row[] = [
       assert.ok(!a.brief.includes('Maps (JSON):'));
       assert.ok(!a.brief.includes('Review checklists (JSON):'));
       assert.ok(!a.brief.includes('Verifier questions (JSON):'));
+    },
+  },
+  {
+    name: 'B4 a rework lists a builder note given since the last builder started',
+    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON }), ev('round', 7), ev('builder-note', 8, { note: 'CI Windows is flaky', actor: PERSON })]),
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md'), NOTES_MD].join(', ')}`), a.brief);
+      // Notes change only the inputs: the same rework without the hint has the same Rework: line and model.
+      const without = step(fixture(noteRework([ev('round', 7)]))) as any;
+      assert.ok(lines.includes('Rework: review'));
+      assert.ok(without.brief.split('\n').includes('Rework: review'));
+      assert.equal(a.model, without.model);
+    },
+  },
+  {
+    name: 'B4 a rework leaves out notes the last builder already had',
+    fx: noteRework([ev('human', 2, { action: 'approve-spec', note: 'build on main', actor: PERSON }), ev('round', 7)]),
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`), a.brief);
+      assert.ok(lines.includes('Rework: review'));
     },
   },
   {

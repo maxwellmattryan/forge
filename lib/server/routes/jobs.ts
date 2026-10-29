@@ -497,7 +497,7 @@ function jobDetail(root: string, id: string, projects: string, drive: ServerCtx[
     }
   };
   walk(dir, 0);
-  const order = ['request.md', 'plan.md', 'spec.md', 'design.md', 'mockup.html', 'questions.md', 'tasks.md', 'build.md', 'verify/', 'review/', 'decision.md', 'runbook.md', 'pr.md', 'pr-feedback.md', 'feedback.md', 'eval-judge.md'];
+  const order = ['request.md', 'plan.md', 'spec.md', 'design.md', 'mockup.html', 'approval-notes.md', 'questions.md', 'tasks.md', 'build.md', 'verify/', 'review/', 'decision.md', 'runbook.md', 'pr.md', 'pr-feedback.md', 'feedback.md', 'eval-judge.md'];
   const rank = (f: string) => {
     const i = order.findIndex((o) => (o.endsWith('/') ? f.startsWith(o) : f === o));
     return i === -1 ? (f.startsWith('logs/') ? 1000 : 500) : i;

@@ -38,7 +38,7 @@ const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate',
+  'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate', 'builder-note',
 ]);
 
 /**

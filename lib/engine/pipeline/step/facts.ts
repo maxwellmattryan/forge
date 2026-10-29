@@ -5,6 +5,7 @@ import { SAFE_TOOL } from '#core/text.ts';
 import type { JobAgent, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { lastRun } from '../../verify/record.ts';
+import { isApprovalNote } from '../moves/approval-notes.ts';
 
 export const ended = (a: JobAgent | undefined): a is JobAgent => Boolean(a?.endedAt && a.status !== 'running');
 export const endedIn = (a: JobAgent | undefined, round: number): a is JobAgent => ended(a) && a.round === round;
@@ -20,6 +21,12 @@ export const p = (x: StepInput, key: string) => String(x.paths[key]);
 export const ref = (x: StepInput, name: string) => path.join(x.pluginRoot, 'skills', 'forge', 'reference', name);
 
 export const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
+
+/**
+ * approval-notes.md holds a note the last builder never read: the latest qualifying event came after the last builder
+ * start, not the round's, so a note given during the previous builder's run or its review counts.
+ */
+export const approvalNotesNew = (x: StepInput): boolean => after(lastEvent(x, isApprovalNote)?.ts, agent(x, 'builder')?.startedAt);
 
 /** The roles a timed-out prompt may park the job for: the ones that write the job's plan, spec or code. */
 export const PROMPT_TIMEOUT_ROLES: readonly string[] = ['planner', 'spec-writer', 'builder', 'integrator'];
