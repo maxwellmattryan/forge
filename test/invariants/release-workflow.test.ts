@@ -583,15 +583,17 @@ const releaseRepo = repoTemplate((dir) => {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
     fs.writeFileSync(path.join(dir, rel), text);
   };
+  // Formatted as npm writes them: the version lines are the ones a bump rewrites.
+  const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
   const version = (v: string) => {
-    write('package.json', JSON.stringify({ name: 'forge', version: v }));
-    write('.claude-plugin/plugin.json', JSON.stringify({ name: 'forge', version: v }));
+    write('package.json', json({ name: 'forge', version: v }));
+    write('.claude-plugin/plugin.json', json({ name: 'forge', version: v }));
+    write('package-lock.json', json({ name: 'forge', version: v, lockfileVersion: 3, packages: { '': { name: 'forge', version: v }, 'node_modules/dep': { version: '2.0.0', resolved: 'https://registry.npmjs.org/dep/-/dep-2.0.0.tgz' } } }));
   };
   git('checkout', '-qb', 'develop');
   version('1.0.0');
   write('.claude-plugin/marketplace.json', JSON.stringify({ name: 'forge', plugins: [{ name: 'forge', source: STABLE }] }));
   write('CHANGELOG.md', '# Changelog\n\n## 1.0.0\n\n- First.\n');
-  write('package-lock.json', JSON.stringify({ lockfileVersion: 3, packages: { '': {} } }));
   write('dashboard/index.html', '<!doctype html>\n');
   write('.github/workflows/ci.yml', 'name: CI\n');
   write('.gitignore', 'dashboard/dist/\n');
@@ -659,6 +661,86 @@ test('detect, the stable tree and COMMIT hold for a merged release PR on develop
     }
   } finally {
     fs.rmSync(dist, { recursive: true, force: true });
+  }
+});
+
+test('the build refuses a push that is more than the version bump', POSIX, () => {
+  const step = stepsOf(WF.jobs.build).find((s) => s.name === 'Check the push is only the version bump');
+  assert.ok(step?.run, 'the build job has the step');
+  assert.ok(stepsOf(WF.jobs.build).indexOf(step!) < stepsOf(WF.jobs.build).findIndex((s) => s.run === 'npm ci'), 'it runs before npm ci installs from the lockfile');
+  // The step reads package.json with the runner's node: the one running this test.
+  const PATH = [path.dirname(process.execPath), process.env.PATH ?? ''].join(path.delimiter);
+  const check = (repo: ReturnType<typeof tempRepo>) =>
+    bash(step!.run, repo.dir, { PATH, GITHUB_SHA: repo.git('rev-parse', 'HEAD').toString().trim(), VERSION: '1.1.0' });
+  const edit = (repo: ReturnType<typeof tempRepo>, rel: string, fn: (text: string) => string) => {
+    const file = path.join(repo.dir, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, fn(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''));
+  };
+  /** The release PR after someone pushed `more` to its branch, merged into develop the way GitHub does. */
+  const merged = (form: 'merge commit' | 'squash', more?: (repo: ReturnType<typeof tempRepo>) => void) => {
+    const repo = releaseRepo();
+    if (more) {
+      repo.git('checkout', '-q', 'release/v1.1.0');
+      more(repo);
+      repo.git('add', '-Af');
+      repo.git('commit', '-qm', 'more');
+      repo.git('checkout', '-q', 'develop');
+    }
+    if (form === 'merge commit') repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #9 from o/release/v1.1.0', 'release/v1.1.0');
+    else {
+      repo.git('merge', '-q', '--squash', 'release/v1.1.0');
+      repo.git('commit', '-qm', 'Release 1.1.0 (#9)');
+    }
+    return repo;
+  };
+
+  for (const form of ['merge commit', 'squash'] as const) {
+    const ok = merged(form);
+    try {
+      const r = check(ok);
+      assert.equal(r.status, 0, `${form}: ${r.stdout}${r.stderr}`);
+    } finally {
+      ok.cleanup();
+    }
+  }
+
+  const rows: [string, (repo: ReturnType<typeof tempRepo>) => void][] = [
+    ['a script', (repo) => edit(repo, 'scripts/release-plan.ts', () => 'process.exit(0);\n')],
+    ['a workflow', (repo) => edit(repo, '.github/workflows/ci.yml', (t) => `${t}# edited\n`)],
+    ['a tracked dashboard/dist', (repo) => edit(repo, 'dashboard/dist/index.html', () => '<!doctype html>\n')],
+    ['marketplace.json', (repo) => edit(repo, '.claude-plugin/marketplace.json', (t) => t.replace('"stable"', '"main"'))],
+    ['a file whose name has a newline', (repo) => edit(repo, 'x\ny::error title=Fake::injected', () => 'x\n')],
+    ['another resolved URL in the lockfile', (repo) => edit(repo, 'package-lock.json', (t) => t.replace('registry.npmjs.org', 'evil.example'))],
+    ['a dependency version in the lockfile', (repo) => edit(repo, 'package-lock.json', (t) => t.replace('"version": "2.0.0"', '"version": "2.0.1"'))],
+    ['a key added to plugin.json', (repo) => edit(repo, '.claude-plugin/plugin.json', (t) => t.replace('"version"', '"hooks": {},\n  "version"'))],
+    ['an older CHANGELOG section edited', (repo) => edit(repo, 'CHANGELOG.md', (t) => t.replace('- First.', '- First!'))],
+    ['a CHANGELOG section removed', (repo) => edit(repo, 'CHANGELOG.md', (t) => t.replace('- First.\n', ''))],
+  ];
+  for (const [what, more] of rows) {
+    for (const form of ['merge commit', 'squash'] as const) {
+      const repo = merged(form, more);
+      try {
+        const r = check(repo);
+        assert.equal(r.status, 1, `${form}, ${what}: refused`);
+        assert.match(r.stdout, /^::error title=More than the version bump::/m, `${form}, ${what}`);
+        assert.equal(r.stdout.split('\n').filter((l) => l.startsWith('::')).length, 1, `${form}, ${what}: one annotation, never one a file name made`);
+      } finally {
+        repo.cleanup();
+      }
+    }
+  }
+
+  // A commit with no first parent has nothing to compare with.
+  const root = tempRepo();
+  try {
+    root.git('checkout', '-q', '--orphan', 'orphan');
+    root.git('commit', '-qm', 'root', '--allow-empty');
+    const r = check(root);
+    assert.equal(r.status, 1);
+    assert.match(r.stdout, /^::error title=No first parent::/m);
+  } finally {
+    root.cleanup();
   }
 });
 

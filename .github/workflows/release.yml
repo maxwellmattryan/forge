@@ -1,9 +1,10 @@
 # Forge's release: a push to develop that changes the package.json version and has no v<version> tag yet,
 # which is a human merging a release PR into develop with any merge method (docs/RELEASES.md "Releasing").
-# detect, verify and build hold a read-only token: verify runs all of ci.yml, and build builds the dashboard,
-# checks the stable tree (the pushed commit's tree minus .github/workflows/ plus dashboard/dist/,
-# scripts/stable-tree.ts) and outputs its sha, writes the Release notes (the pushed commit's CHANGELOG section)
-# and a source archive stamped with its commit, and uploads release-files and stable-dist. Only the release job
+# detect, verify and build hold a read-only token: verify runs all of ci.yml, and build refuses a push that is more
+# than the version bump, builds the dashboard, checks the stable tree (the pushed commit's tree minus
+# .github/workflows/ plus dashboard/dist/, scripts/stable-tree.ts) and outputs its sha, writes the Release notes
+# (the pushed commit's CHANGELOG section) and a source archive stamped with its commit, and uploads release-files
+# and stable-dist. Only the release job
 # holds a write token, and it runs nothing but gh, jq, base64, find and shell builtins: it downloads this run's
 # files, checks that the pushed commit is the merge commit of this repository's release/v<version> PR into
 # develop, rebuilds the stable tree through the API and refuses unless it is build's, commits it onto stable
@@ -78,6 +79,47 @@ jobs:
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
+      # A commit pushed to the release PR's branch after `npm run release` checked it would ride in with the merge.
+      # Refuse anything but the bump before npm ci installs from a lockfile it may have edited: against the first
+      # parent, only the version files and CHANGELOG.md may differ, the version files only in lines that read the
+      # old or the new version, and CHANGELOG.md only by lines added. Plain git, sed and cmp, no repo script.
+      - name: Check the push is only the version bump
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          if ! parent="$(git rev-parse --verify -q "$GITHUB_SHA^1")"; then
+            echo "::error title=No first parent::the pushed commit has no parent to compare with"
+            exit 1
+          fi
+          old="$(git show "$parent:package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+          if ! [[ "$old" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error title=Bad parent version::the first parent's package.json version is not X.Y.Z"
+            exit 1
+          fi
+          while IFS= read -r -d '' f; do
+            case "$f" in
+              package.json|package-lock.json|.claude-plugin/plugin.json|CHANGELOG.md) ;;
+              *)
+                printf '::error title=More than the version bump::the release PR also changes %q\n' "$f"
+                exit 1
+                ;;
+            esac
+          done < <(git diff --name-only -z --no-renames "$parent" "$GITHUB_SHA" --)
+          # Both versions read as one placeholder, so only the lines that name them may differ.
+          re="(${old//./[.]}|${VERSION//./[.]})"
+          norm() { git show "$1:$2" | sed -E "s/^([[:space:]]*\"version\": \")$re(\",?)\$/\1V\3/"; }
+          for f in package.json package-lock.json .claude-plugin/plugin.json; do
+            if ! cmp -s <(norm "$parent" "$f") <(norm "$GITHUB_SHA" "$f"); then
+              echo "::error title=More than the version bump::$f changes beyond the lines that name the version"
+              exit 1
+            fi
+          done
+          removed="$(git diff --numstat --no-renames "$parent" "$GITHUB_SHA" -- CHANGELOG.md | cut -f2)"
+          if [ -n "$removed" ] && [ "$removed" != 0 ]; then
+            echo "::error title=More than the version bump::CHANGELOG.md loses lines: a release only adds its section"
+            exit 1
+          fi
       - name: Install dependencies
         run: npm ci
       - name: Build dashboard

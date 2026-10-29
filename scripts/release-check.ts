@@ -42,7 +42,7 @@ function version(file: string): { value: unknown; problem?: string } {
 }
 
 /**
- * The one source installs follow: the `stable` branch, which only release.yml moves, once per release. It never
+ * The one source installs follow: the `stable` branch, which release.yml moves, once per release. It never
  * changes per release, so a release commit leaves marketplace.json alone.
  */
 export const STABLE_SOURCE = Object.freeze({ source: 'github', repo: 'maxwellmattryan/forge', ref: 'stable' });
