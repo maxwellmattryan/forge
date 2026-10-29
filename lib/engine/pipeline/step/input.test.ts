@@ -8,8 +8,10 @@ import { jobAt, tempRepo } from '../../../../test/helpers.ts';
 import { folderMaps, loadStepInput } from './input.ts';
 import { step } from './order.ts';
 import { INSTRUCTIONS_LINE, UNTRUSTED_LINE, instructionsChangedLine, jobPathMap, renderBrief, roleBrief } from '../brief.ts';
-import { defaults } from '#core/config/load.ts';
+import { defaults, worktreeRoot } from '#core/config/load.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
+import { roleRunFiles } from '#core/job/session-files.ts';
+import { projectSlug } from '#integrations/claude/transcripts.ts';
 import { jobDir, logEvent, updateJob } from '#core/job/store.ts';
 import type { Config } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
@@ -456,4 +458,69 @@ test('folderMaps skips what leaves the worktree', { skip: process.platform === '
     const ms = performance.now() - start;
     assert.ok(ms < 100, `a ${line.length}-character Design line took ${ms.toFixed(1)} ms`);
   }
+});
+
+test("loadStepInput reads each rework role's last session from its runner sidecar", (t) => {
+  const repo = tempRepo();
+  const config: Config = defaults();
+  config.tracker.kind = 'none';
+  const claudeDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-claude-')));
+  const { id } = jobAt(repo.dir, 'build', { config });
+  const wt = path.join(worktreeRoot(repo.dir, config), id);
+  fs.mkdirSync(wt, { recursive: true });
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  process.env.CLAUDE_CONFIG_DIR = claudeDir;
+  t.after(() => {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    repo.cleanup();
+    fs.rmSync(path.dirname(wt), { recursive: true, force: true });
+    fs.rmSync(claudeDir, { recursive: true, force: true });
+  });
+  const [B, C, T, S, P] = ['b', 'c', 'd', 'e', 'f'].map((ch) => `${ch.repeat(8)}-0000-4000-8000-${ch.repeat(12)}`);
+  const ran = (agentId: string, extra: Record<string, unknown> = {}) => ({ runs: 1, status: 'done', model: 'opus', agentId, startedAt: '2026-10-01T10:00:00.000Z', endedAt: '2026-10-01T10:05:00.000Z', round: 1, ...extra });
+  updateJob(repo.dir, id, (j) => {
+    j.worktree = wt;
+    j.agents = {
+      builder: ran(B),
+      'reviewer:code': ran(C),
+      'reviewer:tests': ran(T),
+      // An id planted on another role: the builder's session, whose sidecar names the builder.
+      'reviewer:security': ran(B),
+      'reviewer:docs': ran('not-a-uuid'),
+      'reviewer:ui': ran(S),
+      'reviewer:design': ran(P, { status: 'running', endedAt: null }),
+      planner: ran(P),
+    } as any;
+  });
+  const sidecar = (sid: string, body: unknown) => {
+    const f = roleRunFiles(repo.dir, id, sid);
+    fs.mkdirSync(f.dir, { recursive: true });
+    fs.writeFileSync(f.cum, JSON.stringify(body));
+  };
+  sidecar(B, { v: 1, cum: { usd: 0, models: {} }, role: 'builder', context: 50_000 });
+  sidecar(C, { v: 1, cum: { usd: 0, models: {} }, role: 'reviewer:code', context: 130_000 });
+  sidecar(T, { v: 1, cum: { usd: 0, models: {} }, role: 'reviewer:tests', context: -1 });
+  // A sidecar the runner did not write (another version) binds nothing.
+  sidecar(S, { v: 2, cum: { usd: 0, models: {} }, role: 'reviewer:ui', context: 10 });
+  sidecar(P, { v: 1, cum: { usd: 0, models: {} }, role: 'planner', context: 10 });
+  // The builder's transcript sits under the job's own worktree; the code lens's only under the main checkout's slug.
+  const transcript = (cwd: string, sid: string) => {
+    const dir = path.join(claudeDir, 'projects', projectSlug(cwd));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${sid}.jsonl`), '{}\n');
+  };
+  transcript(fs.realpathSync(wt), B);
+  transcript(repo.dir, C);
+
+  const want = {
+    builder: { session: B, transcript: true, context: 50_000 },
+    'reviewer:code': { session: C, transcript: false, context: 130_000 },
+    'reviewer:tests': { session: T, transcript: false, context: null },
+  };
+  assert.deepEqual(loadStepInput(repo.dir, config, id).lastSessions, want);
+  updateJob(repo.dir, id, (j) => void (j.stage = 'review'));
+  assert.deepEqual(loadStepInput(repo.dir, config, id).lastSessions, want, 'at review too');
+  updateJob(repo.dir, id, (j) => void (j.stage = 'decide'));
+  assert.deepEqual(loadStepInput(repo.dir, config, id).lastSessions, {}, 'any other stage');
 });
