@@ -17,7 +17,7 @@ const CHECK_TEXT: Record<CheckKind, (r: ReleaseRepo, base: string, remote: strin
     r.package?.ecosystem === 'cargo'
       ? `\`cargo search ${r.package.name}\` lists the version in Cargo.toml.`
       : `\`npm view ${r.package?.name ?? '<name>'}@<version> version\` prints the version in package.json.`,
-  'pr-merged': (r) => `the release script's \`--check merged ${r.bump?.to ?? '<version>'}\` finds the release PR from release/v${r.bump?.to ?? '<version>'} into main merged.`,
+  'pr-merged': (r, base) => `the release script's \`--check merged ${r.bump?.to ?? '<version>'}\` finds the release PR from release/v${r.bump?.to ?? '<version>'} into ${base} merged.`,
 };
 
 /** A script repo's version bump and notes file, for its section. Script output goes through safeText. */

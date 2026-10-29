@@ -1167,12 +1167,11 @@ The hints: `npm install --save-dev release-please`, `npm install --save-dev @cha
 | Call | Who runs it | What the script does |
 |---|---|---|
 | `--draft-notes [--bump patch\|minor\|major]` | `forge release plan`, and the Office pass when it plans an `until: released` mandate's release ([Mandates](#mandates)), under the [command environment](#command-environment) with the Node that runs Forge | reads only local git and the working tree, and prints one JSON object on stdout: `{current, next, bump, inferred, reasons, since, draft}` (the current version, the version the release makes, the chosen bump, the inferred one, `patch` or `minor`, up to 5 short reasons, the last tag or `null`, and the draft CHANGELOG section, whose first line is `## <next>`) |
-| `--phase start <X.Y.Z> --notes-file <file>` | the `start` step | cuts the release with the file as its CHANGELOG section, and pushes it |
-| `--phase wait-build <X.Y.Z>` | the `build` step | waits for CI's build of the release |
-| `--phase pr <X.Y.Z>` | the `pr` step | opens the release PR, or checks the one that is open |
-| `--phase wait-tag <X.Y.Z>` | the `tag` step | waits for the tag the merge makes |
-| `--phase land <X.Y.Z>` | the `land` step | lands the release on the base branch and pushes it |
+| `--phase start <X.Y.Z> --notes-file <file>` | the `start` step | cuts the release with the file as its CHANGELOG section, pushes it and opens the release PR into the base, or checks the one that is open |
+| `--phase wait-tag <X.Y.Z>` | the `tag` step | waits for the tag the merge's CI makes, and checks it |
 | `--check merged <X.Y.Z>` | the `merge` step's `pr-merged` check, with the caller's environment and the Node that runs Forge | exits 0 only when the release PR is merged |
+
+Before Forge's own release moved to a CI-owned `stable` branch, the protocol had three more phases (a wait for CI's dashboard build, opening the PR, and landing the release on the base); Forge never calls them now. A `release.json` planned with those steps recomputes to other steps, so `forge release run` refuses it as stale until you run `forge release plan` again.
 
 Every phase must be idempotent: run again, or after the release has moved past it, it exits 0 without acting, so `forge release run` can resume anywhere. A phase never asks a question on a terminal: the engine asked before each publish step. `forge release plan` refuses a draft that exits non-zero or prints anything but that shape (a `next` that is not `X.Y.Z`, a `bump` outside the three, a `draft` that does not start with `## <next>`, more than 5 reasons, more than 256 KB), naming the repo and the script's last stderr line, and writes nothing. [RELEASES.md "Releasing a project"](RELEASES.md#releasing-a-project) has the steps and their rollback.
 

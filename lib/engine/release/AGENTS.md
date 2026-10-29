@@ -20,6 +20,6 @@ Releases: plans, runs and approvals, and interim releases across member repos.
 | `plan.ts` | The release plan's shapes, and the planner that turns each repo's release strategy (lib/core/config/release-strategy.ts) and the repo graph into an ordered plan of checkable steps with rollback (docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | `release.md`, the human-readable plan with its checks and rollback. |
 | `run.ts` | `forge release run` and `forge release status`: execute the release plan step by step with checkpoints in `.forge/runtime/release/state.json`, stop on the first failure, and resume there. |
-| `script.ts` | The script release mechanism's engine side (docs/CONFIG.md "Release strategy"): the notes file's path, the plan's draft through the script's `--draft-notes`, the bump a recompute takes back from release.json, and the `pr-merged` check. |
+| `script.ts` | The script release mechanism's engine side (docs/CONFIG.md "Release strategy"): the notes file's path, the plan's draft through the script's `--draft-notes`, the bump a recompute takes back from release.json, and the `pr-merged` check (the release PR into the repo's base). |
 | `steps.ts` | The mechanism table that turns one repo's strategy into release steps and their rollback lines. |
 <!-- forge:map:end -->

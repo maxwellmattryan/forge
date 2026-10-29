@@ -1,26 +1,29 @@
-// The main update `npm run release` pushes to the release PR's branch (scripts/release.ts), also runnable by hand:
-//   node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>
-//     prints the sha of one new commit: the release commit's tree (`--develop`: develop's tip plus the bump)
-//     plus the built dashboard/dist/, parents [main, release commit]
-// The release PR carries it into main. The dist comes from main-update.yml's build of the release branch
-// in CI, with node_modules, so it is checked here before any of it reaches a commit (docs/RELEASES.md
-// "Releasing"). A resume of `npm run release` re-derives it (`isMainUpdate`) before it vouches for a branch tip
-// someone may have pushed, and again for the head a release PR merged before it lands anything on develop.
-// Built-ins only.
+// The stable tree release.yml's build job checks, also runnable by hand (docs/RELEASES.md "Recovery"):
+//   node scripts/stable-tree.ts --develop <sha> --dist <dir>
+//     prints `tree=<sha>`: the released develop commit's tree, minus .github/workflows/, plus the built
+//     dashboard/dist/ (each file at 100644, its bytes as built)
+// It prints the tree only once `releaseProblems(<checkout of it>, {dist: 'present'})` passes. The release job
+// then rebuilds the same tree through the GitHub API and commits it onto stable with parents [stable, develop
+// commit]; it must reach this sha. The dist comes from the build job's `npm run build:dashboard`, with
+// node_modules, so it is checked here before any of it reaches a tree. stable drops .github/workflows/ because
+// GITHUB_TOKEN can't move a ref across a change to workflow files. Built-ins only.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { distHash, sourceHash, STAMP } from '../dashboard/build-stamp.mjs';
+import { gitEnv } from '../lib/integrations/git/runner.ts';
 import { gitSync } from './git.ts';
+import { releaseProblems } from './release-check.ts';
 
 export const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const SHA = /^[0-9a-f]{40}$/;
-const SEMVER = /^\d+\.\d+\.\d+$/;
 const FIXED = ['index.html', 'manifest.json', STAMP];
+/** What the stable tree leaves out of the develop commit's tree. */
+export const STABLE_DROPS = ['.github/workflows'];
 /**
  * A release commit's subject, or a main-update PR's from before them, as a squash leaves it: `Release 1.2.3`,
- * optionally `(#n)`. Only the whole subject counts, so `Release Forge in one command` or a hotfix titled
+ * optionally `(#n)`. Only the whole subject counts, so `Release Forge in one command` or a fix titled
  * `Release 1.2.4: fix x` is still a change of its own.
  */
 export const isReleaseSubject = (s: string) => /^(?:Release \d+\.\d+\.\d+|Update main to develop [0-9a-f]{7,40})(?: \(#\d+\))?$/.test(s.trim());
@@ -97,33 +100,13 @@ function gitBuffer(args: string[]): Buffer {
 }
 
 function requireCommit(sha: string, what: string): void {
+  if (!SHA.test(sha)) throw new Refusal(`${what} must be a 40-character lowercase hex sha, got ${JSON.stringify(sha)}`);
   if (git(['cat-file', '-t', sha]).trim() !== 'commit') throw new Refusal(`${what} ${sha} is not a commit`);
-}
-
-/** develop's package.json version, X.Y.Z only: it becomes a PR title and a commit subject. */
-function developVersion(develop: string): string {
-  let v: unknown;
-  try {
-    v = JSON.parse(git(['cat-file', 'blob', `${develop}:package.json`]))?.version;
-  } catch (e) {
-    throw new Refusal(`cannot read develop's package.json: ${(e as Error).message}`);
-  }
-  if (typeof v !== 'string' || !SEMVER.test(v)) throw new Refusal(`develop's package.json version ${JSON.stringify(v)} is not X.Y.Z`);
-  return v;
-}
-
-/** `Release <v>`, refused once v<v> is tagged: main moves only to release a new version. */
-function title(develop: string): string {
-  const v = developVersion(develop);
-  // Any rev-parse failure reads as "no tag", so this needs the tags in the checkout (release.ts fetches them).
-  const tagged = gitSync(['rev-parse', '-q', '--verify', `refs/tags/v${v}`]).status === 0;
-  if (tagged) throw new Refusal(`v${v} is already tagged: bump the version on develop to release again`);
-  return `Release ${v}`;
 }
 
 /** sourceHash of develop's dashboard/ and package-lock.json, read from its tree rather than the checkout. */
 function developSourceHash(develop: string): string {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-main-update-src-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-stable-tree-src-'));
   try {
     const listing = git(['ls-tree', '-r', '-z', '--full-tree', develop, '--', 'dashboard', 'package-lock.json']);
     for (const line of listing.split('\0')) {
@@ -148,10 +131,8 @@ function developSourceHash(develop: string): string {
   }
 }
 
-/** The main update's commit; `subjectOf` gives its subject, and may refuse (see `title`). */
-function buildMain(main: string, develop: string, dist: string, subjectOf: (develop: string) => string): string {
-  requireCommit(main, '--main');
-  requireCommit(develop, '--develop');
+/** The checked dist's files, refused unless the stamp matches them and was built from `develop`'s dashboard sources. */
+function checkedDist(develop: string, dist: string): { dir: string; files: string[] } {
   const tracked = git(['ls-tree', '-r', '--name-only', '-z', '--full-tree', develop, '--', 'dashboard/dist']);
   if (tracked.replace(/\0/g, '')) throw new Refusal(`develop already tracks dashboard/dist (${tracked.split('\0')[0]}): develop never commits the build`);
   const dir = path.resolve(dist);
@@ -164,13 +145,18 @@ function buildMain(main: string, develop: string, dist: string, subjectOf: (deve
   }
   if (stamp?.dist !== distHash(dir)) throw new Refusal(`dashboard/dist does not match its ${STAMP} (dist)`);
   if (stamp?.source !== developSourceHash(develop)) throw new Refusal(`dashboard/dist was not built from develop's sources (${STAMP} source)`);
-  const subject = subjectOf(develop);
+  return { dir, files };
+}
 
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-main-update-index-'));
+/** `develop`'s tree with every path under `drops` removed and the dist files added under dashboard/dist/, written to the object store. */
+function writeTree(develop: string, dir: string, files: string[], drops: string[]): string {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-stable-tree-index-'));
   try {
     // A temporary index, so the checkout's index and working tree are never touched.
-    const env = { ...process.env, GIT_INDEX_FILE: path.join(tmp, 'index') };
+    const env = { ...gitEnv(), GIT_INDEX_FILE: path.join(tmp, 'index') };
     git(['read-tree', develop], { env });
+    // -f: the temporary index need not match HEAD or the working tree; --cached: never the working tree.
+    if (drops.length) git(['rm', '-r', '-q', '-f', '--cached', '--ignore-unmatch', '--', ...drops], { env });
     for (const rel of files) {
       // Hashed from the file as built, with no clean filter or attribute that could reshape it.
       const blob = git(['hash-object', '-w', '--no-filters', '--', path.join(dir, ...rel.split('/'))], { env }).trim();
@@ -179,30 +165,53 @@ function buildMain(main: string, develop: string, dist: string, subjectOf: (deve
     }
     const tree = git(['write-tree'], { env }).trim();
     if (!SHA.test(tree)) throw new Refusal(`git write-tree printed ${JSON.stringify(tree)}`);
-    // Authored by whoever runs the release, from their git config: they push it.
-    const sha = git(['commit-tree', '--no-gpg-sign', tree, '-p', main, '-p', develop, '-F', '-'], { env, input: `${subject}\n` }).trim();
-    if (!SHA.test(sha)) throw new Refusal(`git commit-tree printed ${JSON.stringify(sha)}`);
-    return sha;
+    return tree;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
-export function mainCommit(main: string, develop: string, dist: string): string {
-  return buildMain(main, develop, dist, title);
+/** The stable tree for `develop` (a 40-hex commit) and the built `dist`: develop's tree minus STABLE_DROPS plus the checked dist. */
+export function stableTree(develop: string, dist: string): string {
+  requireCommit(develop, '--develop');
+  const { dir, files } = checkedDist(develop, dist);
+  return writeTree(develop, dir, files, STABLE_DROPS);
 }
 
+// Fixed, so the throwaway check commit is the same object on every run.
+const CHECK_ENV = {
+  GIT_AUTHOR_NAME: 'stable-tree',
+  GIT_AUTHOR_EMAIL: 'stable-tree@invalid',
+  GIT_AUTHOR_DATE: '1970-01-01T00:00:00Z',
+  GIT_COMMITTER_NAME: 'stable-tree',
+  GIT_COMMITTER_EMAIL: 'stable-tree@invalid',
+  GIT_COMMITTER_DATE: '1970-01-01T00:00:00Z',
+};
+
 /**
- * Whether `commit` has exactly the tree `mainCommit(main, develop, dist)` builds: the release commit's tree plus the
- * checked dist, and nothing else. Commit shas differ by timestamp, but trees are deterministic. Whoever can push
- * the release branch can push a commit shaped like a main update, so a resume compares trees before it vouches for one,
- * and `npm run release` compares the merged head again before it lands the release. By then `v<version>` is tagged,
- * which only stops `mainCommit` from making another main update: the subject is not part of the tree.
+ * `stableTree(develop, dist)`, returned only once a checkout of it passes `releaseProblems(…, {dist: 'present'})`:
+ * a throwaway commit of the tree (parent `develop`, never on any ref) is checked out in a temporary worktree, which
+ * is always removed. Throws a Refusal listing the problems.
  */
-export function isMainUpdate(main: string, develop: string, commit: string, dist: string): boolean {
-  if (!SHA.test(commit)) return false;
-  const tree = (c: string) => git(['rev-parse', '--verify', `${c}^{tree}`]).trim();
-  return tree(buildMain(main, develop, dist, (d) => `Release ${developVersion(d)}`)) === tree(commit);
+export function checkStable(develop: string, dist: string): string {
+  const tree = stableTree(develop, dist);
+  const commit = git(['commit-tree', '--no-gpg-sign', tree, '-p', develop, '-F', '-'], { env: { ...gitEnv(), ...CHECK_ENV }, input: 'stable tree check\n' }).trim();
+  if (!SHA.test(commit)) throw new Refusal(`git commit-tree printed ${JSON.stringify(commit)}`);
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-stable-tree-')));
+  const checkout = path.join(tmp, 'tree');
+  let added = false;
+  try {
+    // No hook runs on the checkout: it is a check, not a working copy.
+    git(['-c', 'core.hooksPath=/dev/null', 'worktree', 'add', '--quiet', '--detach', checkout, commit]);
+    added = true;
+    const problems = releaseProblems(checkout, { dist: 'present' });
+    if (problems.length) throw new Refusal(`the stable tree fails the release check:\n${problems.join('\n')}`);
+    return tree;
+  } finally {
+    if (added) gitSync(['worktree', 'remove', '--force', checkout]);
+    fs.rmSync(tmp, { recursive: true, force: true });
+    gitSync(['worktree', 'prune']);
+  }
 }
 
 /** One line of commit text, safe to print: no control characters, bounded length. */
@@ -211,57 +220,35 @@ export const oneLine = (s: string) => {
   return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat;
 };
 
-/**
- * Non-merge commits on main's first-parent line since its last merge (the last release), that develop
- * doesn't have and that aren't release commits: hotfixes a release undoes unless they were ported.
- */
-export function mainOnlyCommits(main: string, develop: string): { sha: string; subject: string }[] {
-  requireCommit(main, '--main');
-  requireCommit(develop, '--develop');
-  const last = git(['log', '--first-parent', '--merges', '-1', '--format=%H', main]).trim();
-  const range = last ? [`${last}..${main}`] : [main];
-  const log = git(['log', '--first-parent', '--no-merges', '--format=%h%x09%s', ...range, '--not', develop, '--']);
-  return log
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      const tab = l.indexOf('\t');
-      return { sha: l.slice(0, tab).replace(/[^0-9a-f]/g, ''), subject: oneLine(l.slice(tab + 1)) };
-    })
-    .filter((c) => !isReleaseSubject(c.subject));
+const USAGE = 'usage: node scripts/stable-tree.ts --develop <sha> --dist <dir>\n';
+
+function usage(): never {
+  process.stderr.write(USAGE);
+  process.exit(2);
 }
 
-/** `--name value` pairs, each named flag exactly once; unknown, repeated or missing flags exit 2. */
-function flags(args: string[], required: string[]): Record<string, string> {
+/** `--develop <40-hex> --dist <dir>`, each exactly once; anything else is a usage error (exit 2), before any git call. */
+function parseFlags(args: string[]): { develop: string; dist: string } {
   const out: Record<string, string> = {};
   for (let i = 0; i < args.length; i += 2) {
     const [k, v] = [args[i], args[i + 1]];
     const name = k.startsWith('--') ? k.slice(2) : '';
-    if (!name || !required.includes(name) || name in out || v === undefined) usage();
+    if ((name !== 'develop' && name !== 'dist') || name in out || v === undefined) usage();
     out[name] = v;
   }
-  for (const k of required) if (!(k in out)) usage();
-  return out;
-}
-
-function usage(): never {
-  process.stderr.write('usage: node scripts/main-update.ts commit --main <sha> --develop <sha> --dist <dir>\n');
-  process.exit(2);
-}
-
-function main(argv: string[]): void {
-  const [cmd, ...rest] = argv;
-  const f = cmd === 'commit' ? flags(rest, ['main', 'develop', 'dist']) : usage();
+  if (!('develop' in out) || !('dist' in out)) usage();
   // Checked before any git call, so `-rf` or `--output=x` never reaches git's argv as an option.
-  for (const k of ['main', 'develop']) if (!SHA.test(f[k])) throw new Refusal(`--${k} must be a 40-character lowercase hex sha, got ${JSON.stringify(f[k])}`);
-  process.stdout.write(`${mainCommit(f.main, f.develop, f.dist)}\n`);
+  if (!SHA.test(out.develop)) usage();
+  return { develop: out.develop, dist: out.dist };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const { develop, dist } = parseFlags(process.argv.slice(2));
   try {
-    main(process.argv.slice(2));
+    const tree = checkStable(develop, dist);
+    process.stdout.write(`tree=${tree}\n`);
   } catch (e) {
-    process.stderr.write(`main-update: ${(e as Error).message}\n`);
+    process.stderr.write(`stable-tree: ${(e as Error).message}\n`);
     process.exit(1);
   }
 }

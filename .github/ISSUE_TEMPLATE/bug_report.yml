@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        **A security issue?** Do not file it here. Report it privately as [SECURITY.md](https://github.com/maxwellmattryan/forge/blob/main/SECURITY.md) describes.
+        **A security issue?** Do not file it here. Report it privately as [SECURITY.md](https://github.com/maxwellmattryan/forge/blob/develop/SECURITY.md) describes.
 
         Search the existing issues first, and file one bug per issue.
   - type: textarea
@@ -62,4 +62,4 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Your OS (and whether it is WSL2), Node, git and gh versions, and Claude Code version. Check your platform's tier in [SUPPORT.md](https://github.com/maxwellmattryan/forge/blob/main/docs/SUPPORT.md) first.
+      description: Your OS (and whether it is WSL2), Node, git and gh versions, and Claude Code version. Check your platform's tier in [SUPPORT.md](https://github.com/maxwellmattryan/forge/blob/develop/docs/SUPPORT.md) first.

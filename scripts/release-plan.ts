@@ -1,5 +1,7 @@
-// The two decisions .github/workflows/release.yml takes from the repo, run in the checkout of its read-only jobs:
-//   node scripts/release-plan.ts detect   (detect) prints `version=<v>` and `release=<true|false>` for $GITHUB_OUTPUT
+// The two decisions .github/workflows/release.yml takes from the repo on a push to develop, run in the checkout of
+// its read-only jobs:
+//   node scripts/release-plan.ts detect   (detect) prints `version=<v>` and `release=<true|false>` for $GITHUB_OUTPUT:
+//                                         a release when the version differs from the first parent's and is untagged
 //   node scripts/release-plan.ts notes    (build) prints the version's CHANGELOG section of the merged commit,
 //                                         the Release body, frozen in the release commit and reviewed in the PR diff
 // Repo text reaches the workflow only through these, and only after validation (docs/RELEASES.md).

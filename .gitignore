@@ -4,8 +4,8 @@ node_modules/
 .idea/
 .svelte-check/
 
-# Built by `npm run build:dashboard`; never committed on develop. CI builds it for the main update,
-# and only a hotfix on main adds it by hand (git add --force).
+# Built by `npm run build:dashboard`; never committed on develop. CI builds it and commits it onto
+# the stable branch at each release (docs/RELEASES.md).
 dashboard/dist/
 
 # Security audits

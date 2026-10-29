@@ -1,5 +1,5 @@
-// Security checks the three workflow tests share (ci-workflow, release-workflow, main-update-workflow), and
-// eventExpressions, which each of them asserts on its own (it rejects forms the others accept).
+// Security checks the two workflow tests share (ci-workflow, release-workflow), and eventExpressions, which
+// each of them asserts on its own (it rejects forms the others accept).
 // Not a test file: node --test never runs it. Each check returns its findings, [] when the workflow is
 // sound, so a test asserts [] on the real workflow and a finding on a hostile edit. They hold security
 // properties only, never which jobs, steps or keys a workflow has: those change with every CI edit.

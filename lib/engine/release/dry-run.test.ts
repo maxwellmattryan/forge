@@ -28,20 +28,17 @@ test('dry run lists the steps and runs nothing', POSIX, () => {
     const notes = notesPath(r.dir, null);
     const cmd = (phase: string, ...rest: string[]) => ['node scripts/release.mjs --phase', phase, '1.1.0', ...rest].join(' ');
     assert.equal(out.dryRun, true);
-    assert.deepEqual({ done: out.done, total: out.total, selection: out.selection }, { done: 0, total: 7, selection: { kind: 'all' } });
+    assert.deepEqual({ done: out.done, total: out.total, selection: out.selection }, { done: 0, total: 4, selection: { kind: 'all' } });
     assert.deepEqual(
       out.steps.map(({ id, command, publish, manual, asks, check, status }) => ({ id, command, publish, manual, asks, check, status })),
       [
         { id: '(root)/preflight', command: '', publish: false, manual: false, asks: false, check: 'ready', status: 'pending' },
         { id: '(root)/start', command: cmd('start', '--notes-file', notes), publish: true, manual: false, asks: true, check: null, status: 'pending' },
-        { id: '(root)/build', command: cmd('wait-build'), publish: false, manual: false, asks: false, check: null, status: 'pending' },
-        { id: '(root)/pr', command: cmd('pr'), publish: true, manual: false, asks: true, check: null, status: 'pending' },
-        { id: '(root)/merge', command: out.steps[4].command, publish: true, manual: true, asks: false, check: 'pr-merged', status: 'pending' },
+        { id: '(root)/merge', command: out.steps[2].command, publish: true, manual: true, asks: false, check: 'pr-merged', status: 'pending' },
         { id: '(root)/tag', command: cmd('wait-tag'), publish: false, manual: false, asks: false, check: null, status: 'pending' },
-        { id: '(root)/land', command: cmd('land'), publish: true, manual: false, asks: true, check: null, status: 'pending' },
       ],
     );
-    assert.match(out.steps[4].command, /^Merge the release PR from release\/v1\.1\.0/);
+    assert.match(out.steps[2].command, /^Merge the release PR from release\/v1\.1\.0 into /);
     assert.ok(out.steps.every((s) => typeof s.title === 'string' && s.title));
     assert.deepEqual(out.bumps, [{ repo: '(root)', from: '1.0.0', to: '1.1.0', bump: 'minor', inferred: 'minor', reasons: ['1 of 1 commits are not fixes, such as "feat: x"'], notes }]);
 

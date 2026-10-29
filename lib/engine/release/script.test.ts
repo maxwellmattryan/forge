@@ -68,6 +68,13 @@ test('a script plan drafts the notes and records the bump', POSIX, () => {
     assert.ok(md.includes('1.0.0 → 1.1.0'), 'release.md names the bump');
     assert.ok(md.includes(notes), 'release.md names the notes file');
     assert.ok(md.includes('forge release run --dry-run'));
+    // The merged check names the repo's base, whichever it is: develop here.
+    const onDevelop = { ...config, git: { ...config.git, base: 'develop' } };
+    writeReleasePlan(r.dir, onDevelop, { kind: 'all' }, quiet);
+    const developMd = fs.readFileSync(files.md, 'utf8');
+    assert.ok(developMd.includes('finds the release PR from release/v1.1.0 into develop merged'), developMd);
+    assert.ok(!/into main\b/.test(developMd), 'never a fixed main');
+    writeReleasePlan(r.dir, config, { kind: 'all' }, quiet);
 
     // A re-plan after an edit that keeps the heading keeps the file byte for byte.
     const edited = '## 1.1.0\n\n- The owner rewrote these notes.\n';
@@ -176,33 +183,31 @@ test('a script run asks before each publish step and waits on the merge', POSIX,
     assert.deepEqual(quietRun.calls, []);
     assert.deepEqual(prompts, []);
 
-    // On a terminal: asks before start and pr, never before build; the merge asks Done? and then checks.
+    // On a terminal: asks before start only; the merge asks Done? and then checks.
     const live = recordingSpawn();
     const second = await run(true, live.spawn);
-    assert.deepEqual(phases(live.calls), ['scripts/release.mjs --phase start 1.1.0 --notes-file ' + notesPath(r.dir, null), 'scripts/release.mjs --phase wait-build 1.1.0', 'scripts/release.mjs --phase pr 1.1.0']);
+    assert.deepEqual(phases(live.calls), ['scripts/release.mjs --phase start 1.1.0 --notes-file ' + notesPath(r.dir, null)]);
     assert.ok(live.calls.every((c) => path.basename(c[0]) === 'node' || path.basename(c[0]) === 'node.exe'));
-    assert.equal(prompts.length, 3);
+    assert.equal(prompts.length, 2);
     assert.match(prompts[0], /^Publish step \(root\)\/start in .*\n.*--phase start 1\.1\.0 --notes-file .*\nRun it\? \[y\/N\] $/);
-    assert.match(prompts[1], /--phase pr 1\.1\.0/);
-    assert.match(prompts[2], /release\/v1\.1\.0.*\nDone\? \[y\/N\] $/s);
+    assert.match(prompts[1], /release\/v1\.1\.0.*\nDone\? \[y\/N\] $/s);
     assert.deepEqual({ step: second.data.stopped?.step, reason: second.data.stopped?.reason }, { step: '(root)/merge', reason: 'check' });
-    assert.match(second.data.stopped!.detail, /check pr-merged failed: there is no release PR from release\/v1\.1\.0 into main/);
+    assert.match(second.data.stopped!.detail, /check pr-merged failed: there is no release PR from release\/v1\.1\.0 into develop/);
     assert.deepEqual(checks(), ['--check merged 1.1.0', '--check merged 1.1.0'], 'checked before asking and after Done?');
 
     // Without a terminal the merge waits for a human.
     const waiting = await run(false, recordingSpawn().spawn);
     assert.deepEqual({ step: waiting.data.stopped?.step, reason: waiting.data.stopped?.reason }, { step: '(root)/merge', reason: 'manual' });
 
-    // Once merged, the merge step is skipped, tag runs unasked, and land asks.
+    // Once merged, the merge step is skipped and tag runs unasked: nothing publishes after the merge.
     fs.writeFileSync(path.join(r.dir, 'scripts', 'merged'), '');
     prompts.length = 0;
     const last = recordingSpawn();
     const third = await run(true, last.spawn);
     assert.equal(third.exitCode, 0);
     assert.deepEqual(third.data.skipped, ['(root)/merge']);
-    assert.deepEqual(phases(last.calls), ['scripts/release.mjs --phase wait-tag 1.1.0', 'scripts/release.mjs --phase land 1.1.0']);
-    assert.equal(prompts.length, 1);
-    assert.match(prompts[0], /^Publish step \(root\)\/land .*--phase land 1\.1\.0/s);
+    assert.deepEqual(phases(last.calls), ['scripts/release.mjs --phase wait-tag 1.1.0']);
+    assert.deepEqual(prompts, []);
     assert.equal(third.data.done, third.data.total);
   } finally {
     r.cleanup();

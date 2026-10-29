@@ -12,8 +12,8 @@
 > — Henry Wadsworth Longfellow, *The Village Blacksmith* (1840)
 
 <p align="center">
-  <a href="https://github.com/maxwellmattryan/forge/blob/main/CHANGELOG.md"><img alt="version" src="https://img.shields.io/github/package-json/v/maxwellmattryan/forge?color=A6CDF2&label=version"></a>
-  <a href="https://github.com/maxwellmattryan/forge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/maxwellmattryan/forge/ci.yml?branch=main&label=ci"></a>
+  <a href="https://github.com/maxwellmattryan/forge/blob/develop/CHANGELOG.md"><img alt="version" src="https://img.shields.io/github/package-json/v/maxwellmattryan/forge?color=A6CDF2&label=version"></a>
+  <a href="https://github.com/maxwellmattryan/forge/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/maxwellmattryan/forge/ci.yml?branch=develop&label=ci"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude%20Code-plugin-8C99A8"></a>
   <img alt="zero dependencies" src="https://img.shields.io/badge/dependencies-zero-4A6684">
   <img alt="node" src="https://img.shields.io/badge/node-%E2%89%A522.18-223850">

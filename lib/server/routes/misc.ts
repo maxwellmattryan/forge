@@ -224,7 +224,7 @@ function about({ commit, installedAs }: Pick<VersionInfo, 'commit' | 'installedA
     schemaVersions: { config: CONFIG_SCHEMA_VERSION, job: JOB_SCHEMA_VERSION, event: EVENT_SCHEMA_VERSION },
     pricingAsOf: typeof pricing.asOf === 'string' ? pricing.asOf : null,
     node: process.versions.node,
-    links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/main/docs` : null },
+    links: { repo, docs: repo ? `${repo.replace(/\/$/, '')}/tree/develop/docs` : null },
     commit,
     installedAs,
   };
