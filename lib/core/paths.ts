@@ -44,8 +44,8 @@ export interface ForgePaths {
   /** The owner's chats with the Foreman (lib/office/chat/), one `<id>/` each: written only by the dashboard server. */
   chats: string;
   /**
-   * The prompt history (lib/office/session/permissions/history.ts): one input-free line per permission prompt a pool
-   * session answered, which `forge daemon prompts` reads. Appended only by `forge dash`.
+   * The prompt history (lib/office/session/permissions/history.ts): one line per permission prompt a pool
+   * session answered, with no input field (a suggested rule can still carry part of the command), which `forge daemon prompts` reads. Appended only by `forge dash`.
    */
   permissionPrompts: string;
   backlog: string;

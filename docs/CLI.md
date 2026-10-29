@@ -649,7 +649,7 @@ The dashboard's headless sessions, from the terminal.
 | Flag | Meaning |
 |---|---|
 | `--min N` | suggest a rule only once allowed at least N times (1-1000, default 3) |
-| `--since DATE` | only prompts answered at or after DATE (YYYY-MM-DD or a full ISO timestamp) |
+| `--since DATE` | only count prompts answered at or after DATE (YYYY-MM-DD or a full ISO timestamp); a deny before it still blocks a suggestion |
 
 | Exit | When |
 |---|---|
