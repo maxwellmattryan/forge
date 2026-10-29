@@ -15,6 +15,8 @@ import { TRUST_ENV, trustDigest } from '#core/config/trust.ts';
 import { findOnPath } from '#core/os/process.ts';
 import { sanitizePath } from '#engine/guard/command-env.ts';
 import * as yaml from '#core/format/yaml.ts';
+import { defaults } from '#core/config/load.ts';
+import { deepMerge } from '#core/shape.ts';
 
 // Writes the child's whole environment to $CMDENV_OUT, read in node so no shell expansion is involved.
 const DUMP = `${JSON.stringify(process.execPath)} -e 'require("fs").writeFileSync(process.env.CMDENV_OUT, JSON.stringify(process.env))'`;
@@ -102,7 +104,8 @@ async function scratch() {
 /** Rewrites the scratch's config.yml with `commandEnv` set to `value`. */
 function setCommandEnv(root: string, value: Record<string, unknown>): void {
   const file = path.join(root, '.forge', 'config.yml');
-  const config = yaml.parse(fs.readFileSync(file, 'utf8'));
+  // Over the defaults: init write leaves keys at their default out of the file.
+  const config: Record<string, any> = deepMerge(defaults(), yaml.parse(fs.readFileSync(file, 'utf8')));
   config.commandEnv = value;
   fs.writeFileSync(file, yaml.stringify(config));
 }
