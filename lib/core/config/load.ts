@@ -3,10 +3,11 @@
 // names are re-exported here so the many importers of config.ts keep working.
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { defaults } from './keys/defaults.ts';
 import { paths, exists, resolveFrom } from '../paths.ts';
 import { FOREMAN_SHIP, migrateConfig } from '../job/schema.ts';
-import { deepMerge } from '../shape.ts';
+import { deepMerge, isMap } from '../shape.ts';
 import type { Config, LoadedConfig } from '../types.ts';
 import { ForgeError } from '../errors.ts';
 import { readText } from '../os/fs.ts';
@@ -99,7 +100,35 @@ export function isOwnWorktreePath(root: string, config: Config, id: string, wt: 
   }
 }
 
-export function stringifyConfig(config: Config): string {
+/**
+ * What .forge/config.yml must hold so loadConfig reads `config` back: schemaVersion, every leaf that
+ * differs from `base`, every key `base` lacks (whole), and every leaf `keep` (a file's raw content) sets.
+ * Maps are compared key by key and a map left empty is dropped; lists and scalars are compared and
+ * written whole (map key order ignored, list order kept), so a list such as policy.protectedPaths is
+ * never cut to a per-item delta. Callers pass `config` and `keep` through deepMerge first, which
+ * refuses prototype keys, so none can reach the walk below.
+ */
+export function configOverrides(config: Record<string, any>, keep?: unknown, base: Record<string, any> = defaults()): Record<string, any> {
+  const out: Record<string, any> = { schemaVersion: config.schemaVersion };
+  const rest = diff(config, base, keep);
+  delete rest.schemaVersion;
+  return Object.assign(out, rest);
+}
+
+function diff(value: Record<string, any>, base: Record<string, any>, keep: unknown): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const k of Object.keys(value)) {
+    if (!Object.hasOwn(base, k)) out[k] = structuredClone(value[k]);
+    else if (isMap(keep) && Object.hasOwn(keep, k) && !isMap(keep[k])) out[k] = structuredClone(value[k]);
+    else if (isMap(value[k]) && isMap(base[k])) {
+      const sub = diff(value[k], base[k], isMap(keep) ? keep[k] : undefined);
+      if (Object.keys(sub).length) out[k] = sub;
+    } else if (!isDeepStrictEqual(value[k], base[k])) out[k] = structuredClone(value[k]);
+  }
+  return out;
+}
+
+export function stringifyConfig(config: Record<string, unknown>): string {
   const header =
     '# Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.\n' +
     '# Re-run `/forge init` to change answers interactively, or edit this file directly.\n';
