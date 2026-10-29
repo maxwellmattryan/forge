@@ -113,7 +113,6 @@ export interface StepInput {
    * has no recorded review.
    */
   reviewCurrent: boolean | null;
-  runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;
   /**

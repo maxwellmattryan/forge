@@ -1,13 +1,16 @@
 // The gates that run before the stage rules (secret scan, protected paths, repo proposals,
-// downstream verification) and what step tells a human at a gate.
+// downstream verification), the open rules of the one escalation park (openEscalation), and what
+// step tells a human at a gate.
 import path from 'node:path';
 import { downstreamRepos } from '../../project/downstream.ts';
 import { pastTotalCeiling, totalRoundCeiling } from '../moves/foreman-gates.ts';
 import { issueLinkStatus, prLinkNote } from '#core/job/issue-link.ts';
-import { protectedApproved, protectedReason } from '../../guard/protected.ts';
+import { protectedApproved } from '../../guard/protected.ts';
 import { PUSH_HELD_PREFIX, isCiHit } from '../../guard/push-hold.ts';
 import { pendingRepoProposals } from '../../project/repo-proposals.ts';
-import type { VerifyRun, WaitingOn } from '#core/types.ts';
+import { ESCALATION_RULES } from '#api/constants.ts';
+import { APPROVER_DETAIL, ESCALATION_PREFIX, HUMAN_ONLY_RULES, escalationReason, latestGate, parseEscalationReason, personDecision, protectedGateReason } from '../moves/escalation.ts';
+import type { GateReason, GateRule, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { SAFE_REF } from '#core/text.ts';
 import { SAFE_URL, park, run, safe, set, toStage } from './actions.ts';
@@ -33,6 +36,22 @@ function escalationFile(x: StepInput): string {
       return x.present.includes(p(x, 'integrationReview')) ? p(x, 'integrationReview') : p(x, 'build');
     default:
       return p(x, 'decision');
+  }
+}
+
+/** The file a person reads for an escalation rule; null for a rule whose detail says it all. */
+function ruleFile(x: StepInput, rule: GateRule): string | null {
+  switch (rule) {
+    case 'approver':
+      return p(x, 'decision');
+    case 'protected-paths':
+      return path.join(x.jobDir, 'protected.diff');
+    case 'lens-escalate':
+      return path.join(x.jobDir, 'review');
+    case 'runbook':
+      return p(x, 'runbook');
+    default:
+      return null;
   }
 }
 
@@ -68,8 +87,15 @@ function gateLine(x: StepInput, waitingOn: WaitingOn): string {
       return `${id} needs an issue: candidates in ${path.join(x.jobDir, 'issue-candidates.md')} (untrusted). /forge approve ${id} <ref> | new | none [reason]`;
     case 'input':
       return `${id} has questions: ${p(x, 'questions')}. /forge answer ${id} <text>`;
-    case 'escalation':
-      return `${id} escalated (${reason}): see ${escalationFile(x)}. /forge approve ${id} or /forge rework ${id} <note>`;
+    case 'escalation': {
+      // The escalation park names the file behind each rule it lists; any other escalation keeps its stage's file.
+      const held = reason.startsWith(PUSH_HELD_PREFIX);
+      const rules = reason.startsWith(held ? `${PUSH_HELD_PREFIX}${ESCALATION_PREFIX}` : ESCALATION_PREFIX) ? parseEscalationReason(reason) : [];
+      if (!rules.length) return `${id} escalated (${reason}): see ${escalationFile(x)}. /forge approve ${id} or /forge rework ${id} <note>`;
+      const files = [...new Set(rules.map((r) => ruleFile(x, r)).filter((f): f is string => f !== null))];
+      const pushed = held ? ' The push is held: nothing has left this machine.' : '';
+      return `${id} escalated (${reason}): see ${(files.length ? files : [p(x, 'decision')]).join(', ')}.${pushed} /forge approve ${id} or /forge rework ${id} <note>`;
+    }
     case 'rounds-exhausted':
       if (pastTotalCeiling(x.config, j))
         return `${id} reached the total-round ceiling (${totalRoundCeiling(x.config, j)} rounds): only a human may clear it. /forge approve ${id} to ship, or /forge rework ${id} <note>`;
@@ -173,7 +199,7 @@ export const SECRETS: Table<SecretCtx> = {
   ],
 };
 
-// ---------- PP: protected paths ----------
+// ---------- the escalation park ----------
 
 /** The job changes escalate paths no human approved since their current content was recorded. */
 const protectedOpen = (x: StepInput): boolean => {
@@ -181,10 +207,58 @@ const protectedOpen = (x: StepInput): boolean => {
   return Boolean(flag?.hits?.length) && x.job.kind !== 'eval' && !protectedApproved(flag!, x.events);
 };
 
+/** The parks an approve clears escalation rules at: the escalation park, and the `infra` one PR16 made before the collapse. */
+const CLEARING_WAITS: readonly unknown[] = ['escalation', 'infra'];
+
+/**
+ * A qualifying approve cleared `rule`: given at a park in decide or pr that waited on `escalation` (or
+ * `infra`, for legacy) and whose reason lists the rule, after the approver last ended for `approver`
+ * and after the job's last review for the rest, and never the Foreman's for a human-only rule. So an
+ * approve at a budget stop, a release bump, DC3 or the reconciler's park clears nothing, and neither
+ * does a session that rewrote the park reason: the open rules come from facts, never from it.
+ * Protected paths are cleared by protectedApproved alone, bound to the flag's `at`.
+ */
+function ruleCleared({ x, f }: Ctx, rule: GateRule): boolean {
+  const ended = agent(x, 'approver')?.endedAt;
+  return f.approvals.some((a) => {
+    if (a.park.state !== 'waiting' || !CLEARING_WAITS.includes(a.park.waitingOn) || (a.park.stage !== 'decide' && a.park.stage !== 'pr')) return false;
+    if (!parseEscalationReason(x.events[a.parkAt]?.reason).includes(rule)) return false;
+    if (HUMAN_ONLY_RULES.includes(rule) && !personDecision(a.e)) return false;
+    return rule === 'approver' ? after(a.e.ts, ended) : afterIdx(a.i, f.reviewedAt);
+  });
+}
+
+/**
+ * The escalation rules still open, with their details, in table order: the approver's ESCALATE, every
+ * reason of the latest gate event since the review but protected paths, and protected paths from the
+ * live flag (so a flag raised after decide counts), minus each rule a qualifying approve cleared. PP1
+ * and the merge gate (PR15) both park on it. None for an eval job: it ends at DC6.
+ */
+export function openEscalation(c: Ctx): GateReason[] {
+  const { x, f } = c;
+  if (x.job.kind === 'eval') return [];
+  const found: GateReason[] = [];
+  if (x.decision.decision === 'ESCALATE') found.push({ rule: 'approver', detail: APPROVER_DETAIL });
+  for (const r of latestGate(x.events, f.reviewedAt)?.reasons ?? []) if (r.rule !== 'protected-paths') found.push(r);
+  if (protectedOpen(x)) found.push(protectedGateReason(x.job.protectedPaths!));
+  const cleared = new Map<GateRule, boolean>();
+  const open = found.filter((r) => {
+    if (r.rule === 'protected-paths') return true;
+    if (!cleared.has(r.rule)) cleared.set(r.rule, ruleCleared(c, r.rule));
+    return !cleared.get(r.rule);
+  });
+  const order = (r: GateReason) => ESCALATION_RULES.indexOf(r.rule);
+  return open.sort((a, b) => order(a) - order(b));
+}
+
+// ---------- PP: protected paths ----------
+
 /**
  * PP1, before the push: an unapproved flag whose push `forge pr open` refuses, because a hit is CI
  * config (as refuseProtected judges it), the flag has hits it couldn't store, or pr open logged a
- * blocked escalate refusal since the last open and the last verify. The approval covers the merge too.
+ * blocked escalate refusal since the last open and the last verify. It parks on the escalation park
+ * with every open rule, `protected-paths` always among them, so one approve here covers the merge
+ * gate (PR15) after the push too, and the job parks once.
  */
 export const PP1: Rule = {
   id: 'PP1',
@@ -196,14 +270,7 @@ export const PP1: Rule = {
     const opened = lastIdx(x, (e) => e.type === 'pr-opened' || e.type === 'pr-updated');
     return afterIdx(at, orNull(opened)) && after(x.events[at].ts, lastVerify(x)?.at);
   },
-  then: ({ x }) => park(x, 'PP1', 'human', `${PUSH_HELD_PREFIX}${protectedReason(x.job.protectedPaths!)}`),
-};
-
-/** PP1b, a merge gate after the push (the pr table reaches it through mergeGate): escalate paths no human approved. */
-export const PP1b: Rule = {
-  id: 'PP1b',
-  when: ({ x }) => protectedOpen(x),
-  then: ({ x }) => park(x, 'PP1b', 'human', protectedReason(x.job.protectedPaths!)),
+  then: (c) => park(c.x, 'PP1', 'escalation', `${PUSH_HELD_PREFIX}${escalationReason(openEscalation(c).map((r) => r.rule))}`),
 };
 
 const BACK = 'a path the protected-paths policy refuses is on the branch';

@@ -13,7 +13,7 @@
 | `actions.ts` | The actions a rule returns. |
 | `answered.ts` | GA1–GA11: a gate a logged `human` decision (a person's or the foreman's) answered. |
 | `facts.ts` | What step reads off a StepInput: agent records, events and the facts derived from them, and the park reason NP1b writes for a prompt nobody answered in time, with its parser (brief.ts reads it without the step rows). |
-| `gates.ts` | The gates that run before the stage rules (secret scan, protected paths, repo proposals, downstream verification) and what step tells a human at a gate. |
+| `gates.ts` | The gates that run before the stage rules (secret scan, protected paths, repo proposals, downstream verification), the open rules of the one escalation park (openEscalation), and what step tells a human at a gate. |
 | `generic.ts` | The per-role rows every stage shares (NP1, NP1b, N1, N1b, N2, M1, M2) and the X1 fallback. |
 | `global.ts` | The rows that run before any stage: finished jobs, parks, running agents, lost runs, and the retro kind's own start. |
 | `input.ts` | loadStepInput: the one place `forge job step` reads disk. |
@@ -27,7 +27,7 @@
 | `stages/intake.ts` | Intake (backlog): find an issue, create the worktree, adopt a PR, then plan or spec. |
 | `stages/integrate.ts` | Integrate: bring the branch up to date with its base, resolve conflicts per pr.conflicts, and review the resolution before the approver or the PR. |
 | `stages/plan.ts` | Plan: the planner decides one job or a split, and a split waits on a human unless split is auto. |
-| `stages/pr.ts` | PR: verify, open or update the PR (unless the push is held), follow interim deferrals and releases, then hold the merge on an open merge gate (an escalation, a before-merge runbook, protected paths, a missing recall eval) until a person decides, merge, or wait on review. |
+| `stages/pr.ts` | PR: verify, open or update the PR (unless the push is held), follow interim deferrals and releases, then hold the merge on an open merge gate (the one escalation park listing every open rule, then a missing recall eval) until a person decides, merge, or wait on review. |
 | `stages/review.ts` | Review: pick the panel, write the scope report, run the lenses, record their verdicts, move on. |
 | `stages/spec.ts` | Spec: the spec-writer writes spec.md, step records the panel, then the spec gate and the issue link. |
 | `stages/verify.ts` | Verify: run the checks, then the repo's verifiers when it has some, then review or back to build. |

@@ -253,9 +253,9 @@ function freshMerged(root: string, config: Config, github: GitHub, job: Job, key
 /**
  * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
  * recomputed from the branch (a hand-cleared job.json flag changes nothing) and a refuse path stops
- * the open. An escalate CI path stops it until a human approved its current content (PP1, before the
- * push): pushing it runs it. Other escalate paths are pushed and logged, and wait for the approval
- * before merge (PP1b).
+ * the open. An escalate CI path stops it until a human approved its current content at the escalation
+ * park before the push (PP1): pushing it runs it. Other escalate paths are pushed and logged, and wait
+ * for the approval on the escalation park before merge (PR15).
  */
 function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): BranchCheck {
   const id = job.id;

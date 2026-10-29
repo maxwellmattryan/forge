@@ -132,7 +132,6 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
     // Only where DC11 and PR12 read it: the check runs git in every job repo.
     reviewCurrent: ['decide', 'pr'].includes(job.stage) && job.state === 'running' && job.kind !== 'eval' ? reviewCurrent(root, config, job, all) : null,
-    runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
     verdicts: {
       round: job.round >= 1 && lenses.length ? compact(roundVerdicts(root, job.id, job.round, lenses, config.review.blockOn)) : null,
       integration: job.stage === 'integrate' ? compact(roundVerdicts(root, job.id, 'integration', ['code'], config.review.blockOn)) : null,
