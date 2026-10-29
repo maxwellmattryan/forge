@@ -21,6 +21,21 @@ export interface SessionCost {
   models: Record<string, ModelCost>;
 }
 
+/**
+ * One turn's own usage, from its result line's `usage` (resultUsage): the session's main-loop calls of that turn
+ * only, never its subagents'. Each count is finite and >= 0 or else 0; `numTurns` and `durationMs` are null when
+ * unusable; `model` is the latest system/init's, null when it named none usable.
+ */
+export interface TurnUsage {
+  model: string | null;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  numTurns: number | null;
+  durationMs: number | null;
+}
+
 /** What one line (or the process) of a claude child means. Every field is claude's text, so untrusted. */
 export type ClaudeEvent =
   /** Ready for the session log: claude's own JSON line (stamped), a `forge-raw` or a `forge-stderr` line. */
@@ -74,14 +89,16 @@ export type ClaudeEvent =
    * `text` is the result's last 4000 characters, null when it carried none: a gate run reads its verdict there.
    * `context` (on a failed turn too) is the turn's last main-loop API call's input + cache-read + cache-creation
    * tokens, absent when the turn had none: subagent calls never count.
+   * `usage` (on a failed turn too) is the turn's main-loop usage from the result line's `usage`, never its subagents';
+   * absent when the result carried no `usage` object.
    */
-  | { kind: 'turn-ended'; ok: true; summary?: string | null; cost?: SessionCost | null; text?: string | null; context?: number }
+  | { kind: 'turn-ended'; ok: true; summary?: string | null; cost?: SessionCost | null; text?: string | null; context?: number; usage?: TurnUsage }
   /**
    * A failed turn: `limit` when it was a quota refusal, `resetsAt` (ms) when claude said when the window resets,
    * `budget` when the child reached its --max-budget-usd cap (never a limit: retrying can't lift it), `auth` when
    * it is neither and its text reads like an expired or missing login (stream.ts AUTH_TEXT).
    */
-  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; auth?: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null; context?: number }
+  | { kind: 'turn-ended'; ok: false; reason: string; limit: boolean; auth?: boolean; resetsAt: number | null; budget: boolean; cost?: SessionCost | null; context?: number; usage?: TurnUsage }
   /** A line that broke the protocol and was answered with nothing. */
   | { kind: 'protocol-error'; message: string }
   /** The process failed; `started` is false when it never ran (ENOENT, EACCES). */

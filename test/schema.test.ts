@@ -309,6 +309,12 @@ const EVENT_ROWS: Row[] = [
   { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
   { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
   {
+    step: 'session-usage-event',
+    input: { ts: 't', type: 'session-usage', session: null, turn: 2, model: 'm', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: null, durationMs: 5, ok: false },
+    fields: { type: 'session-usage', turn: 2, model: 'm', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: null, ok: false },
+    note: 'a session-usage record reads as written; an older job has none',
+  },
+  {
     step: 'agent-resume',
     input: { ts: 't', type: 'agent-start', role: 'builder', model: 'opus', resumeSkipped: 'context over ceiling' },
     fields: { type: 'agent-start', ts: 't', role: 'builder', model: 'opus', resumeSkipped: 'context over ceiling' },
