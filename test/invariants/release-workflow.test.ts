@@ -163,7 +163,9 @@ test('every action is pinned, no credential leaves the write job\'s gh steps, an
     s.run = s.run.replace('[ "$tree" != "$TREE" ]', '[ "$tree" != "${{ needs.build.outputs.tree }}" ]');
   })), 'the tree output interpolated into run');
   flags(eventExpressions(mutate((wf) => { publish(wf).env.BODY = '${{ github.event.pull_request.body }}'; })), 'the PR body in a release step env');
-  flags(dependencyCaches(mutate((wf) => { delete wf.jobs.build.steps[1].with['package-manager-cache']; })), 'setup-node caching in the build job');
+  flags(dependencyCaches(mutate((wf) => {
+    delete stepsOf(wf.jobs.build).find((s) => String(s.uses).startsWith('actions/setup-node@'))!.with['package-manager-cache'];
+  })), 'setup-node caching in the build job');
 });
 
 const RUN_ID = '777';
@@ -206,6 +208,7 @@ const STUB_GH = [
   'printf \'%s %s\\t%s\\n\' "$method" "$ep" "$body" >> "$RUNNER_TEMP/gh-api.log"',
   'case "$method $ep" in',
   '  "GET "*"/commits/$GITHUB_SHA/pulls") printf \'%s\\n\' "$STUB_PR" ;;',
+  '  "GET "*/pulls/*) printf \'%s\\n\' "$STUB_PR_COMMITS" ;;',
   '  "GET "*/git/matching-refs/tags/*) printf \'%s\\n\' "$STUB_TAGS" ;;',
   '  "GET "*/git/ref/heads/stable)',
   '    n=0; [ -f "$RUNNER_TEMP/stable-reads" ] && read -r n < "$RUNNER_TEMP/stable-reads"',
@@ -248,6 +251,7 @@ function runReleaseJob(o: { env?: Record<string, string | undefined>; dist?: str
     TREE,
     STUB_DIST: o.dist ?? FIXTURE_DIST,
     STUB_PR: '42',
+    STUB_PR_COMMITS: '1',
     STUB_TAGS: '0',
     STUB_STABLE: S,
     STUB_BASE: BASE,
@@ -303,6 +307,7 @@ test('the write job builds the stable commit from this run\'s files and tags it'
 
     assert.deepEqual(ok.api.map((a) => a.call), [
       `GET commits/${SHA}/pulls`,
+      'GET pulls/42',
       'GET git/matching-refs/tags/v1.2.3',
       'GET git/ref/heads/stable',
       `GET git/commits/${SHA}`,
@@ -377,6 +382,8 @@ test('the write job fails closed before it writes', POSIX, (t) => {
   // [what, overrides, failing step, its ::error, the writes allowed before it]
   const rows: Row[] = [
     ...['', '42 43', '4x', '-1'].map((pr): Row => [`a PR lookup of ${JSON.stringify(pr)}`, { env: { STUB_PR: pr } }, 'Find the release PR', /::error title=No release PR::/]),
+    // build compares the push with its first parent, which a rebase merge of several commits does not leave at develop's previous head.
+    ...['2', '0', '', '1 2', 'one'].map((n): Row => [`a release PR of ${JSON.stringify(n)} commits`, { env: { STUB_PR_COMMITS: n } }, 'Find the release PR', /::error title=More than one commit::/]),
     ['the tag exists', { env: { STUB_TAGS: '1' } }, 'Check the tag is new', /::error title=Tag exists::/],
     ['a garbled tag count', { env: { STUB_TAGS: '' } }, 'Check the tag is new', /::error title=Tag exists::/],
     ['no stable branch', { env: { STUB_STABLE: '' } }, 'Read stable', /::error title=No stable branch::/],
@@ -664,12 +671,19 @@ test('detect, the stable tree and COMMIT hold for a merged release PR on develop
   }
 });
 
-test('the build refuses a push that is more than the version bump', POSIX, () => {
+test('the build refuses a push that is more than the version bump', POSIX, (t) => {
+  if (!needJq(t)) return;
   const step = stepsOf(WF.jobs.build).find((s) => s.name === 'Check the push is only the version bump');
   assert.ok(step?.run, 'the build job has the step');
-  assert.ok(stepsOf(WF.jobs.build).indexOf(step!) < stepsOf(WF.jobs.build).findIndex((s) => s.run === 'npm ci'), 'it runs before npm ci installs from the lockfile');
-  // The step reads package.json with the runner's node: the one running this test.
-  const PATH = [path.dirname(process.execPath), process.env.PATH ?? ''].join(path.delimiter);
+  // Before setup-node reads .nvmrc and before npm ci installs from the lockfile, so nothing the push edits picks the tools it runs.
+  const steps = stepsOf(WF.jobs.build);
+  const at = (pred: (s: Step) => boolean) => steps.findIndex(pred);
+  assert.ok(at((s) => String(s.uses).startsWith('actions/checkout@')) < steps.indexOf(step!), 'it runs after the checkout');
+  assert.ok(steps.indexOf(step!) < at((s) => String(s.uses).startsWith('actions/setup-node@')), 'it runs before setup-node');
+  assert.ok(steps.indexOf(step!) < at((s) => s.run === 'npm ci'), 'it runs before npm ci');
+  // The step runs no node or npm: a node that fails every call comes first on PATH, and the bump still passes.
+  const noNode = fakeBin('node', 'exit 99');
+  const PATH = [noNode.dir, process.env.PATH ?? ''].join(path.delimiter);
   const check = (repo: ReturnType<typeof tempRepo>) =>
     bash(step!.run, repo.dir, { PATH, GITHUB_SHA: repo.git('rev-parse', 'HEAD').toString().trim(), VERSION: '1.1.0' });
   const edit = (repo: ReturnType<typeof tempRepo>, rel: string, fn: (text: string) => string) => {
@@ -677,25 +691,30 @@ test('the build refuses a push that is more than the version bump', POSIX, () =>
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, fn(fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : ''));
   };
-  /** The release PR after someone pushed `more` to its branch, merged into develop the way GitHub does. */
-  const merged = (form: 'merge commit' | 'squash', more?: (repo: ReturnType<typeof tempRepo>) => void) => {
+  type Form = 'merge commit' | 'squash' | 'rebase';
+  /**
+   * The release PR after someone pushed `more` to its branch, merged into develop the way GitHub does. A rebase merge
+   * is covered only while the PR holds one commit (the release job requires it), so there `more` is amended into it.
+   */
+  const merged = (form: Form, more?: (repo: ReturnType<typeof tempRepo>) => void) => {
     const repo = releaseRepo();
     if (more) {
       repo.git('checkout', '-q', 'release/v1.1.0');
       more(repo);
       repo.git('add', '-Af');
-      repo.git('commit', '-qm', 'more');
+      repo.git('commit', '-q', ...(form === 'rebase' ? ['--amend', '--no-edit'] : ['-m', 'more']));
       repo.git('checkout', '-q', 'develop');
     }
     if (form === 'merge commit') repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #9 from o/release/v1.1.0', 'release/v1.1.0');
-    else {
+    else if (form === 'squash') {
       repo.git('merge', '-q', '--squash', 'release/v1.1.0');
       repo.git('commit', '-qm', 'Release 1.1.0 (#9)');
-    }
+    } else repo.git('cherry-pick', 'release/v1.1.0');
     return repo;
   };
+  const FORMS: Form[] = ['merge commit', 'squash', 'rebase'];
 
-  for (const form of ['merge commit', 'squash'] as const) {
+  for (const form of FORMS) {
     const ok = merged(form);
     try {
       const r = check(ok);
@@ -718,7 +737,7 @@ test('the build refuses a push that is more than the version bump', POSIX, () =>
     ['a CHANGELOG section removed', (repo) => edit(repo, 'CHANGELOG.md', (t) => t.replace('- First.\n', ''))],
   ];
   for (const [what, more] of rows) {
-    for (const form of ['merge commit', 'squash'] as const) {
+    for (const form of FORMS) {
       const repo = merged(form, more);
       try {
         const r = check(repo);
@@ -742,6 +761,7 @@ test('the build refuses a push that is more than the version bump', POSIX, () =>
   } finally {
     root.cleanup();
   }
+  assert.deepEqual(noNode.calls(), [], 'the step never ran node');
 });
 
 test('no AI attribution in generated text', () => {

@@ -7,7 +7,8 @@
 # and stable-dist. Only the release job
 # holds a write token, and it runs nothing but gh, jq, base64, find and shell builtins: it downloads this run's
 # files, checks that the pushed commit is the merge commit of this repository's release/v<version> PR into
-# develop, rebuilds the stable tree through the API and refuses unless it is build's, commits it onto stable
+# develop and that the PR holds one commit, rebuilds the stable tree through the API and refuses unless it is
+# build's, commits it onto stable
 # with parents [stable, pushed commit], moves stable forward only (force: false, after a re-read), tags that
 # commit and publishes the GitHub Release. Any other push stops after detect, and a bumped push with no release
 # PR publishes nothing.
@@ -74,15 +75,14 @@ jobs:
           persist-credentials: false
           # The tags: the stable tree's release check refuses a version already tagged at another commit.
           fetch-depth: 0
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
       # A commit pushed to the release PR's branch after `npm run release` checked it would ride in with the merge.
-      # Refuse anything but the bump before npm ci installs from a lockfile it may have edited: against the first
-      # parent, only the version files and CHANGELOG.md may differ, the version files only in lines that read the
-      # old or the new version, and CHANGELOG.md only by lines added. Plain git, sed and cmp, no repo script.
+      # Refuse anything but the bump before setup-node reads .nvmrc and npm ci installs from a lockfile the push may
+      # have edited: against the first parent, only the version files and CHANGELOG.md may differ, the version files
+      # only in lines that read the old or the new version, and CHANGELOG.md only by lines added. Plain git, jq, sed
+      # and cmp: no repo script, and nothing from the push picks the tools that run. The first parent is develop's
+      # previous head for a merge commit, a squash and a rebase of one commit; the release job refuses a release PR of
+      # more than one commit, so a rebase merge of several (whose first parent is another commit of the PR) publishes
+      # nothing.
       - name: Check the push is only the version bump
         env:
           VERSION: ${{ needs.detect.outputs.version }}
@@ -92,7 +92,7 @@ jobs:
             echo "::error title=No first parent::the pushed commit has no parent to compare with"
             exit 1
           fi
-          old="$(git show "$parent:package.json" | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')"
+          old="$(git show "$parent:package.json" | jq -r .version)"
           if ! [[ "$old" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error title=Bad parent version::the first parent's package.json version is not X.Y.Z"
             exit 1
@@ -120,6 +120,11 @@ jobs:
             echo "::error title=More than the version bump::CHANGELOG.md loses lines: a release only adds its section"
             exit 1
           fi
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
       - name: Install dependencies
         run: npm ci
       - name: Build dashboard
@@ -228,7 +233,10 @@ jobs:
             fi
           done < <(find "$RUNNER_TEMP/dist" -mindepth 1 -type f -print0)
       # The filter reads only env inside a single-quoted program, so no API value reaches the shell but the
-      # number, which must be digits.
+      # number, which must be digits, and the commit count, which must be 1. build compared the pushed commit
+      # with its first parent, which is develop's previous head for a merge commit, a squash and a rebase of one
+      # commit but another commit of the PR for a rebase of several. npm run release makes a PR of one commit, and
+      # for that PR the comparison covers every merge method.
       - name: Find the release PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -243,6 +251,11 @@ jobs:
               exit 1
               ;;
           esac
+          commits="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .commits)" || commits=
+          if [ "$commits" != 1 ]; then
+            echo "::error title=More than one commit::the release PR must hold exactly the release commit that npm run release made"
+            exit 1
+          fi
           printf '\nRelease PR: %s/%s/pull/%s\n' "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$pr" >> "$RUNNER_TEMP/release/notes.md"
       - name: Check the tag is new
         env:
