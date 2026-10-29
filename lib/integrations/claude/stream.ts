@@ -188,6 +188,9 @@ export function parseRateLimit(info: unknown): RateLimitInfo | null {
   return { status: r.status, resetsAt };
 }
 
+/** What a `tool-use` event keeps of one assistant line: this many distinct tool names, each cut to this many characters. */
+const MAX_TOOLS_PER_LINE = 20;
+const TOOL_NAME_CHARS = 100;
 const MAX_COST_MODELS = 20;
 const costCount = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0);
 
@@ -292,13 +295,18 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   let rateLimit: RateLimitInfo | null = null;
   /** The context of the last main-loop assistant line since the last result; null while none carried a usage. */
   let context: number | null = null;
+  /** Whether this stream's `first-request` event is out: once per stream, never per turn. */
+  let firstSent = false;
 
   function onLine(line: string): void {
     let ev: any = null;
     try {
       ev = JSON.parse(line);
     } catch {}
-    if (!ev || typeof ev !== 'object') return emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: now(), text: line }) });
+    if (!ev || typeof ev !== 'object') {
+      emit({ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: now(), text: line }) });
+      return emit({ kind: 'unreadable-line' });
+    }
     emit({ kind: 'log', stream: 'stdout', line: stamped(ev, line) });
     if (ev.type === 'system') onSystem(ev);
     else if (ev.type === 'control_request') onControl(ev);
@@ -313,12 +321,31 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   /**
    * One API call's context: its input, cache-read and cache-creation tokens, each finite and >= 0 or else 0.
    * Only a main-loop line counts: a subagent's (a non-empty parent_tool_use_id) runs in its own context.
+   * The stream's first such line also emits `first-request`: whether a fork's opening call read its context from the cache.
+   * A main-loop line's `tool_use` blocks emit `tool-use` with their distinct names (a block without a usable name reads
+   * `unknown`). The cap counts distinct names, never blocks: a line of 20 Reads and then a Bash still reports both, and a
+   * line with 20 distinct names holds 19 that are not `Read`, which is as much as a caller needs to refuse it.
    */
   function onAssistant(ev: Record<string, any>): void {
     if (typeof ev.parent_tool_use_id === 'string' && ev.parent_tool_use_id) return;
-    const usage = record(ev.message).usage;
+    const message = record(ev.message);
+    const names = new Set<string>();
+    for (const raw of Array.isArray(message.content) ? message.content : []) {
+      const block = record(raw);
+      if (block.type !== 'tool_use') continue;
+      names.add(typeof block.name === 'string' && block.name ? block.name.slice(0, TOOL_NAME_CHARS) : 'unknown');
+      if (names.size >= MAX_TOOLS_PER_LINE) break;
+    }
+    if (names.size) emit({ kind: 'tool-use', names: [...names] });
+    const usage = message.usage;
     if (!usage || typeof usage !== 'object' || Array.isArray(usage)) return;
-    context = costCount(usage.input_tokens) + costCount(usage.cache_read_input_tokens) + costCount(usage.cache_creation_input_tokens);
+    const input = costCount(usage.input_tokens);
+    const cacheRead = costCount(usage.cache_read_input_tokens);
+    const cacheWrite = costCount(usage.cache_creation_input_tokens);
+    context = input + cacheRead + cacheWrite;
+    if (firstSent) return;
+    firstSent = true;
+    emit({ kind: 'first-request', input, cacheRead, cacheWrite });
   }
 
   function onSystem(ev: Record<string, any>): void {

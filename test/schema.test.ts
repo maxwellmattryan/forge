@@ -51,6 +51,7 @@ const OWNER = { session: 'S-old', host: 'laptop.local', since: '2026-10-01T10:00
 const AGENTS = { builder: { runs: 2, status: 'done', agentId: 'a1', startedAt: '2026-10-01T10:00:00.000Z', endedAt: '2026-10-01T10:02:00.000Z', round: 1, importedThrough: { a1: '2026-10-01T10:02:00.000Z' } } };
 const run = (round: number, attempt: number, ok: boolean, sha: string | null = null) => ({ round, attempt, sha, ok, at: null, file: `verify/round-${round}.md` });
 const FOREMAN = { login: null, source: 'foreman' };
+const CTX = '33333333-3333-4333-8333-333333333333';
 const UNKNOWN = { login: null, source: 'unknown' };
 const ONLY_VERSION = 'only bumps the version: the new keys come from defaults()';
 
@@ -240,6 +241,7 @@ const JOB_ROWS: Row[] = [
   { step: 'shelved', input: { id: 'x', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { shelved: null, finishedWhileShelved: false, waitingOn: 'escalation' }, note: 'a job from before the shelf is on none' },
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
   { step: 'pr-wait-reasons', input: { id: 'x', pr: { number: 7, state: 'OPEN', checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } } }, fields: { 'pr.number': 7, 'pr.checks.state': 'failing' }, removed: ['pr.failingChecks', 'pr.feedbackSinceRound'], note: 'an older PR record has neither until its next sync' },
+  { step: 'context-sessions', input: { id: 'x', state: 'running', round: 2 }, fields: { contexts: [], round: 2 }, note: 'a job from before context sessions has none, so its role runs start a new one' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -304,6 +306,7 @@ const EVENT_ROWS: Row[] = [
   { step: 'pr-gate-event', input: { ts: 't', type: 'pr-gate', action: 'set', rule: 'PR15', waitingOn: 'escalation', reason: 'r', number: 7, label: 'forge:needs-human', labeled: true, body: true }, fields: { type: 'pr-gate', action: 'set', rule: 'PR15', labeled: true }, note: 'a gate sync reads as written' },
   { step: 'person-ci-rerun', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, fields: { type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, note: "a person's re-run keeps its actor" },
   { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
+  { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
 ];
 
 const MACHINE_ROWS: Row[] = [

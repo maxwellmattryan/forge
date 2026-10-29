@@ -30,6 +30,17 @@ export interface RoleOutcome {
   sessionId: string | null;
   /** An ok result's first non-empty line (at most 280 characters). */
   summary: string | null;
+  /** An ok result's text (its last 4000 characters), null otherwise: a context session's reply must be exactly READY. */
+  text: string | null;
+  /** The stream's first main-loop request's tokens (the `first-request` event), null when none carried a usage. */
+  firstRequest: { input: number; cacheRead: number; cacheWrite: number } | null;
+  /** The distinct tools its main loop called, in first-use order (at most MAX_TOOLS_KEPT): a context session's child may only Read. */
+  tools: string[];
+  /**
+   * How many stdout lines Forge could not read or act on: over the line cap, not JSON, or a protocol error. One could have
+   * held a tool call, so a context session's child must have none.
+   */
+  dropped: number;
   /** The result line's cumulative cost, null without a result or a cost on it. */
   cost: SessionCost | null;
   failure: RoleFailure | null;
@@ -72,6 +83,8 @@ export interface RoleRun {
   stop(signal: NodeJS.Signals): void;
 }
 
+/** More distinct tool names than this are not kept: a run that used so many used more than Read. */
+const MAX_TOOLS_KEPT = 20;
 const DEFAULT_GRACE_MS = 10_000;
 const KILL_GRACE_MS = 5_000;
 /** setTimeout's own ceiling (about 24.8 days); a longer limit is no limit. */
@@ -95,6 +108,9 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
   let started = false;
   let init = false;
   let sessionId: string | null = null;
+  let firstRequest: RoleOutcome['firstRequest'] = null;
+  const tools = new Set<string>();
+  let dropped = 0;
   let result: Extract<ClaudeEvent, { kind: 'turn-ended' }> | null = null;
   /** Set by a timeout or an interrupt that came before the result. */
   let forced: RoleFailure | null = null;
@@ -133,6 +149,10 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
       init,
       sessionId,
       summary: r?.ok ? (r.summary ?? null) : null,
+      text: r?.ok ? (r.text ?? null) : null,
+      firstRequest,
+      tools: [...tools],
+      dropped,
       cost: r?.cost ?? null,
       failure,
       denied,
@@ -169,13 +189,24 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
       case 'log':
         return o.onLine(e.line);
       case 'line-too-long':
+        dropped++;
         return o.onLine(forgeLine('forge-line-too-long', { bytes: e.bytes }));
+      case 'unreadable-line':
+        dropped++;
+        return;
       case 'protocol-error':
+        dropped++;
         return o.onLine(forgeLine('forge-protocol-error', { message: e.message }));
       case 'stdin-error':
         return o.onLine(forgeLine('forge-stdin-error', { message: e.message }));
       case 'turn-started':
         init = true;
+        return;
+      case 'first-request':
+        firstRequest ??= { input: e.input, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite };
+        return;
+      case 'tool-use':
+        for (const name of e.names) if (tools.size < MAX_TOOLS_KEPT) tools.add(name);
         return;
       case 'session-id':
         if (sessionId !== null) return;

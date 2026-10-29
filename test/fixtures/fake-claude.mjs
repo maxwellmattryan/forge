@@ -21,7 +21,21 @@
 //   FAKE_CLAUDE_DRIVE         per turn, as a job session's orchestrator: claim the first request in scope and the job with
 //                             `forge`, start a builder agent, log {drove}, and never send the turn's result
 //   FAKE_CLAUDE_FORK          with --resume: init reports a new session id, as a resume that forks the conversation does
+//                             (--fork-session with --resume always does)
+//   FAKE_CLAUDE_FORK_READ     a fork's first request's cache read (default 60000)
 //   FAKE_CLAUDE_NO_RESULT     never send a turn's result (a turn that hangs)
+// A context session's child (its brief has a `Role: context session · …` line) skips FAKE_CLAUDE_WRITE, _ASK and
+// _RESULT_ERROR, and has its own knobs:
+//   FAKE_CLAUDE_CONTEXT_TEXT        its reply (default READY)
+//   FAKE_CLAUDE_CONTEXT_DELAY_MS    delay before its result
+//   FAKE_CLAUDE_CONTEXT_HOLD        hold its result until this file exists (runs that must overlap it, deterministically)
+//   FAKE_CLAUDE_CONTEXT_MODEL_USAGE JSON modelUsage for its result
+//   FAKE_CLAUDE_CONTEXT_EXIT        exit with this code once its brief is read, writing nothing more
+//   FAKE_CLAUDE_CONTEXT_TOOL        a main-loop call of this tool (an assistant line with a tool_use block) before its result
+//   FAKE_CLAUDE_CONTEXT_WRITE       `path=text`: write text to path before its result, as FAKE_CLAUDE_WRITE does for a role
+//   FAKE_CLAUDE_CONTEXT_RAW         this text as one stdout line (not JSON, so one forge cannot read) before its result
+// Every child's first assistant line carries message.id and a usage: a fork's reads FAKE_CLAUDE_FORK_READ from the
+// cache and writes 100, any other child reads 15000 and writes 14000 (its start prefix: 2 + 15000 + 14000).
 // Like claude 2.1.299: init reports --permission-mode (manual read as default), and a set_permission_mode control_request is
 // answered with a control_response, then a system/status event carrying the new mode.
 import { execFileSync } from 'node:child_process';
@@ -51,7 +65,8 @@ log({
 });
 
 const resume = flag('--resume');
-const session = resume && env.FAKE_CLAUDE_FORK ? crypto.randomUUID() : (resume ?? flag('--session-id') ?? 'no-session');
+const forked = Boolean(resume && argv.includes('--fork-session'));
+const session = resume && (env.FAKE_CLAUDE_FORK || forked) ? crypto.randomUUID() : (resume ?? flag('--session-id') ?? 'no-session');
 // Exits use exitCode, never process.exit(): stdout to a pipe is asynchronous on macOS, so an
 // explicit exit could drop the last line.
 if (env.FAKE_CLAUDE_EXIT_SCOPE) {
@@ -66,15 +81,18 @@ else if (resume && env.FAKE_CLAUDE_MISSING) {
 } else serve();
 
 function serve() {
-  const delay = !env.FAKE_CLAUDE_DELAY_SCOPE || env.FAKE_CLAUDE_DELAY_SCOPE === scope ? Number(env.FAKE_CLAUDE_DELAY_MS ?? 0) : 0;
+  let delay = !env.FAKE_CLAUDE_DELAY_SCOPE || env.FAKE_CLAUDE_DELAY_SCOPE === scope ? Number(env.FAKE_CLAUDE_DELAY_MS ?? 0) : 0;
   let turn = 0;
+  /** Set from the first user line: this child is a context session's. */
+  let context = false;
   const out = (/** @type {any} */ ev) => process.stdout.write(JSON.stringify(ev) + '\n');
   let first = true;
   const asked = flag('--permission-mode');
   let mode = asked === null || asked === 'manual' ? 'default' : asked;
   /** control_request ids waiting for an answer, and what to do with it. */
   const pending = new Map();
-  readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const rl = readline.createInterface({ input: process.stdin });
+  rl.on('line', (line) => {
     log({ stdin: line });
     let msg;
     try {
@@ -96,30 +114,51 @@ function serve() {
       return out({ type: 'system', subtype: 'status', status: null, permissionMode: mode, session_id: session });
     }
     if (msg?.type !== 'user') return;
-    if (first) out({ type: 'system', subtype: 'init', session_id: session, permissionMode: mode });
+    if (first) {
+      const text = String(msg.message?.content?.[0]?.text ?? '');
+      context = text.split('\n').some((l) => l.startsWith('Role: context session · '));
+      if (context && env.FAKE_CLAUDE_CONTEXT_EXIT) {
+        process.exitCode = Number(env.FAKE_CLAUDE_CONTEXT_EXIT);
+        rl.close();
+        process.stdin.destroy();
+        return;
+      }
+      if (context) delay = Number(env.FAKE_CLAUDE_CONTEXT_DELAY_MS ?? 0);
+      out({ type: 'system', subtype: 'init', session_id: session, permissionMode: mode });
+    }
+    // The first request: a fork reads the context's conversation from the cache, any other child writes its own prefix.
+    const usage = first ? { input_tokens: 2, cache_read_input_tokens: forked ? Number(env.FAKE_CLAUDE_FORK_READ ?? 60000) : 15000, cache_creation_input_tokens: forked ? 100 : 14000, output_tokens: 5 } : null;
+    out({ type: 'assistant', session_id: session, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }], ...(usage ? { id: `msg_${turn + 1}`, usage } : {}) } });
     first = false;
-    out({ type: 'assistant', session_id: session, message: { role: 'assistant', content: [{ type: 'text', text: 'ok' }] } });
     turn++;
+    if (context && env.FAKE_CLAUDE_CONTEXT_TOOL)
+      out({ type: 'assistant', session_id: session, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: `toolu_ctx_${turn}`, name: env.FAKE_CLAUDE_CONTEXT_TOOL, input: {} }] } });
+    if (context && env.FAKE_CLAUDE_CONTEXT_RAW) process.stdout.write(env.FAKE_CLAUDE_CONTEXT_RAW + '\n');
     if (env.FAKE_CLAUDE_DRIVE) return drive(session);
     if (env.FAKE_CLAUDE_NO_RESULT) return;
     if (env.FAKE_CLAUDE_SUBAGENT) subagent(out, session, turn);
     const cost = env.FAKE_CLAUDE_SUBAGENT ? { total_cost_usd: 0.25, num_turns: 3, duration_ms: 1200 } : {};
-    if (env.FAKE_CLAUDE_MODEL_USAGE) {
-      const modelUsage = JSON.parse(env.FAKE_CLAUDE_MODEL_USAGE);
+    const usageEnv = context ? env.FAKE_CLAUDE_CONTEXT_MODEL_USAGE : env.FAKE_CLAUDE_MODEL_USAGE;
+    if (usageEnv) {
+      const modelUsage = JSON.parse(usageEnv);
       Object.assign(cost, { modelUsage, total_cost_usd: Object.values(modelUsage).reduce((n, /** @type {any} */ m) => n + (m.costUSD ?? 0), 0) });
     }
-    const text = env.FAKE_CLAUDE_RESULT_TEXT ? { result: env.FAKE_CLAUDE_RESULT_TEXT } : {};
-    const failed = env.FAKE_CLAUDE_RESULT_ERROR ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false, ...text };
+    const resultText = context ? (env.FAKE_CLAUDE_CONTEXT_TEXT ?? 'READY') : env.FAKE_CLAUDE_RESULT_TEXT;
+    const text = resultText ? { result: resultText } : {};
+    const failed = env.FAKE_CLAUDE_RESULT_ERROR && !context ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false, ...text };
+    const hold = context ? env.FAKE_CLAUDE_CONTEXT_HOLD : undefined;
     const finish = (/** @type {string | null} */ answer) =>
-      setTimeout(() => {
-        if (env.FAKE_CLAUDE_WRITE) {
-          const at = env.FAKE_CLAUDE_WRITE.indexOf('=');
-          fs.writeFileSync(env.FAKE_CLAUDE_WRITE.slice(0, at), env.FAKE_CLAUDE_WRITE.slice(at + 1));
+      setTimeout(function send() {
+        if (hold && !fs.existsSync(hold)) return void setTimeout(send, 20);
+        const write = context ? env.FAKE_CLAUDE_CONTEXT_WRITE : env.FAKE_CLAUDE_WRITE;
+        if (write) {
+          const at = write.indexOf('=');
+          fs.writeFileSync(write.slice(0, at), write.slice(at + 1));
         }
         if (env.FAKE_CLAUDE_RATE_LIMIT) out({ type: 'rate_limit_event', rate_limit_info: { status: 'rejected', resetsAt: Number(env.FAKE_CLAUDE_RATE_LIMIT) }, session_id: session });
         out({ type: 'result', subtype: 'success', session_id: session, ...cost, ...failed, ...(answer ? { result: `permission: ${answer}` } : {}) });
       }, delay);
-    if (!env.FAKE_CLAUDE_ASK) return finish(null);
+    if (!env.FAKE_CLAUDE_ASK || context) return finish(null);
     const requestId = `ask-${turn}`;
     pending.set(requestId, finish);
     out({

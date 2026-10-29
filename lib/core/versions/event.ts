@@ -63,6 +63,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // v18 adds the `permission-timed-out` event ({tool}): the supervisor denied a job session's permission prompt nobody
   // answered within daemon.permissionTimeoutMinutes. An older Forge reads it as a generic event.
   { id: 'permission-timed-out-event', up: (e) => e },
+  // v19 adds the `context-session` event ({role: 'context', session, round, agent, model, status, reason, usage}) and
+  // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
+  // and ignores the field.
+  { id: 'context-session-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

@@ -50,6 +50,13 @@ const main = (input: number, cacheRead: number, cacheCreation: number) => ({
   message: { usage: { input_tokens: input, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: cacheCreation, output_tokens: 50 } },
 });
 const sub = { type: 'assistant', parent_tool_use_id: 'toolu_1', message: { usage: { input_tokens: 1, cache_read_input_tokens: 900_000, cache_creation_input_tokens: 0 } } };
+/** A main-loop assistant line calling these tools (a block with no name given is `undefined`), after some text; a subagent's call. */
+const calls = (...names: (string | undefined)[]) => ({
+  type: 'assistant',
+  parent_tool_use_id: null,
+  message: { content: [{ type: 'text', text: 'reading' }, ...names.map((name, i) => ({ type: 'tool_use', id: `toolu_${i}`, name, input: {} }))] },
+});
+const subCall = { type: 'assistant', parent_tool_use_id: 'toolu_1', message: { content: [{ type: 'tool_use', id: 'toolu_9', name: 'Bash', input: {} }] } };
 const ok = { type: 'result', is_error: false };
 
 /** A modelUsage entry in claude's words, and the ModelCost it becomes. */
@@ -128,12 +135,49 @@ test("claude's stream-json lines become domain events", () => {
     {
       name: "context: the last main-loop call's, not a later subagent's",
       feed: (s) => s.stdout([main(100, 2000, 300), main(10, 5000, 20), sub, ok].map(line).join('')),
-      events: [logged(main(100, 2000, 300)), logged(main(10, 5000, 20)), logged(sub), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 5030 }],
+      events: [logged(main(100, 2000, 300)), { kind: 'first-request', input: 100, cacheRead: 2000, cacheWrite: 300 }, logged(main(10, 5000, 20)), logged(sub), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 5030 }],
+    },
+    {
+      // A fork's first request tells a cache hit from a miss: only the first main-loop usage counts, never a subagent's or a later turn's.
+      name: 'first request: once per stream, from the first main-loop usage',
+      feed: (s) => s.stdout([sub, { type: 'assistant', parent_tool_use_id: null, message: {} }, main(2, 60000, 100), ok, main(5, 9, 9), ok].map(line).join('')),
+      events: [
+        logged(sub),
+        logged({ type: 'assistant', parent_tool_use_id: null, message: {} }),
+        logged(main(2, 60000, 100)),
+        { kind: 'first-request', input: 2, cacheRead: 60000, cacheWrite: 100 },
+        logged(ok),
+        { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 60102 },
+        logged(main(5, 9, 9)),
+        logged(ok),
+        { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 23 },
+      ],
+    },
+    {
+      // A context session's child may only Read: its tool calls are told apart by name, a subagent's own never counting.
+      name: "tool use: a main-loop line's distinct tool_use names, capped, never a subagent's",
+      feed: (s) => s.stdout([calls('Read', 'W'.repeat(150), undefined), subCall, calls(...Array.from({ length: 25 }, (_, i) => `T${i}`)), { type: 'assistant', parent_tool_use_id: null, message: { content: 'text' } }, ok].map(line).join('')),
+      events: [
+        logged(calls('Read', 'W'.repeat(150), undefined)),
+        { kind: 'tool-use', names: ['Read', 'W'.repeat(100), 'unknown'] },
+        logged(subCall),
+        logged(calls(...Array.from({ length: 25 }, (_, i) => `T${i}`))),
+        { kind: 'tool-use', names: Array.from({ length: 20 }, (_, i) => `T${i}`) },
+        logged({ type: 'assistant', parent_tool_use_id: null, message: { content: 'text' } }),
+        logged(ok),
+        { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null },
+      ],
+    },
+    {
+      // The cap counts distinct names, not blocks: more than 20 Reads on one line can't push a later call out of the report.
+      name: 'tool use: 25 Reads then a Bash on one line still report the Bash',
+      feed: (s) => s.stdout(line(calls(...Array.from({ length: 25 }, () => 'Read'), 'Bash', 'Read'))),
+      events: [logged(calls(...Array.from({ length: 25 }, () => 'Read'), 'Bash', 'Read')), { kind: 'tool-use', names: ['Read', 'Bash'] }],
     },
     {
       name: 'context: a non-finite or negative count reads as 0, on a failed turn too',
       feed: (s) => s.stdout('{"type":"assistant","parent_tool_use_id":null,"message":{"usage":{"input_tokens":1e400,"cache_read_input_tokens":-3,"cache_creation_input_tokens":7,"output_tokens":50}}}\n' + line(errorResult('boom'))),
-      events: [logged(main(Infinity, -3, 7)), logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost: null, context: 7 }],
+      events: [logged(main(Infinity, -3, 7)), { kind: 'first-request', input: 0, cacheRead: 0, cacheWrite: 7 }, logged(errorResult('boom')), { kind: 'turn-ended', ok: false, reason: 'boom', limit: false, auth: false, resetsAt: null, budget: false, cost: null, context: 7 }],
     },
     {
       name: 'context: none without a main-loop usage',
@@ -143,7 +187,7 @@ test("claude's stream-json lines become domain events", () => {
     {
       name: 'context: cleared after each result',
       feed: (s) => s.stdout([main(1, 2, 3), ok, ok].map(line).join('')),
-      events: [logged(main(1, 2, 3)), logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 6 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }],
+      events: [logged(main(1, 2, 3)), { kind: 'first-request', input: 1, cacheRead: 2, cacheWrite: 3 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null, context: 6 }, logged(ok), { kind: 'turn-ended', ok: true, summary: null, cost: null, text: null }],
     },
     {
       name: 'the dollar cap after a rejected rate limit',
@@ -229,7 +273,9 @@ test("claude's stream-json lines become domain events", () => {
         { type: 'control_request', request_id: 'forge-mode-<id>', request: { subtype: 'set_permission_mode', mode: 'default' } },
       ],
     },
-    { name: 'non-JSON text', feed: (s) => s.stdout('not json\n'), events: [{ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: '<at>', text: 'not json' }) }] },
+    // A line Forge can't read may have held anything, so besides the log it is reported: a context session's child must have none.
+    { name: 'non-JSON text', feed: (s) => s.stdout('not json\n'), events: [{ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: '<at>', text: 'not json' }) }, { kind: 'unreadable-line' }] },
+    { name: 'JSON that is not an object', feed: (s) => s.stdout('42\n'), events: [{ kind: 'log', stream: 'stdout', line: JSON.stringify({ type: 'forge-raw', at: '<at>', text: '42' }) }, { kind: 'unreadable-line' }] },
     {
       name: 'a line with a timestamp',
       feed: (s) => s.stdout('{"type":"assistant","timestamp":"2026-01-01T00:00:00Z"}\n'),

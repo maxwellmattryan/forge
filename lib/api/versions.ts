@@ -118,6 +118,9 @@ export const API_CHANGES = [
   // DaemonSessionState.timedOut (DaemonTimedOutPrompt): the session's last 10 prompts denied because nobody answered
   // them within daemon.permissionTimeoutMinutes, newest first.
   { id: 'permission-timeout' },
+  // Job.contexts (ContextSession): the context sessions `forge job agent run` started; ContextMark as `context` on a
+  // role run's agent-end event, and the `context-session` event with its usage under role `context`.
+  { id: 'context-sessions' },
 ] as const;
 
 /**

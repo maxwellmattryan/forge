@@ -157,6 +157,10 @@ test('agent run runs a scripted role end to end', async (t) => {
   assert.ok(built && 'bytes' in built && fs.readFileSync(prefix).equals(built.bytes), 'the file holds the role prefix');
   assert.deepEqual([out.prefix, out.prefixRefused], [prefix, undefined]);
   assert.ok(!argv.includes('--exclude-dynamic-system-prompt-sections'));
+  // The planner is no review or rework build: no context session, one child, and no context on its end.
+  assert.equal(out.context, null);
+  assert.equal(starts(s.records()).length, 1, 'one child, no context session');
+  assert.equal(Object.hasOwn(end ?? {}, 'context'), false);
   const lines = stdinLines(s.records());
   assert.equal(lines.length, 1, 'exactly one stdin line');
   assert.deepEqual([lines[0].type, lines[0].message.content[0].text], ['user', withPrefixLine(step.brief)]);

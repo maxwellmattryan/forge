@@ -317,6 +317,8 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * `--mcp-config <json>`, `--allowedTools` gains BROWSER_ALLOWED (the page tools, since a role child has no one
  * to ask, never the whole server) and `--disallowedTools` gains BROWSER_DENIED after the caller's `deny`.
  * claude reads `--tools` and `--mcp-config` variadically, so a flag always follows each.
+ * `fork` puts `--fork-session` straight after `--resume <id>` (a context session's fork, lib/engine/workspace/context-session.ts),
+ * and throws without `session.resume`: a fork of nothing would start a fresh conversation under a resumed one's name.
  */
 export function roleArgv(vars: {
   executable: string;
@@ -332,7 +334,9 @@ export function roleArgv(vars: {
   session: { id: string; resume: boolean };
   appendSystemPromptFile?: string | null;
   mcpConfig?: string | null;
+  fork?: boolean;
 }): string[] {
+  if (vars.fork && vars.session?.resume !== true) throw new ForgeError("a role child's --fork-session needs --resume: fork only a session it resumes");
   if (typeof vars.agent !== 'string' || !ROLE_AGENT.test(vars.agent)) throw new ForgeError(`a role child's agent must match ${ROLE_AGENT.source} (got ${JSON.stringify(String(vars.agent).slice(0, 80))})`);
   const tools = Array.isArray(vars.tools) ? vars.tools : [];
   const badTool = tools.find((t) => typeof t !== 'string' || !BUILTIN_TOOL.test(t));
@@ -375,6 +379,7 @@ export function roleArgv(vars: {
     [scopedTools(vars.allowedTools, vars.writeRoots), ...(mcp !== null ? BROWSER_ALLOWED : [])].filter(Boolean).join(','),
     vars.session.resume ? '--resume' : '--session-id',
     vars.session.id,
+    ...(vars.fork ? ['--fork-session'] : []),
     '--disallowedTools',
     [...vars.deny, ...(mcp !== null ? BROWSER_DENIED : [])].join(','),
     ...PROMPT_TOOL,

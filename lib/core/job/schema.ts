@@ -13,7 +13,7 @@ import { JOB_SCHEMA_VERSION, JOB_STEPS, noLease, ownerToLease, sourceToIssues } 
 import { EVENT_SCHEMA_VERSION, EVENT_STEPS } from '../versions/event.ts';
 import { isMap } from '../shape.ts';
 import { safeText } from '../text.ts';
-import type { AgentRun, AgentRunEnd, AgentUsage, ContextComposition, ContextPart, EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, JobShelf, LoadedJob, RunBilling } from '../types.ts';
+import type { AgentRun, AgentRunEnd, AgentUsage, ContextComposition, ContextPart, ContextSession, EventActor, HumanGrant, Job, JobAgent, JobEvent, JobIssue, JobLease, JobOutcome, JobRepo, JobRepoPr, JobScore, JobShelf, LoadedJob, RunBilling } from '../types.ts';
 
 export { ACTOR_SOURCES, BUDGET_KEYS, COMPLEXITIES, EFFORTS, HANDOFF_CLASSES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATUSES, MANDATE_UNTIL, OFFICE_GATES, REPO_BUDGET_KEYS, REPO_BUDGET_MODES, STAGES, STATES, WAITING_ON } from '#api/constants.ts';
 export { COMPONENT_KINDS, DEPENDENCY_TYPES, LINK_ECOSYSTEMS } from '../config/components.ts';
@@ -432,6 +432,19 @@ export function cleanRun(v: unknown): AgentRun | null {
   };
 }
 
+const CTX_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const CTX_USAGE = ['tokens', 'input', 'output', 'cacheRead', 'cacheWrite'] as const;
+/** Stored context sessions, the newest 20: one without a uuid id, a known status, an integer round or its times and key strings is dropped; a mistyped nullable field reads as null. */
+export function cleanContexts(v: unknown): ContextSession[] {
+  const ok = (c: any) => c && typeof c === 'object' && typeof c.id === 'string' && CTX_ID.test(c.id) && (c.status === 'ready' || c.status === 'failed') && Number.isInteger(c.round) && ['agent', 'model', 'startedAt', 'endedAt', 'lastReadAt'].every((k) => typeof c[k] === 'string');
+  return (Array.isArray(v) ? v : []).filter(ok).slice(-20).map((c: any): ContextSession => {
+    const u = c.usage && typeof c.usage === 'object' && CTX_USAGE.every((k) => isTokens(c.usage[k])) ? Object.fromEntries(CTX_USAGE.map((k) => [k, c.usage[k]])) : null;
+    const inputs = (Array.isArray(c.inputs) ? c.inputs : []).filter((i: any) => typeof i?.path === 'string' && typeof i.sha256 === 'string').map((i: any) => ({ path: i.path, sha256: i.sha256 }));
+    const { id, round, agent, model, status, startedAt, endedAt, lastReadAt } = c;
+    return { id, round, agent, model, effort: strOrNull(c.effort), prefix: strOrNull(c.prefix), status, reason: strOrNull(c.reason), inputs, startedAt, endedAt, lastReadAt, startPrefix: isTokens(c.startPrefix) ? c.startPrefix : null, usage: u as ContextSession['usage'], ...(c.unmeasured === true ? { unmeasured: true as const } : {}) };
+  });
+}
+
 /**
  * Upgrades and fills defaults so every consumer can rely on the current shape.
  */
@@ -508,6 +521,7 @@ export function normalizeJob(raw: any): LoadedJob {
     shelved: cleanShelf(job.shelved, { state: job.state ?? 'queued', waitingOn: job.waitingOn ?? null }),
     // Only true marks it, and only on a finished job: checkShelfMove sets and clears it with the state.
     finishedWhileShelved: job.finishedWhileShelved === true && (job.state === 'done' || job.state === 'cancelled'),
+    contexts: cleanContexts(job.contexts),
   };
 }
 

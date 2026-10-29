@@ -27,12 +27,27 @@ export type ClaudeEvent =
   | { kind: 'log'; stream: 'stdout' | 'stderr'; line: string }
   /** A stdout line over maxLineBytes was dropped unread. */
   | { kind: 'line-too-long'; bytes: number }
+  /** A stdout line that is not a JSON object was logged as `forge-raw` and read no further. */
+  | { kind: 'unreadable-line' }
   /** claude started a turn (its system/init). */
   | { kind: 'turn-started' }
   /** The session id an init reported: a non-empty string, not yet checked to be a uuid. */
   | { kind: 'session-id'; id: string }
   /** The permission mode claude reported, capped at 40 characters. */
   | { kind: 'permission-mode'; mode: string }
+  /**
+   * The stream's first main-loop API call (never a subagent's): its input, cache-read and cache-creation tokens, each
+   * finite and >= 0 or else 0. Sent once per stream; a role run's context session (lib/engine/workspace/context-session.ts)
+   * reads it to tell a fork that hit the prompt cache from one that missed it.
+   */
+  | { kind: 'first-request'; input: number; cacheRead: number; cacheWrite: number }
+  /**
+   * The tool calls of one main-loop assistant line (never a subagent's): the distinct tool names, each capped at 100
+   * characters, at most 20 per line (a line with more distinct names holds many that are not `Read`). A context session's
+   * child may only Read (lib/engine/workspace/context-session.ts), so the runner reads the names to refuse a context that
+   * did anything else.
+   */
+  | { kind: 'tool-use'; names: string[] }
   /** How many background tasks claude says are running. */
   | { kind: 'background'; count: number }
   /** A tool call waiting on a human. `input` is the call's JSON, or null when it can't be serialised; `tool` is null when unusable. */

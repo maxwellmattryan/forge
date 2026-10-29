@@ -176,6 +176,10 @@ test("roleArgv builds a role child's command line", () => {
     { name: 'a relative system prompt file', vars: { appendSystemPromptFile: 'prefix.md' }, throws: /system prompt file must be an absolute path/ },
     { name: 'a flag as the system prompt file', vars: { appendSystemPromptFile: '--dangerously-skip-permissions' }, throws: /system prompt file must be an absolute path/ },
     ...['\0', '\r', '\n'].map((ch) => ({ name: `a system prompt file holding ${JSON.stringify(ch)}`, vars: { appendSystemPromptFile: `/r/a${ch}b.md` }, throws: /system prompt file must be an absolute path/ })),
+    // A context session's fork: --fork-session right after --resume <id>, and never without a resume.
+    { name: 'a fork', vars: { fork: true, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid, '--fork-session'])] },
+    { name: 'fork false changes nothing', vars: { fork: false, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid])] },
+    { name: 'a fork without a resume', vars: { fork: true }, throws: /--fork-session needs --resume/ },
     // The agent's tool list: built-in names only, so none becomes a flag, a second word or an MCP grant.
     { name: "a builder's tools", vars: { agent: 'forge:builder', tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'], effort: null }, want: [...head.slice(0, 10), 'forge:builder', ...head.slice(11, 16), 'Read,Grep,Glob,Bash,Edit,Write', '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
     { name: 'no tools', vars: { tools: [] }, throws: /tools must be built-in tool names/ },

@@ -1,6 +1,7 @@
 // `forge job agent run`: one spawn `forge job step` chose, run as its own headless claude child in the job's
 // worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself
-// and its usage taken from the child's own result line. docs/architecture/daemon-runtime.md "Role runs".
+// and its usage taken from the child's own result line. A review lens or rework build forks its round's context
+// session (lib/engine/workspace/context-session.ts), or runs cold. docs/architecture/daemon-runtime.md "Role runs".
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -13,8 +14,23 @@ import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
 import { rolePromptChars } from '#engine/evals/provenance.ts';
 import { knownValues, redactKnown } from '#engine/guard/known-secrets.ts';
 import { rolePrefix } from '#engine/guard/prompt-prefix.ts';
-import { needsBrowser, withPrefixLine } from '#engine/pipeline/brief.ts';
+import { contextBrief, needsBrowser, withContextLine, withPrefixLine } from '#engine/pipeline/brief.ts';
 import { agentTools } from '#engine/pipeline/roster.ts';
+import {
+  CONTEXT_TIMEOUT_MS,
+  cacheMiss,
+  contextFailed,
+  contextKey,
+  contextKind,
+  forkBase,
+  inputsChanged,
+  resolveContext,
+  touchContext,
+  type ColdText,
+  type ContextInput,
+  type ContextLaunch,
+  type ContextResolution,
+} from '#engine/workspace/context-session.ts';
 import { browserMcpConfig } from '#integrations/claude/browser.ts';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import { commandPermissionMode, parseTemplate, roleArgv, sessionEnv } from '#integrations/claude/argv.ts';
@@ -28,7 +44,7 @@ import { writeJsonAtomic } from '#core/os/fs.ts';
 import { PLUGIN_ROOT, jobDir, paths } from '#core/paths.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
-import type { AgentUsage, Config, LoadedJob } from '#core/types.ts';
+import type { AgentUsage, Config, ContextMark, ContextSession, LoadedJob } from '#core/types.ts';
 import type { StepAction, StepSpawn } from '#engine/pipeline/types.ts';
 import { num, req, str } from '../args.ts';
 import { endAgent, startAgent } from './agent.ts';
@@ -45,6 +61,9 @@ const EXTERNAL = new Set(['exit', 'spawn']);
 const staleStep = (msg: string) => new ForgeError(`${msg}; nothing was started: read forge job step again`, 'stale_step');
 const described = (a: StepAction) => `forge job step returns ${a.action} (${a.rule})${a.action === 'spawn' ? ` for ${a.role}` : ''}`;
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+/** The outcome of a launch that never started a child. */
+const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, tools: [], dropped: 0, cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
+const CHANGED = 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it';
 
 /** A sidecar's cumulative cost, or null for anything the runner did not write (a missing, planted or malformed file). */
 function sidecarCum(file: string): MeterCum | null {
@@ -140,7 +159,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const confineBefore = confineDigest(root, config);
   // 8. The trusted prefix: the main checkout's instruction files, learnings and role notes as one system-prompt
   // file every lens, round and job with the same sources shares, so the prompt cache serves it. Its sources are
-  // under the digest just taken, so step 14 catches one changed during the run. Any refusal runs as before.
+  // under the digest just taken, so step 15 catches one changed during the run. Any refusal runs as before.
   const pre = rolePrefix(root, config, sp.role, [confined.roots.jobs, ...confined.roots.worktrees]);
   let prefix = pre.file;
   let prefixRefused = pre.refused;
@@ -168,7 +187,8 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       ? browserMcpConfig({ root, port: job.port, outputDir: path.join(jobDir(root, jobId), 'screenshots'), env: childEnv })
       : null;
   const resumeId = typeof sp.resume === 'string' && UUID.test(sp.resume) ? sp.resume : null;
-  const argvFor = (sessionId: string, resume: boolean) =>
+  // A context child and its forks take this same command line, so they are confined exactly as a cold run.
+  const argvFor = (sessionId: string, resume: boolean, fork = false) =>
     roleArgv({
       executable: parseTemplate(config.daemon.command)[0],
       pluginRoot: PLUGIN_ROOT,
@@ -183,6 +203,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       session: { id: sessionId, resume },
       appendSystemPromptFile: prefix,
       mcpConfig,
+      fork,
     });
   let sessionId = resumeId ?? crypto.randomUUID();
   let argv = argvFor(sessionId, resumeId !== null);
@@ -196,14 +217,15 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   };
   startAgent(root, config, jobId, { role: sp.role, model: sp.model, output: sp.output, retry: sp.retry === true, fence: { epoch: epoch ?? job.lease.epoch, session, check } });
 
-  // 12. The run, with the runner's own interrupts passed to the child first.
-  const t0 = Date.now();
+  // 12. The run, with the runner's own interrupts passed to the child first, and to a wait on a context's lock.
   const known = knownValues(root, jobId, config);
   const timeoutMs = typeof config.daemon.turnTimeoutMinutes === 'number' && config.daemon.turnTimeoutMinutes > 0 ? config.daemon.turnTimeoutMinutes * 60_000 : null;
   let interrupted: NodeJS.Signals | null = null;
   let current: RoleRun | null = null;
+  const abort = new AbortController();
   const onSignal = (sig: NodeJS.Signals) => {
     interrupted ??= sig;
+    abort.abort();
     current?.stop(sig);
   };
   process.on('SIGINT', onSignal);
@@ -212,26 +234,27 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   let reported: string | null = null;
   let outcome: RoleOutcome;
   let resumeFailed = false;
-  const launch = async (): Promise<RoleOutcome> => {
-    const files = roleRunFiles(root, jobId, sessionId);
-    log = files.log;
+  /** One child: the role's own (`attach`: its log is the run's, its init attaches the agent) or a context child's. */
+  const launch = async (args: string[], logId: string, text: string, o: { attach: boolean; timeoutMs: number | null }): Promise<RoleOutcome> => {
+    const files = roleRunFiles(root, jobId, logId);
+    if (o.attach) log = files.log;
     let fd: number;
     try {
       ensureRoleRunDir(root, files);
       fd = openAppend(files.log);
     } catch (e) {
-      return { ok: false, started: false, init: false, sessionId: null, summary: null, cost: null, failure: { class: 'spawn', reason: `the run log can't be opened: ${(e as Error).message}`, resetsAt: null }, denied: 0, exit: null, wallMs: 0 };
+      return notRun('spawn', `the run log can't be opened: ${(e as Error).message}`);
     }
     try {
-      if (interrupted) return { ok: false, started: false, init: false, sessionId: null, summary: null, cost: null, failure: { class: 'interrupted', reason: `the runner got ${interrupted}`, resetsAt: null }, denied: 0, exit: null, wallMs: 0 };
+      if (interrupted) return notRun('interrupted', `the runner got ${interrupted}`);
       current = runRoleChild(claudeAdapter(), {
-        argv,
+        argv: args,
         // The path that was checked, not job.worktree again: a link swapped since would move the cwd.
         cwd: wt,
         env: childEnv,
-        brief,
+        brief: text,
         maxLineBytes: MAX_LINE_BYTES,
-        timeoutMs,
+        timeoutMs: o.timeoutMs,
         onLine: (line) => {
           // A log write that fails (a full disk) must not take the runner down before the end is recorded.
           try {
@@ -239,7 +262,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
           } catch {}
         },
         onSessionId: (sid) => {
-          if (!UUID.test(sid)) return;
+          if (!o.attach || !UUID.test(sid)) return;
           reported = sid;
           try {
             attachAgent(root, jobId, sp.role, sid);
@@ -252,15 +275,101 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       fs.closeSync(fd);
     }
   };
+  /**
+   * A child's usage from its result's own cumulative less `base` (the sidecar keeps the new cumulative). A child that ran
+   * but sent no cost (a timeout, a kill, an exit before the result), or a resume with no baseline (`base` null), still spent
+   * tokens: its session transcript is the measure, and `unmeasured` when there is none.
+   */
+  const measure = (sid: string, out: RoleOutcome, base: MeterCum | null, ms: number) => {
+    let usage: (AgentUsage & { through?: string | null }) | null = null;
+    let unmeasured = false;
+    if (out.cost) {
+      try {
+        writeJsonAtomic(roleRunFiles(root, jobId, sid).cum, { v: SIDECAR_VERSION, cum: meterDelta(ZERO, out.cost).cum, at: now() }, { root: paths(root).dir });
+      } catch {}
+      if (base) usage = deltaUsage(base, out.cost, sp.model, ms);
+    }
+    if (out.started && (!out.cost || !base)) {
+      const j = loadJob(root, jobId);
+      const imported = importClaudeCodeTranscript(sid, { since: importCursor(j, sid), root, job: j, promptChars: rolePromptChars(sp.role) });
+      usage = imported ? { ...imported, durationMs: imported.durationMs || ms } : null;
+      unmeasured = !imported;
+    }
+    return { usage, unmeasured };
+  };
+  /** Whether a trusted or protected file moved since the start: the child changed it, whatever it was told. */
+  const trustMoved = () => trustDigest(root) !== digest || confineDigest(root, config) !== confineBefore;
+  /** Set when the context child moved one: the role then starts nothing and fails `untrusted`. */
+  let contextUntrusted = false;
+  /**
+   * A context child: the spawn's own argv with a fresh session id, the fixed context brief, its own timeout, never attached.
+   * It is ready only on a bare `READY` after nothing but Reads: its own turns stay in every fork of it, so a child that
+   * called another tool (an input steered it to write or run something), had a call denied, sent a stream line Forge could
+   * not read (one could have held a tool call), or moved a trusted or protected file is failed, however it then replied,
+   * and its record is never forked.
+   */
+  let ctxLog = '';
+  const launchContext = async (inputs: ContextInput[]): Promise<ContextLaunch> => {
+    const id = crypto.randomUUID();
+    ctxLog = roleRunFiles(root, jobId, id).log;
+    const [startedAt, c0] = [now(), Date.now()];
+    const out = await launch(argvFor(id, false), id, contextBrief(job, wt, sp.agent, inputs.map((i) => i.path)), { attach: false, timeoutMs: CONTEXT_TIMEOUT_MS });
+    contextUntrusted = trustMoved();
+    const readOnly = out.denied === 0 && out.dropped === 0 && out.tools.every((t) => t === 'Read');
+    const ready = out.ok && !contextUntrusted && readOnly && out.text?.trim() === 'READY';
+    const m = measure(id, out, ZERO, Date.now() - c0);
+    const fr = out.firstRequest;
+    const reason = ready ? null : out.failure ? out.failure.class : contextUntrusted ? 'untrusted' : 'not ready';
+    return { id, status: ready ? 'ready' : 'failed', reason, startPrefix: fr ? fr.input + fr.cacheRead + fr.cacheWrite : null, usage: m.usage, unmeasured: m.unmeasured, startedAt, endedAt: now() };
+  };
+  const cold = (reason: ColdText, ctxId: string | null = null): ContextMark => ({ mode: 'cold', session: ctxId, reason, firstRead: null });
+  const coldBrief = brief;
+  let mark: ContextMark | null = null;
+  /** The context the final launch forked, null for a cold one. */
+  let fork: ContextSession | null = null;
+  let t0 = Date.now();
   try {
-    outcome = await launch();
-    // 13. A resume that never reached claude's init found no conversation: once more, as a fresh session.
-    if (resumeId !== null && !outcome.init && !interrupted && outcome.failure && ['error', 'exit'].includes(outcome.failure.class)) {
-      resumeFailed = true;
+    // 13. A review lens or rework build forks its round's context session, found or started under the key's lock.
+    if (contextKind(root, job, sp)) {
+      let res: ContextResolution | null = null;
+      if (flags.cold === true) mark = cold('cold flag');
+      else {
+        try {
+          res = await resolveContext(root, config, jobId, contextKey(sp, prefix), { launch: launchContext, fence: { epoch: epoch ?? job.lease.epoch }, signal: abort.signal });
+        } catch (e) {
+          if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the context session was not recorded, and its run log is kept at ${ctxLog}`, 'stale_epoch');
+          // Interrupted while waiting: the launch below fails `interrupted` with nothing started. Any other failure of the
+          // find-or-start (a lock dir that can't be made, a record that can't be written) must not strand the role `running`
+          // with no agent-end: a context session only saves cost, so the role runs cold.
+          if (!interrupted) mark = cold(contextFailed(null));
+        }
+      }
+      if (res?.mode === 'cold') mark = cold(res.reason, res.session);
+      else if (res?.mode === 'fork') {
+        const f = res.rec;
+        const forked = withContextLine(brief, f.id, f.inputs.map((i) => i.path), inputsChanged(jobDir(root, jobId), f.inputs));
+        if (forked === null || briefLine(forked) === null) mark = cold('brief over the cap', f.id);
+        else {
+          [fork, brief, mark] = [f, forked, { mode: 'fork', session: f.id, reason: null, firstRead: null }];
+          // The fork's own id is known only at its init: the log takes a fresh one.
+          sessionId = crypto.randomUUID();
+          argv = argvFor(f.id, true, true);
+          touchContext(root, jobId, f.id, now());
+        }
+      }
+    }
+    t0 = Date.now();
+    // A context child that moved a trusted or protected file: the role does not start on top of it.
+    outcome = contextUntrusted ? notRun('untrusted', CHANGED) : await launch(argv, sessionId, brief, { attach: true, timeoutMs });
+    const preInit = () => !outcome.init && !interrupted && outcome.failure !== null && ['error', 'exit'].includes(outcome.failure.class);
+    // 14. A resume that never reached claude's init found no conversation, nor did a fork: once more, as a fresh session.
+    if ((resumeId !== null || fork) && preInit()) {
+      if (fork) [mark, fork, brief] = [cold('fork failed', fork.id), null, coldBrief];
+      else resumeFailed = true;
       sessionId = crypto.randomUUID();
       argv = argvFor(sessionId, false);
       reported = null;
-      outcome = await launch();
+      outcome = await launch(argv, sessionId, brief, { attach: true, timeoutMs });
     }
   } finally {
     process.off('SIGINT', onSignal);
@@ -268,37 +377,27 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   }
   const wallMs = Date.now() - t0;
   const agentId: string = reported ?? sessionId;
-  // 14. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
+  if (mark) {
+    const firstRead = outcome.firstRequest?.cacheRead ?? null;
+    // A fork whose first request read no more than the context's own first request missed the cache: logged cold, not repeated.
+    mark = fork && cacheMiss(firstRead, fork.startPrefix) === true ? { ...cold('cache miss', fork.id), firstRead } : { ...mark, firstRead };
+  }
+  // 15. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
   let failure: RoleFailure | null = outcome.failure;
-  if (trustDigest(root) !== digest || confineDigest(root, config) !== confineBefore)
-    failure = { class: 'untrusted', reason: 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it', resetsAt: null };
+  if (trustMoved()) failure = { class: 'untrusted', reason: CHANGED, resetsAt: null };
 
-  // 15. Usage from the result's own cumulative, less the baseline its session had; the sidecar keeps the new one.
+  // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
   const resumed = resumeId !== null && !resumeFailed;
-  let usage: (AgentUsage & { through?: string | null }) | null = null;
-  let unmeasured = false;
-  if (outcome.cost) {
-    try {
-      writeJsonAtomic(roleRunFiles(root, jobId, agentId).cum, { v: SIDECAR_VERSION, cum: meterDelta(ZERO, outcome.cost).cum, at: now() }, { root: paths(root).dir });
-    } catch {}
-    const base = resumed ? baseline : ZERO;
-    if (base) usage = deltaUsage(base, outcome.cost, sp.model, wallMs);
-  }
-  // A child that ran but sent no cost (a timeout, a kill, an exit before the result), or a resume with no baseline,
-  // still spent tokens: its session transcript is the measure, and `unmeasured` when there is none.
-  if (outcome.started && (!outcome.cost || (resumed && !baseline))) {
-    const imported = importClaudeCodeTranscript(agentId, { since: importCursor(loadJob(root, jobId), agentId), root, job: loadJob(root, jobId), promptChars: rolePromptChars(sp.role) });
-    usage = imported ? { ...imported, durationMs: imported.durationMs || wallMs } : null;
-    unmeasured = !imported;
-  }
+  const base = resumed ? baseline : fork && outcome.cost ? forkBase(sidecarCum(roleRunFiles(root, jobId, fork.id).cum), outcome.cost) : ZERO;
+  const { usage, unmeasured } = measure(agentId, outcome, base, wallMs);
 
-  // 16. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
+  // 17. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
   const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
   // The reply's first line is model output, the likeliest place for a known secret to appear: redacted before Forge stores it.
   const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
   let ended: ReturnType<typeof endAgent>;
   try {
-    ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, env, fence: { epoch: epoch ?? job.lease.epoch } });
+    ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, env, fence: { epoch: epoch ?? job.lease.epoch } });
   } catch (e) {
     if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the role's end was not recorded, and its run log is kept at ${log}`, 'stale_epoch');
     throw e;
@@ -318,6 +417,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     log,
     prefix,
     ...(prefixRefused ? { prefixRefused } : {}),
+    context: mark,
     usage: ended.usage ? { tokens: ended.usage.tokens, exact: ended.usage.exact } : null,
     ...(ended.unmeasured ? { unmeasured: true } : {}),
     jobTokens: ended.jobTokens,
