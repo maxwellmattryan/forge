@@ -67,6 +67,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
   // and ignores the field.
   { id: 'context-session-event', up: (e) => e },
+  // v20 adds the `builder-note` event ({ note, actor }): `forge job note --for builder` logs a person's hint for the
+  // job's builder, which approval-notes.md renders. An older Forge reads it as a generic event.
+  { id: 'builder-note-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);
