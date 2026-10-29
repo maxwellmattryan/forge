@@ -8,7 +8,7 @@ import { STATUS_ARGV, git, historyEnv } from '#integrations/git/runner.ts';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
 import { readMemberPanel } from './member-panel.ts';
-import { approachPaths, committedChanges, resolveBase, reviewedRepoDiffs } from './scope.ts';
+import { approachPaths, committedChanges, resolveBase, reviewedRepoDiffs, reviewedSha } from './scope.ts';
 import type { RepoScope } from './scope.ts';
 import { choosePanel, parseSpecHeader, reworkPanel } from './step.ts';
 import type { Config } from '#core/types.ts';
@@ -36,19 +36,13 @@ export interface PanelReport {
   skipped?: string[];
 }
 
-// The stored sha is agent-reachable job state: only a full object name ever reaches git's argv.
-const SHA = /^[0-9a-f]{40,64}$/;
-
 /**
- * Files changed between the commit round `round`'s review saw (its `verdicts` event sha) and HEAD,
- * or null when that sha is missing, malformed, or not an ancestor of HEAD (history was rewritten,
- * so a small diff could hide work the passed lenses never saw).
+ * Files changed between the commit round `round`'s review saw and HEAD, or null when reviewedSha
+ * refuses that sha (missing, malformed, or not an ancestor of HEAD) or the diff fails.
  */
 function changedSinceReview(root: string, id: string, round: number, cwd: string): string[] | null {
-  const sha = readEvents(root, id).findLast((e) => e.type === 'verdicts' && e.round === round)?.sha;
-  if (typeof sha !== 'string' || !SHA.test(sha)) return null;
-  const env = historyEnv();
-  if (!git(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD'], { env, allowFail: true }).ok) return null;
+  const sha = reviewedSha(readEvents(root, id), round, cwd);
+  if (!sha) return null;
   try {
     return committedChanges(cwd, sha);
   } catch {

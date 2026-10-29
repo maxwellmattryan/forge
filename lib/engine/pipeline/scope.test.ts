@@ -5,9 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { renderDiff, roundDiffText, writeRoundDiff } from './scope.ts';
+import { renderDiff, reviewedSha, roundDiffText, writeRoundDiff } from './scope.ts';
 import type { DiffSection } from './scope.ts';
 import { ForgeError } from '#core/errors.ts';
+import type { JobEvent } from '#core/types.ts';
 
 /** A repo whose branch changes `file` after its base commit; the section scope.ts would build for it. */
 function section(label: string, prefix: string, file: string): { s: DiffSection; cleanup: () => void } {
@@ -94,4 +95,41 @@ test('writes the round diff without following links', () => {
   } finally {
     fs.rmSync(top, { recursive: true, force: true });
   }
+});
+
+test("reviewedSha accepts only a full sha in HEAD's history", (t) => {
+  const r = tempRepo();
+  t.after(r.cleanup);
+  const sha = () => r.git('rev-parse', 'HEAD').toString().trim();
+  const base = sha();
+  r.git('checkout', '-qb', 'other');
+  fs.writeFileSync(path.join(r.dir, 'other.txt'), 'other\n');
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'off history');
+  const off = sha();
+  r.git('checkout', '-q', 'main');
+  fs.writeFileSync(path.join(r.dir, 'head.txt'), 'head\n');
+  r.git('add', '-A');
+  r.git('commit', '-qm', 'head');
+  const head = sha();
+  const verdicts = (round: number, s: unknown): JobEvent => ({ v: 1, ts: '2026-10-01T10:00:00.000Z', type: 'verdicts', round, sha: s });
+  const rows: [string, JobEvent[], string | null][] = [
+    ['an ancestor of HEAD', [verdicts(1, base)], base],
+    ['HEAD itself', [verdicts(1, head)], head],
+    ['the last event of the round wins', [verdicts(1, head), verdicts(1, base)], base],
+    ['no event', [], null],
+    ['only another round', [verdicts(2, base)], null],
+    ['another event type', [{ v: 1, ts: '2026-10-01T10:00:00.000Z', type: 'scope', round: 1, sha: base }], null],
+    ['a non-string sha', [verdicts(1, 42)], null],
+    ['uppercase hex', [verdicts(1, base.toUpperCase())], null],
+    ['39 characters', [verdicts(1, base.slice(0, 39))], null],
+    ['65 characters', [verdicts(1, `${base}${'0'.repeat(25)}`)], null],
+    ['an option-like value', [verdicts(1, '--output=x')], null],
+    ['a newline after a good sha', [verdicts(1, `${base}\n`)], null],
+    ['a well-formed sha naming no object', [verdicts(1, 'f'.repeat(40))], null],
+    ['a commit off HEAD history', [verdicts(1, off)], null],
+    ['a later event of the round with a bad sha', [verdicts(1, base), verdicts(1, 'HEAD')], null],
+  ];
+  for (const [name, events, want] of rows) assert.equal(reviewedSha(events, 1, r.dir), want, name);
+  assert.ok(!fs.existsSync(path.join(r.dir, 'x')), 'no option reached git');
 });

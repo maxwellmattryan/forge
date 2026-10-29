@@ -113,6 +113,12 @@ export interface StepInput {
    * has no recorded review.
    */
   reviewCurrent: boolean | null;
+  /**
+   * Earlier round (as a string) → the validated sha its review saw (reviewedSha in
+   * lib/engine/pipeline/scope.ts), for a round 2+ reviewer brief's `Changed since:` line. Only at stage
+   * review, round ≥ 2, no open PR, no reviewed member, with a worktree; `{}` otherwise.
+   */
+  reviewedShas: Record<string, string>;
   runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;

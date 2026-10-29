@@ -1,8 +1,9 @@
-// The review panel and the lenses each round reviews: pure helpers step, `forge job panel` and
-// loadStepInput share.
+// The review panel, the lenses each round reviews and the brief lines built from review history:
+// pure helpers step, `forge job panel` and loadStepInput share.
 import path from 'node:path';
 import { lensAlwaysOnRework } from '#core/config/load.ts';
-import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, splitLens } from '#core/job/lens.ts';
+import { LENS_NAME, isLens, lensRepoAllowed, reviewFileName, reviewedRepoNames, splitLens } from '#core/job/lens.ts';
+import { REVIEWED_SHA } from '../scope.ts';
 import type { MemberLens } from '../member-panel.ts';
 import { inSpec } from '#core/glob.ts';
 import type { Config, Job, PanelEntry } from '#core/types.ts';
@@ -51,6 +52,42 @@ export function lastVerdict(verdicts: Job['verdicts'], lens: string, round: numb
     if (typeof v === 'string') return { verdict: v, round: r };
   }
   return null;
+}
+
+/** A round 2+ reviewer brief's `Previous review:` and `Changed since:` lines (no open PR, no reviewed member); [] otherwise. Built only from the lens, integer rounds, the job dir and a sha re-checked against REVIEWED_SHA. */
+export function reviewHistoryLines(input: Pick<StepInput, 'job' | 'jobDir' | 'reviewedShas'>, lens: string): string[] {
+  const job = input.job;
+  if (job.round < 2 || job.pr?.state === 'OPEN' || reviewedRepoNames(job).length) return [];
+  const last = lastVerdict(job.verdicts, lens, job.round);
+  const file = last ? path.join(input.jobDir, 'review', `round-${last.round}`, reviewFileName(lens)) : null;
+  const raw: unknown = last ? input.reviewedShas[String(last.round)] : undefined;
+  const sha = typeof raw === 'string' && REVIEWED_SHA.test(raw) ? raw : null;
+  return [`Previous review: ${file ?? 'none'}`, `Changed since: ${sha ?? 'none'}`];
+}
+
+/**
+ * The approver's `Rework panel:` line when the last review round re-ran only part of the panel:
+ * which lenses re-reviewed, and each skipped lens with the latest round it passed in. Lens names
+ * only (isLens), so nothing from the event log can start a line of the brief.
+ */
+export function reworkPanelLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
+  const j = input.job;
+  const ev = input.events.findLast((e) => e.type === 'panel');
+  const rerun: unknown = ev?.rerun;
+  const lenses: unknown = ev?.lenses;
+  if (!ev || typeof ev.round !== 'number' || !Array.isArray(rerun) || !rerun.length || !Array.isArray(lenses)) return null;
+  const names = (v: unknown[]) => v.filter((l): l is string => typeof l === 'string' && isLens(l));
+  const ran = names(rerun);
+  const round = ev.round;
+  const carried = names(lenses)
+    .filter((l) => !ran.includes(l))
+    .map((l) => {
+      let m: number | null = null;
+      for (let r = round; r >= 1 && m === null; r--) if (j.verdicts[String(r)]?.[l] === 'PASS') m = r;
+      return `${l} (round ${m ?? 'none'})`;
+    });
+  if (!ran.length) return null;
+  return `Rework panel: round ${round} re-reviewed ${ran.join(', ')}; carried passes: ${carried.join(', ') || 'none'}`;
 }
 
 /**
