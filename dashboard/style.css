@@ -106,7 +106,7 @@
   --font-sans: "Barlow", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   /* Motion: anything between the user and a control takes at most slow. Entries ease out over base, exits ease in
-     over quick. src/lib/motion.ts mirrors the three durations for Svelte transitions. */
+     over quick. src/lib/ui/motion.ts mirrors the three durations for Svelte transitions. */
   --motion-quick: 90ms;
   --motion-base: 140ms;
   --motion-slow: 200ms;
@@ -149,7 +149,7 @@
   --info: #8fa2b8;
   --tint-agent: color-mix(in srgb, var(--panel), var(--gleam) 15%);
   --tint-cli: color-mix(in srgb, var(--panel), var(--fg) 5%);
-  /* who: each Thread sender's own colour (src/lib/sender.ts WHO), fixed per sender. The tracker's hue is the one
+  /* who: each Thread sender's own colour (src/lib/logs/sender.ts WHO), fixed per sender. The tracker's hue is the one
      this theme's gleam and ember leave free. */
   --who-you: var(--gleam);
   --who-cli: var(--muted);
@@ -426,7 +426,7 @@
 
 /* ---------- base (preflight already zeroes margins and box-sizing) ---------- */
 @layer base {
-  /* A stable gutter where the browser honours it; lib/scroll-lock.ts pads the page where it does not (Chromium under ::-webkit-scrollbar). */
+  /* A stable gutter where the browser honours it; lib/ui/overlay/scroll-lock.ts pads the page where it does not (Chromium under ::-webkit-scrollbar). */
   html { background: var(--bg); color: var(--fg); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; scrollbar-gutter: stable; }
   body { font-family: var(--font-sans); font-size: 14px; line-height: 20px; }
   /* The chrome is an app, not a document: no I-beam and no drag-selection over buttons, chips, labels and cards, and
@@ -608,13 +608,13 @@
     background-position: 8px 8px, 5px 5px, 5px 5px, calc(100% - 8px) 8px, calc(100% - 5px) 5px, calc(100% - 5px) 5px, 8px calc(100% - 8px), 5px calc(100% - 5px), 5px calc(100% - 5px), calc(100% - 8px) calc(100% - 8px), calc(100% - 5px) calc(100% - 5px), calc(100% - 5px) calc(100% - 5px);
   }
 }
-/* tint: who a log line comes from (src/lib/sender.ts), as a faint opaque wash of the panel: agent (Claude) cool, cli (the
+/* tint: who a log line comes from (src/lib/logs/sender.ts), as a faint opaque wash of the panel: agent (Claude) cool, cli (the
    CLI and the supervisor) neutral. It sets --surface, so text on it is off the grain. Never the only cue. */
 @utility tint {
   &.agent { background-color: var(--tint-agent); --surface: var(--tint-agent); }
   &.cli { background-color: var(--tint-cli); --surface: var(--tint-cli); }
 }
-/* who: a Thread sender's own colour (src/lib/sender.ts WHO), as --who for the parts inside to pick up. On a plate it is
+/* who: a Thread sender's own colour (src/lib/logs/sender.ts WHO), as --who for the parts inside to pick up. On a plate it is
    the message: a bar of the colour down its left edge and a faint wash of it; .reply is Forge's reply inside a message,
    with a thinner bar. .who-mark is the sender's icon struck on a slug of the colour, and .who-name the name in it. `.who.you` (two classes) beats the plate's fill whatever the order.
    Never the only cue: the name stands beside the icon. */
@@ -1100,7 +1100,7 @@
 
 /* ---------- series: the Overview's stacked bars (components/StackedBars.svelte) ----------
    One colour per project, the same in the bars (fill) and the legend swatch (background), cycling by name order
-   (src/lib/overview.ts SERIES). The hues are the theme's own tokens, spread apart in every theme: gleam, ok, the
+   (src/lib/metrics/overview.ts SERIES). The hues are the theme's own tokens, spread apart in every theme: gleam, ok, the
    tracker's hue (the one gleam and ember leave free) and warn first. Spark stays out: on crucible it is gleam's gold.
    Ember comes last because it means "waits on you", so it shows only from the sixth project. The legend names every
    project with its total and share, so colour is never the only cue. */
@@ -1111,7 +1111,7 @@
 @utility series-5 { fill: var(--info); background-color: var(--info); }
 @utility series-6 { fill: var(--ember); background-color: var(--ember); }
 /* The rest of a bar that names no part of its own: the Agents tab's "not split" tokens and earlier runs
-   (src/lib/agent-runs.ts). A neutral rule colour, so it never reads as one of the named series. */
+   (src/lib/metrics/agent-runs.ts). A neutral rule colour, so it never reads as one of the named series. */
 @utility series-rest { fill: var(--line-strong); background-color: var(--line-strong); }
 @utility series-swatch { display: inline-block; width: 10px; height: 10px; flex: none; border-radius: var(--radius-1); box-shadow: inset 0 0 0 1px var(--edge-dark); }
 
@@ -1276,7 +1276,7 @@
 /* A status bar popover's top edge flashes gleam as it opens and cools to its seam; it is usable long before. */
 @utility shutter-edge { animation: gleam-cool var(--heat-glow) var(--ease-enter); }
 @keyframes gleam-cool { from { border-top-color: var(--gleam); } }
-/* A selected marker that slides between items: the nav's bar, the tab strip's baseline, a seg's fill. src/lib/marker.ts
+/* A selected marker that slides between items: the nav's bar, the tab strip's baseline, a seg's fill. src/lib/ui/marker.ts
    measures the selected item into --mk-*, sets data-marker="set" for the first placement (no slide), then "on". Without
    data-marker (before the first measurement, or without JS) the items' own selected styles show, as they always did. */
 @utility slide-marker {
@@ -1357,7 +1357,7 @@
   html[data-screen="off"] & { background-image: none; text-shadow: none; }
 }
 @keyframes power-on { from { clip-path: inset(50% 0 50% 0); } to { clip-path: inset(0); } }
-/* caret: the block cursor after the text a Thread message has typed so far (src/lib/typing.ts), in its sender's colour;
+/* caret: the block cursor after the text a Thread message has typed so far (src/lib/jobs/typing.ts), in its sender's colour;
    the dashboard's only cursor. On a .prose body it follows the last block's text (a list's last item), else the element's
    own. Reduced motion never types, so it never shows there. */
 @utility caret {

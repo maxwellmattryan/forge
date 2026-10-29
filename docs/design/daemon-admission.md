@@ -67,7 +67,7 @@ Pool-wide transitions (`hold`, `throttle`, `resume`) are logged as a `quota` eve
 
 ## Surfaces
 
-- `/api/state.daemons.quota`: `{ windows: { five_hour: {utilization, resetsAt} | null, seven_day: … }, observedAt, slots, hold: { window, until } | null }`. `API_VERSION` 10; `dashboard/src/lib/types.ts` mirrors it (`test/types-parity.ts`). `DaemonSessionState.held` widens to `'budget' | 'quota' | null` in both type files.
+- `/api/state.daemons.quota`: `{ windows: { five_hour: {utilization, resetsAt} | null, seven_day: … }, observedAt, slots, hold: { window, until } | null }`. `API_VERSION` 10; `dashboard/src/lib/core/types.ts` mirrors it (`test/types-parity.ts`). `DaemonSessionState.held` widens to `'budget' | 'quota' | null` in both type files.
 - Dashboard pool bar: a quota chip (`5h 72% · resets 14:05`, `7d 38%`), red while held with the resume time, and `held: quota (n)` beside the budget count. Session pill: `held: quota`. Settings, Daemon section: the two thresholds. New keys in `dashboard/src/messages/en/` (`statusbar.json`, `settings.json`).
 - `forge daemon status` adds `quota` (the same object) so the terminal shows why nothing is running. `forge doctor` prints one line when a hold is active.
 - Config (`docs/CONFIG.md`, `lib/config.ts` `defaults()`, `lib/config-fields.ts`, `daemonProblems`):

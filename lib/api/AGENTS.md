@@ -2,7 +2,7 @@
 
 Forge's public contracts, with no Node imports: the `/api` and SSE shapes, the runtime lists they derive from, and the tracker adapter contract.
 
-- Nothing here imports outside `api/`, Node built-ins included, so the dashboard type-checks these files without Node's types (the dashboard's `src/lib/types.ts` re-exports `types.ts` with `export type *`).
+- Nothing here imports outside `api/`, Node built-ins included, so the dashboard type-checks these files without Node's types (the dashboard's `src/lib/core/types.ts` re-exports `types.ts` with `export type *`).
 - `types.ts` is a type-only barrel (`export type *`) over the owner modules below, and every consumer imports it. The type modules import only `constants.ts` (only `enums.ts` does) and each other, with `import type` and no cycles; `constants.ts` and `versions.ts` import nothing.
 - A new shape goes in the module that owns its endpoint or stream.
 - An `/api/*` or SSE shape change appends a named step (`{ id: '<kebab-id>' }`) to `API_CHANGES` in `versions.ts`, whose length + 1 is `API_VERSION`, and sets the dashboard's literal to match; on conflict keep both, in merge order. `npm run check:dashboard` shows what the dashboard must handle.

@@ -1,5 +1,5 @@
 // The /api version steps: `apiVersion` is this list's length plus one. An /api/* or SSE shape change
-// appends one `{ id }` here and sets the dashboard's API_VERSION literal (its lib/types.ts) to match.
+// appends one `{ id }` here and sets the dashboard's API_VERSION literal (its src/lib/core/types.ts) to match.
 // Append only, like lib/core/versions/: each entry starts its own line as `  { id: '`, which the
 // release notes count; on conflict keep both, in merge order. Imports nothing.
 

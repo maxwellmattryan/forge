@@ -1,5 +1,5 @@
 // The effort precedence table both halves are tested against: resolveEffort in lib/config.ts and
-// effectiveEffort in dashboard/src/lib/effort.ts, which mirrors it because the dashboard can't import lib/.
+// effectiveEffort in dashboard/src/lib/jobs/effort.ts, which mirrors it because the dashboard can't import lib/.
 export const EFFORT_CASES: { job: unknown; config: unknown; level: string | null; source: 'job' | 'config' | 'none' }[] = [
   { job: 'high', config: 'medium', level: 'high', source: 'job' },
   { job: null, config: 'medium', level: 'medium', source: 'config' },

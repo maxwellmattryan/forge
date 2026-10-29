@@ -152,7 +152,7 @@ export const RULES: readonly Rule[] = [
     fires: net(['lib/api/*.ts'], 'code', ['lib/api/versions.ts', 'lib/api/tracker.ts', 'lib/api/*.test.ts']),
     satisfied: addsLine('lib/api/versions.ts', STEP_LINE),
     fix: () =>
-      "append { id: '<kebab-id>' } to API_CHANGES in lib/api/versions.ts and set API_VERSION in dashboard/src/lib/types.ts to match (an extra step is harmless: the dashboard and server ship together)",
+      "append { id: '<kebab-id>' } to API_CHANGES in lib/api/versions.ts and set API_VERSION in dashboard/src/lib/core/types.ts to match (an extra step is harmless: the dashboard and server ship together)",
   },
   {
     id: 'config-step',
