@@ -2,7 +2,7 @@
 
 The frame around every page: the sidebar and its project switcher, the Add project dialog, the command bar, the rail's tooltip, a view's title row and the status bar.
 
-- The router, the sidebar's pages, the project switcher's model and the palette live in `src/lib/shell/`; `App.svelte` mounts the rest around the view, and every view and its skeleton import `PageHeader.svelte` themselves.
+- The router, the sidebar's pages, the project switcher's model and the palette live in `src/lib/shell/`; `App.svelte` mounts the rest around the view, and every view and each page's skeleton import `PageHeader.svelte` themselves.
 - Design: [Working on the dashboard](../../../AGENTS.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->

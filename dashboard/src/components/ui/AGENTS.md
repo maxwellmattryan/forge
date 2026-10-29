@@ -2,7 +2,7 @@
 
 The primitives every feature uses: chips, icons, icon and close buttons, the select, copyable text, field hints, count badges, the Rendered/Raw toggle, and the feedback and overlay sets.
 
-- These know nothing of jobs, gates or sessions (they import nothing from `src/lib/jobs/`, `gates/` or `sessions/`), and any feature folder may import them.
+- These hold no job, gate or session markup or state (`overlay/Toast.svelte` reads only the drawer's pane width from `src/lib/jobs/drawer.ts`), and any feature folder may import them.
 - Their models (the icon set, the select's keyboard model) live in `src/lib/ui/`.
 - Design: [Working on the dashboard](../../../AGENTS.md).
 

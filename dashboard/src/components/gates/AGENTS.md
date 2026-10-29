@@ -3,7 +3,7 @@
 What waits on a person and the answers they give: the Needs-you cards, a gate's note and request buttons with the issue-link and repo-proposal answers, the drawer's action dock and the repo budget hold.
 
 - These render the gate's answers; which actions a gate offers and the POSTs they send live in `src/lib/gates/`.
-- Gate, request and tracker text is outside text: it renders as text, never as markup.
+- Gate, request and tracker text is outside text: it renders as text, or as markdown only through `md()`.
 - Design: [Working on the dashboard](../../../AGENTS.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
