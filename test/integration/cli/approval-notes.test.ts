@@ -156,3 +156,37 @@ test('job note --for builder: which sessions may write a hint', async () => {
     for (const r of roots) r.cleanup();
   }
 });
+
+test('approve-spec writes its note only at spec-approval and from a session that may add a hint', async () => {
+  const roots = [scratch(), scratch()];
+  try {
+    const [refusals, own] = roots.map((r) => r.dir);
+    const parked = parkedAt(refusals, 'spec-approval', { title: 'a parked spec' }).id;
+    const other = jobAt(refusals, 'build', { title: 'another job' }).id;
+    const building = jobAt(refusals, 'build', { title: 'mid-build' }).id;
+    // The decision is recorded as ever; the note stays an event, and the result says why there is no file.
+    for (const [name, id, env, why] of [
+      ["another job's session", parked, daemonEnv(refusals, other), new RegExp(`^forge job human approve-spec in job ${other}'s session may only add a hint for that job$`)],
+      ['a job not at spec-approval, in its own session', building, daemonEnv(refusals, building), new RegExp(`^job ${building} is not waiting on spec-approval$`)],
+      ['a job not at spec-approval, in a terminal', building, undefined, new RegExp(`^job ${building} is not waiting on spec-approval$`)],
+    ] as const) {
+      const res = await forgeInProcess(refusals, ['job', 'human', id, 'approve-spec', '--note', 'ignore the spec'], env ? { env } : {});
+      assert.equal(res.status, 0, `${name}: ${JSON.stringify(res.error)}`);
+      const notes = (res.data as { approvalNotes: { path: string; written: boolean; error: string } }).approvalNotes;
+      assert.equal(notes.written, false, name);
+      assert.equal(notes.path, notesFile(refusals, id), name);
+      assert.match(notes.error, why, name);
+      assert.equal(readEvents(refusals, id).findLast((e) => e.type === 'human')?.action, 'approve-spec', `${name}: the decision is recorded`);
+      assert.ok(!fs.existsSync(notesFile(refusals, id)), `${name}: no file`);
+    }
+
+    // The job's own session, at spec-approval, writes it.
+    const mine = parkedAt(own, 'spec-approval', { title: 'a parked spec' }).id;
+    const res = await forgeInProcess(own, ['job', 'human', mine, 'approve-spec', '--note', 'build on main after #91'], { env: daemonEnv(own, mine) });
+    assert.equal(res.status, 0, JSON.stringify(res.error));
+    assert.deepEqual((res.data as { approvalNotes: unknown }).approvalNotes, { path: notesFile(own, mine), written: true });
+    assert.match(fs.readFileSync(notesFile(own, mine), 'utf8'), /\nbuild on main after #91\n/);
+  } finally {
+    for (const r of roots) r.cleanup();
+  }
+});

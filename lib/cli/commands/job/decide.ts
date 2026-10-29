@@ -5,7 +5,7 @@ import { logHumanEvent, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { decideRepoProposals } from '#engine/project/repo-proposals.ts';
-import { writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
+import { approvalNotesPath, builderNoteRefusal, writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
 import { daemonScope, inChat, inOffice } from '#core/job/requests.ts';
 import { chatGateRefusal } from '#office/chat/authority.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
@@ -34,7 +34,7 @@ export async function human(root: string, config: Config, rest: string[], flags:
   const noted = note ?? (rest.slice(2).join(' ') || null);
   const who = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
   // A chat acts for the owner, but a reserved gate stays the owner's own to decide: refused before anything is written.
-  const chatRefusal = inChat() ? chatGateRefusal(root, config, job, action, note) : null;
+  const chatRefusal = inChat() ? chatGateRefusal(root, config, job, action, noted) : null;
   if (chatRefusal) throw new ForgeError(chatRefusal, 1);
   if (action === 'approve-release' && who !== 'foreman') throw new ForgeError("approve-release is the foreman's (--actor foreman); a person approves a release by answering forge release run's publish prompt in a terminal", 1);
   // No authority reaches the CLI, so the shared checks refuse every foreman decision here, in every scope, before any write:
@@ -74,8 +74,14 @@ export async function human(root: string, config: Config, rest: string[], flags:
   else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
   else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
   logHumanEvent(root, jobId, 'human', { action, note: noted }, actor);
-  // A person's note reaches the builder: approval-notes.md, which the builder brief lists. A failed write never undoes the decision.
-  const approvalNotes = action === 'approve-spec' && noted?.trim() ? writeApprovalNotes(root, jobId) : null;
+  // A person's note reaches the builder: approval-notes.md, which the builder brief lists. Only for a job that waited on
+  // spec-approval when this call began, and from a session that may add a builder hint for it: approve-spec is no way into
+  // another job's brief. A skipped or failed write never undoes the decision; the result says why no file was written.
+  let approvalNotes: { path: string; written: boolean; error?: string } | null = null;
+  if (action === 'approve-spec' && noted?.trim()) {
+    const skip = job.waitingOn === 'spec-approval' ? builderNoteRefusal(jobId, 'forge job human approve-spec') : `job ${jobId} is not waiting on spec-approval`;
+    approvalNotes = skip === null ? writeApprovalNotes(root, jobId) : { path: approvalNotesPath(root, jobId), written: false, error: skip };
+  }
   return { ok: true, ...(link !== undefined ? { link: linked } : {}), ...(approvalNotes ? { approvalNotes } : {}) };
 }
 
