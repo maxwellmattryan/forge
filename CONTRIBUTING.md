@@ -31,13 +31,13 @@ Run `npm ci` once. After that, the dashboard and the CLI run your local source, 
 - **PRs are squash-merged**, so the PR title becomes the commit title. Write it as a sentence that says what changes.
 - **No AI attribution** in commits, PR descriptions, issues or comments: the human who makes the change is its author (see [Authorship](README.md#authorship)). While the plugin is enabled, its hook blocks a commit or `gh` command that carries it.
 - **Leave versions and the changelog alone.** Don't touch the `version` fields in `package.json` and `.claude-plugin/plugin.json`, or `CHANGELOG.md`: the release commit at the end of a wave adds them. Describe user-visible changes in the PR description instead.
-- **Branch from `develop` and open PRs into `develop`.** `main` takes only release PRs, which the maintainer's `npm run release` opens with the CI-built `dashboard/dist/`, and hotfix PRs; leave `dist/` out of every other PR.
+- **Branch from `develop` and open PRs into `develop`.** It is the only branch that takes PRs: a release is a PR into it too, which the maintainer's `npm run release` opens, and CI builds `dashboard/dist/` onto the `stable` branch when it merges. Leave `dist/` out of every PR.
 - Paths listed in [.github/CODEOWNERS](.github/CODEOWNERS) need the maintainer's review.
 - Forge never adopts a PR from a fork (see [Untrusted input](docs/architecture/untrusted-input.md)), so the maintainer reviews those by hand.
 
 ## Dependencies
 
-Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update changes the dashboard build stamp, which hashes the resolved versions in `package-lock.json`, so the next main update carries a rebuilt `dashboard/dist/`.
+Forge has zero runtime dependencies by rule, so a PR that adds one is closed. Dependabot proposes devDependency updates weekly. Before merging one, the maintainer commits on the Dependabot branch, as the comment in [.github/dependabot.yml](.github/dependabot.yml) describes. Every update changes the dashboard build stamp, which hashes the resolved versions in `package-lock.json`, so the next release builds a fresh `dashboard/dist/` onto `stable`.
 
 ## Security and conduct
 
