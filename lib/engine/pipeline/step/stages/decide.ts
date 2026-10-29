@@ -4,7 +4,7 @@
 // the PR is open (PR15, PR17).
 import { autoMerge } from '#core/config/load.ts';
 import { pastTotalCeiling } from '../../moves/foreman-gates.ts';
-import { latestGate } from '../../moves/escalation.ts';
+import { gateSince } from '../../moves/escalation.ts';
 import type { JobAgent, WaitingOn } from '#core/types.ts';
 import { park, procedure, run, spawn, toStage } from '../actions.ts';
 import { recallEvents, recallRecorded } from '../recall.ts';
@@ -53,7 +53,7 @@ export const DECIDE: Table<DecideCtx> = {
     // The gate reasons of this review, as data the approver reads as facts: once per review, before anything decides.
     {
       id: 'DC12',
-      when: ({ x, f, exhausted }) => !exhausted && latestGate(x.events, f.reviewedAt) === null,
+      when: ({ x, f, exhausted }) => !exhausted && gateSince(x.events, f.reviewedAt) === null,
       then: ({ x }) => run(x, 'DC12', ['job', 'gate', x.job.id], 'compute the gate reasons before the approver decides'),
     },
     // Only without auto-merge: with it on, a PR or CI rework goes back through the approver (DC1), so

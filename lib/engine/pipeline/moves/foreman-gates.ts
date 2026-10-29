@@ -215,14 +215,18 @@ export const TOTAL_CEILING = '(total-round ceiling: only a human clears it)';
  * What reservedFor returns at an escalation park for every action when a rule on it is a person's
  * alone: the park's reason lists a human-only rule, or the job has a protected-paths flag no person
  * approved (whatever the reason says now, since a session can rewrite it). Null otherwise. Rework is
- * held too: a round of rework can't remove an auth change, a migration or infra steps.
+ * held too: a round of rework can't remove an auth change, a migration or infra steps. The park's
+ * reason counts as the transition into it recorded it as well as job.reason: `forge job set --reason`
+ * rewrites the latter with no event, so a rewritten reason can't lift the hold.
  */
 function humanOnlyHold(root: string, job: Partial<Pick<Job, 'id' | 'reason' | 'protectedPaths'>>, gate: GateClass | null): string | null {
   if (gate !== 'escalation') return null;
-  const listed = parseEscalationReason(job.reason).find((r) => HUMAN_ONLY_RULES.includes(r));
+  const events = typeof job.id === 'string' ? readEvents(root, job.id) : [];
+  const parked = events.findLast((e) => e.type === 'transition')?.reason;
+  const listed = [...parseEscalationReason(job.reason), ...parseEscalationReason(parked)].find((r) => HUMAN_ONLY_RULES.includes(r));
   if (listed) return `(escalation: ${listed} needs a person)`;
   const flag = job.protectedPaths;
-  if (flag?.hits?.length && typeof job.id === 'string' && !protectedApproved(flag, readEvents(root, job.id))) return '(escalation: protected-paths needs a person)';
+  if (flag?.hits?.length && typeof job.id === 'string' && !protectedApproved(flag, events)) return '(escalation: protected-paths needs a person)';
   return null;
 }
 

@@ -31,6 +31,8 @@ test('approver and assistant briefs carry the gate reasons', () => {
   assert.ok(!line.includes(LS), 'a separator in a branch path cannot start a line of the brief');
   assert.deepEqual(lines('escalation', [gateEv([])]), ['Gate reasons: none']);
   assert.deepEqual(lines('escalation', []), ['Gate reasons: none']);
+  assert.deepEqual(lines('escalation', [gateEv(), { v: 1, ts: '2026-10-01T10:20:00.000Z', type: 'round', round: 2 }]), ['Gate reasons: none'], "an earlier round's gate event is not this review's");
+  assert.ok(lines('escalation', [gateEv(), gateEv([])])[0].startsWith('Gate reasons (JSON): '), 'a later gate event that lists nothing does not drop a reason of the round');
   assert.deepEqual(lines('spec-approval', [gateEv()]), [], 'no line at another gate');
 });
 

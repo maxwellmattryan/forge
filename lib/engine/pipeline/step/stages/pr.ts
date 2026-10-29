@@ -5,7 +5,7 @@ import { autoMerge } from '#core/config/load.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from '../../../release/interim.ts';
 import { memberRepos } from '../../../project/job-repos.ts';
 import { decisionEligible, lastDecision } from '../../../pr/eligible.ts';
-import { escalationReason, latestGate } from '../../moves/escalation.ts';
+import { escalationReason, gateSince } from '../../moves/escalation.ts';
 import { lastRun, runsSince } from '../../../verify/record.ts';
 import type { GateReason, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
@@ -156,7 +156,7 @@ function mergeable({ x, f, res, gates, openedAt }: PrCtx): boolean {
   const held = gates.some((g) => g.gate === 'held' || g.gate === 'bump-due');
   const draft = res.edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
   const eligible = decisionEligible(lastDecision(x.events)) && x.decisionCurrent === true;
-  const gated = Boolean(latestGate(x.events, f.reviewedAt)?.reasons.length);
+  const gated = Boolean(gateSince(x.events, f.reviewedAt)?.reasons.length);
   return !local && !held && !draft && eligible && !gated && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
 }
 
@@ -184,7 +184,7 @@ export const PR: Table<PrCtx> = {
     // A job decided before gate reasons existed, or a DC10 rework round that skipped decide: compute them for this review.
     {
       id: 'PR19',
-      when: ({ x, f }) => latestGate(x.events, f.reviewedAt) === null,
+      when: ({ x, f }) => gateSince(x.events, f.reviewedAt) === null,
       then: ({ x }) => run(x, 'PR19', ['job', 'gate', x.job.id], 'compute the gate reasons of this review before the merge gates'),
     },
     // PR9–PR9c: verify bumps the consumers, unless a verify newer than the release failed (park, until
@@ -240,15 +240,17 @@ export const PR: Table<PrCtx> = {
       when: (c) => c.ready !== undefined,
       then: ({ x, ready }) => run(x, 'PR10', ['pr', 'ready', x.job.id, ...(ready === null ? ['--root'] : ['--repo', ready!])], 'release recorded and consumers bumped: mark the consumer ready for review'),
     },
-    // PR14: an open merge gate the PR doesn't say yet (no sync of this gate since the last push): the
-    // gate section and label first, so the person reads why on the PR.
+    // PR14: an open merge gate the PR doesn't say yet (no sync of this gate since the last push, or one
+    // that listed other reasons: a sync recorded before `reasons` existed counts as current): the gate
+    // section and label first, so the person reads why on the PR.
     {
       id: 'PR14',
       when: (c) => {
         if (!c.gate || c.x.job.pr?.state !== 'OPEN') return false;
         const at = lastIdx(c.x, (e) => e.type === 'pr-gate');
         const e = c.x.events[at];
-        return !(e && e.action === 'set' && e.rule === c.gate.rule && e.reason === c.gate.reason && afterIdx(at, orNull(c.openedAt)));
+        const sameReasons = e?.reasons === undefined || JSON.stringify(e.reasons) === JSON.stringify(c.gate.reasons);
+        return !(e && e.action === 'set' && e.rule === c.gate.rule && e.reason === c.gate.reason && sameReasons && afterIdx(at, orNull(c.openedAt)));
       },
       then: ({ x }) => run(x, 'PR14', ['pr', 'gate', x.job.id], 'say on the PR why it waits on a decision before merge'),
     },

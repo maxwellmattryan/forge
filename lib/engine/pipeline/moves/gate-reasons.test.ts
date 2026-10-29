@@ -9,7 +9,7 @@ import { defaults } from '#core/config/load.ts';
 import { jobDir, logEvent, updateJob } from '#core/job/store.ts';
 import type { Config, Job, JobEvent, ProtectedPaths } from '#core/types.ts';
 import { memberWorktreePath } from '../../project/job-repos.ts';
-import { computeGate, goModRequires, manifestChange, manifestKind, packageDeps, tomlDependencyLines, versionOf } from './gate-reasons.ts';
+import { computeGate, goModRequires, manifestChange, manifestKind, packageDeps, summaryEscalates, tomlDependencyLines, versionOf } from './gate-reasons.ts';
 import { escalationReason, parseEscalationReason, waitingGateReasons } from './escalation.ts';
 
 const OLD = '2020-01-01T00:00:00.000Z';
@@ -110,34 +110,65 @@ test('gate rules from job facts', () => {
   }
 });
 
+test('a Summary says ESCALATE only inside ## Summary, in capitals', () => {
+  const review = (summary: string, rest = '') => `## Verdict\nVERDICT: PASS\n\n## Summary\n${summary}\n\n## Findings\n${rest}\n`;
+  assert.equal(summaryEscalates(review('ESCALATE: auth change')), true);
+  assert.equal(summaryEscalates(review('fine', 'ESCALATE: in findings')), false, 'outside the Summary');
+  assert.equal(summaryEscalates(review('escalate: maybe')), false, 'lowercase');
+  assert.equal(summaryEscalates(null), false, 'no text');
+});
+
 test("lens-escalate reads each lens's latest review", () => {
   const repo = tempRepo();
   try {
     const config = defaults();
-    const review = (summary: string, rest = '') => `## Verdict\nVERDICT: PASS\n\n## Summary\n${summary}\n\n## Findings\n${rest}\n`;
-    const rows: { name: string; round: number; files: Record<string, string>; want: unknown[] }[] = [
+    const review = (summary: string) => `## Verdict\nVERDICT: PASS\n\n## Summary\n${summary}\n`;
+    const ESCALATES = review('ESCALATE: auth change');
+    // `recorded`: the `verdicts` events forge job verdicts logged, as round → {lens: Summary said ESCALATE}; `legacy`: events from
+    // before `escalate` existed, as round → the lenses job.verdicts names; `files`: review files on disk, recorded or not.
+    const rows: { name: string; round: number; recorded?: Record<number, Record<string, boolean>>; legacy?: Record<number, string[]>; files?: Record<string, string>; events?: [string, Record<string, unknown>][]; want: unknown[] }[] = [
       {
         name: 'narrowed panel: round 2 security escalated, round 3 re-ran only code',
         round: 3,
-        files: { 'round-2/security.md': review('ESCALATE: auth change'), 'round-2/code.md': review('fine'), 'round-3/code.md': review('fine') },
+        recorded: { 2: { security: true, code: false }, 3: { code: false } },
         want: [{ rule: 'lens-escalate', detail: 'the security review of round 2 says ESCALATE' }],
       },
-      { name: 'a later security file without it clears it', round: 3, files: { 'round-2/security.md': review('ESCALATE: auth change'), 'round-3/security.md': review('fixed') }, want: [] },
-      { name: 'ESCALATE: outside the Summary', round: 1, files: { 'round-1/security.md': review('fine', 'ESCALATE: in findings') }, want: [] },
-      { name: 'lowercase escalate:', round: 1, files: { 'round-1/security.md': review('escalate: maybe') }, want: [] },
-      { name: 'only the integration review', round: 1, files: { 'integration/code.md': review('ESCALATE: conflicts') }, want: [] },
-      { name: 'a round past the job round', round: 1, files: { 'round-2/code.md': review('ESCALATE: later') }, want: [] },
+      { name: 'a later record of the lens without it clears it', round: 3, recorded: { 2: { security: true }, 3: { security: false } }, want: [] },
+      { name: 'a review edited after it was recorded still escalates', round: 1, recorded: { 1: { security: true } }, files: { 'round-1/security.md': review('fixed') }, want: [{ rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' }] },
+      {
+        name: 'a clean file planted for a round the CLI never recorded changes nothing',
+        round: 3,
+        recorded: { 2: { security: true } },
+        files: { 'round-3/security.md': review('fixed'), 'round-3/code.md': review('fine') },
+        want: [{ rule: 'lens-escalate', detail: 'the security review of round 2 says ESCALATE' }],
+      },
+      { name: 'an escalating file for a lens that was not recorded is no reason', round: 1, recorded: { 1: { code: false } }, files: { 'round-1/security.md': ESCALATES, 'round-1/foo.md': ESCALATES }, want: [] },
+      { name: 'only the integration review', round: 1, events: [['integration-review', { outcome: 'PASS', reviewers: { code: 'PASS' }, escalate: { code: true } }]], want: [] },
+      { name: 'a round past the job round', round: 1, recorded: { 2: { code: true } }, want: [] },
       {
         name: 'one reason per lens, in lens order, a member lens included',
         round: 1,
-        files: { 'round-1/security.md': review('ESCALATE: a'), 'round-1/lib.realtime.md': review('ESCALATE: b'), 'round-1/code.md': review('ESCALATE: c') },
+        recorded: { 1: { security: true, 'lib:realtime': true, code: true } },
         want: ['code', 'lib:realtime', 'security'].map((l) => ({ rule: 'lens-escalate', detail: `the ${l} review of round 1 says ESCALATE` })),
+      },
+      {
+        name: 'a record from before `escalate` existed falls back to the round file of each lens job.verdicts names',
+        round: 2,
+        legacy: { 1: ['security', 'code'] },
+        files: { 'round-1/security.md': ESCALATES, 'round-1/code.md': review('fine'), 'round-1/foo.md': ESCALATES },
+        want: [{ rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' }],
       },
     ];
     for (const r of rows) {
       const { id } = jobAt(repo.dir, 'decide', { config });
-      updateJob(repo.dir, id, (j) => void (j.round = r.round));
-      for (const [rel, text] of Object.entries(r.files)) {
+      updateJob(repo.dir, id, (j) => {
+        j.round = r.round;
+        for (const [n, lenses] of Object.entries(r.legacy ?? {})) j.verdicts[n] = Object.fromEntries(lenses.map((l) => [l, 'PASS'])) as Job['verdicts'][string];
+      });
+      for (const [n, escalate] of Object.entries(r.recorded ?? {})) logEvent(repo.dir, id, 'verdicts', { round: Number(n), outcome: 'PASS', sha: null, escalate });
+      for (const n of Object.keys(r.legacy ?? {})) logEvent(repo.dir, id, 'verdicts', { round: Number(n), outcome: 'PASS', sha: null });
+      for (const [type, fields] of r.events ?? []) logEvent(repo.dir, id, type, fields);
+      for (const [rel, text] of Object.entries(r.files ?? {})) {
         const file = path.join(jobDir(repo.dir, id), 'review', rel);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, text);
@@ -155,6 +186,9 @@ test('manifest rules', () => {
   const CARGO = '[package]\nname = "x"\ndescription = "old"\n\n[dependencies]\nserde = "1"\n\n[dev-dependencies]\nproptest = "1"\n';
   const PY = '[project]\nname = "x"\ndependencies = [\n  "requests>=2",\n  "rich",\n]\n\n[tool.poetry.group.dev.dependencies]\npytest = "^8"\n';
   const GO = 'module x\n\ngo 1.22\n\nrequire example.com/a v1.0.0\n\nrequire (\n\texample.com/b v1.2.0\n)\n';
+  // A closing bracket in a comment or a string inside a multi-line value must not end it early.
+  const PY_COMMENT = '[project]\nname = "x"\ndependencies = [\n  "requests>=2",\n  # ] closes nothing\n  "rich", # ]\n]\n';
+  const PY_STRING = '[project]\nname = "x"\ndependencies = [\n  "a ] b",\n  "rich",\n]\n';
   const hostile = 'x'.repeat(10_000);
   const rows: [string, string, string | null, string | null, { version: boolean; dependencies: boolean }][] = [
     ['a version bump is version only', 'package.json', pkg(BASE), pkg({ ...BASE, version: '1.1.0' }), { version: true, dependencies: false }],
@@ -171,6 +205,16 @@ test('manifest rules', () => {
     ['Cargo [package] description', 'Cargo.toml', CARGO, CARGO.replace('"old"', '"new"'), { version: false, dependencies: false }],
     ['pyproject [project] dependencies', 'pyproject.toml', PY, PY.replace('"rich",', '"rich>=13",'), { version: false, dependencies: true }],
     ['pyproject poetry dev group', 'pyproject.toml', PY, PY.replace('"^8"', '"^9"'), { version: false, dependencies: true }],
+    // Every shape below once slipped past the parser; each must fire `dependencies`.
+    ['pyproject: a comment holding a closing bracket does not end the dependencies array', 'pyproject.toml', PY_COMMENT, PY_COMMENT.replace('"rich", # ]', '"evil", # ]'), { version: false, dependencies: true }],
+    ['pyproject: a string holding a closing bracket does not end the dependencies array', 'pyproject.toml', PY_STRING, PY_STRING.replace('"rich"', '"evil"'), { version: false, dependencies: true }],
+    ['pyproject: a trailing comment edit alone changes nothing', 'pyproject.toml', PY_COMMENT, PY_COMMENT.replace('# ] closes nothing', '# still nothing'), { version: false, dependencies: false }],
+    ['Cargo: an inline dependencies table at the root', 'Cargo.toml', 'dependencies = { serde = "1" }\n\n[package]\nname = "x"\n', 'dependencies = { serde = "1", evil = "1" }\n\n[package]\nname = "x"\n', { version: false, dependencies: true }],
+    ['Cargo: a dotted dependencies key at the root', 'Cargo.toml', 'dependencies.serde = "1"\n\n[package]\nname = "x"\n', 'dependencies.serde = "2"\n\n[package]\nname = "x"\n', { version: false, dependencies: true }],
+    ['Cargo: a dotted target key holding the dependencies word', 'Cargo.toml', "[package]\nname = \"x\"\ntarget.'cfg(unix)'.dependencies.libc = \"0.2\"\n", "[package]\nname = \"x\"\ntarget.'cfg(unix)'.dependencies.libc = \"0.3\"\n", { version: false, dependencies: true }],
+    ['pyproject: an inline dependencies table under [tool.poetry]', 'pyproject.toml', '[tool.poetry]\nname = "x"\ndependencies = { python = "^3.11" }\n', '[tool.poetry]\nname = "x"\ndependencies = { python = "^3.11", evil = "1" }\n', { version: false, dependencies: true }],
+    ['pyproject: optional-dependencies as dotted keys', 'pyproject.toml', '[project]\noptional-dependencies.dev = [\n  "pytest",\n]\n', '[project]\noptional-dependencies.dev = [\n  "pytest",\n  "evil",\n]\n', { version: false, dependencies: true }],
+    ['pyproject: an unrelated inline table under [tool] changes nothing', 'pyproject.toml', '[tool.x]\nopts = { a = 1 }\n', '[tool.x]\nopts = { a = 2 }\n', { version: false, dependencies: false }],
     ['go.mod require line', 'go.mod', GO, GO.replace('a v1.0.0', 'a v1.1.0'), { version: false, dependencies: true }],
     ['go.mod require block', 'go.mod', GO, GO.replace('b v1.2.0', 'b v1.3.0'), { version: false, dependencies: true }],
     ['go.mod replace', 'go.mod', GO, `${GO}\nreplace example.com/a => ../a\n`, { version: false, dependencies: true }],
@@ -190,6 +234,8 @@ test('manifest rules', () => {
   assert.equal(versionOf('{"version":"1.0.0"}'), '"1.0.0"');
   assert.equal(packageDeps('{"dependencies":{"b":"1","a":"2"}}'), packageDeps('{"dependencies":{"a":"2","b":"1"}}'));
   assert.deepEqual(tomlDependencyLines('[dependencies]\nserde = "1"\n# note\n\n[package]\nname = "x"\n'), ['dependencies\tserde = "1"']);
+  assert.deepEqual(tomlDependencyLines('dependencies = { a = "1" } # x\n[package]\nname = "x"\n'), ['\tdependencies = { a = "1" }'], 'a root key, its comment dropped');
+  assert.deepEqual(tomlDependencyLines('[project]\ndependencies = [\n  "a", # ]\n  # ]\n  "b",\n]\nname = "x"\n'), ['project\t"a",', 'project\t"b",', 'project\t]', 'project\tdependencies = ['].sort(), 'comments close nothing');
   assert.deepEqual(goModRequires('require (\n\tb v1 // indirect\n\ta v2\n)\nrequire c v3\n'), ['require a v2', 'require b v1', 'require c v3']);
   assert.deepEqual(goModRequires(`require ${hostile}`), [`require ${hostile}`]);
 });

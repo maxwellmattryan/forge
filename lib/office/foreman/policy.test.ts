@@ -12,7 +12,7 @@ import { defaults, loadConfig } from '#core/config/load.ts';
 import { validateConfig } from '#core/config/validate.ts';
 import * as yaml from '#core/format/yaml.ts';
 import { ackRequest, enqueue, listRequests } from '#core/job/requests.ts';
-import { jobDir, loadJob, logHumanEvent, logRepoEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { jobDir, loadJob, logEvent, logHumanEvent, logRepoEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { ACTIONS_BY_GATE } from '#engine/pipeline/moves/foreman-gates.ts';
 import { foremanReleaseApproval, releaseApprovalStatus } from '#engine/release/approval.ts';
@@ -600,14 +600,19 @@ test("with the runner's authority, the policy checks still refuse", () => {
     updateJob(r.dir, rewritten, (j) => {
       j.protectedPaths = { hits: [{ path: 'db/migrations/0001.sql', rule: 1, glob: 'db/**', reason: 'migration', blob: 'b'.repeat(40) }], more: 0, at: new Date().toISOString(), gate: 'verify', head: null };
     });
+    // `forge job set --reason` rewrites job.reason with no event: the transition into the park still says runbook.
+    const unlogged = escalationPark('escalation: runbook');
+    logEvent(r.dir, unlogged, 'transition', { from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn: 'escalation' }, reason: 'escalation: runbook' });
+    updateJob(r.dir, unlogged, (j) => void (j.reason = 'escalation: version'));
     const ruleOnly = escalationPark('escalation: approver, dependencies');
-    const person = (rule: string) => refused(`reserved ((escalation: ${rule} needs a person)): left for a human`);
+    const person =(rule: string) => refused(`reserved ((escalation: ${rule} needs a person)): left for a human`);
     const rows: [string, string, string, string, RegExp | null][] = [
       ['an escalation park listing lens-escalate', lens, 'approve', 'the review is wrong', person('lens-escalate')],
       ['a rework there', lens, 'rework', 'drop the auth change', person('lens-escalate')],
       ['an escalation park listing runbook', runbook, 'approve', 'the steps are trivial', person('runbook')],
       ['a held push listing protected-paths', heldPush, 'approve', 'the CI change is fine', person('protected-paths')],
       ['a reason rewritten to drop protected-paths while the flag is unapproved', rewritten, 'approve', 'just a version bump', person('protected-paths')],
+      ['a reason rewritten with forge job set after the park logged runbook', unlogged, 'approve', 'just a version bump', person('runbook')],
       ['an escalation park listing only approver and dependencies', ruleOnly, 'approve', 'the dependency bump is sound', null],
       ['a stage-pr escalation approved with a plain note', merging, 'approve', 'the change is sound', null],
       ['a stage-pr escalation approved with a note naming a reserved pattern', merging, 'approve', 'the payments change is sound', refused('reserved (payments): left for a human')],
@@ -626,7 +631,7 @@ test("with the runner's authority, the policy checks still refuse", () => {
     }
     // gateOwner, with gate runs on: a person's at the held parks, the Foreman's at the rule-only one.
     const running = { ...config, foreman: { ...config.foreman, assistants: { ...config.foreman.assistants, enabled: true } } } as typeof config;
-    for (const id of [lens, runbook, heldPush, rewritten]) assert.equal(gateOwner(r.dir, running, loadJob(r.dir, id), []), 'human', loadJob(r.dir, id).reason ?? id);
+    for (const id of [lens, runbook, heldPush, rewritten, unlogged]) assert.equal(gateOwner(r.dir, running, loadJob(r.dir, id), []), 'human', loadJob(r.dir, id).reason ?? id);
     assert.equal(gateOwner(r.dir, running, loadJob(r.dir, ruleOnly), []), 'foreman');
     // Without the authority, every check refuses first, whatever else holds.
     const AUTHORITY = /--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions$/;

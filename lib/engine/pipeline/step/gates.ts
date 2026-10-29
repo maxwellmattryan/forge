@@ -9,7 +9,7 @@ import { protectedApproved } from '../../guard/protected.ts';
 import { PUSH_HELD_PREFIX, isCiHit } from '../../guard/push-hold.ts';
 import { pendingRepoProposals } from '../../project/repo-proposals.ts';
 import { ESCALATION_RULES } from '#api/constants.ts';
-import { APPROVER_DETAIL, ESCALATION_PREFIX, HUMAN_ONLY_RULES, escalationReason, latestGate, parseEscalationReason, personDecision, protectedGateReason } from '../moves/escalation.ts';
+import { APPROVER_DETAIL, ESCALATION_PREFIX, HUMAN_ONLY_RULES, escalationReason, gateSince, parseEscalationReason, personDecision, protectedGateReason } from '../moves/escalation.ts';
 import type { GateReason, GateRule, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { SAFE_REF } from '#core/text.ts';
@@ -230,8 +230,8 @@ function ruleCleared({ x, f }: Ctx, rule: GateRule): boolean {
 
 /**
  * The escalation rules still open, with their details, in table order: the approver's ESCALATE, every
- * reason of the latest gate event since the review but protected paths, and protected paths from the
- * live flag (so a flag raised after decide counts), minus each rule a qualifying approve cleared. PP1
+ * reason of the gate events since the review (gateSince) but protected paths, and protected paths from
+ * the live flag (so a flag raised after decide counts), minus each rule a qualifying approve cleared. PP1
  * and the merge gate (PR15) both park on it. None for an eval job: it ends at DC6.
  */
 export function openEscalation(c: Ctx): GateReason[] {
@@ -239,7 +239,7 @@ export function openEscalation(c: Ctx): GateReason[] {
   if (x.job.kind === 'eval') return [];
   const found: GateReason[] = [];
   if (x.decision.decision === 'ESCALATE') found.push({ rule: 'approver', detail: APPROVER_DETAIL });
-  for (const r of latestGate(x.events, f.reviewedAt)?.reasons ?? []) if (r.rule !== 'protected-paths') found.push(r);
+  for (const r of gateSince(x.events, f.reviewedAt)?.reasons ?? []) if (r.rule !== 'protected-paths') found.push(r);
   if (protectedOpen(x)) found.push(protectedGateReason(x.job.protectedPaths!));
   const cleared = new Map<GateRule, boolean>();
   const open = found.filter((r) => {
@@ -258,12 +258,14 @@ export function openEscalation(c: Ctx): GateReason[] {
  * config (as refuseProtected judges it), the flag has hits it couldn't store, or pr open logged a
  * blocked escalate refusal since the last open and the last verify. It parks on the escalation park
  * with every open rule, `protected-paths` always among them, so one approve here covers the merge
- * gate (PR15) after the push too, and the job parks once.
+ * gate (PR15) after the push too, and the job parks once. It waits for this review's gate event
+ * (PR19 computes one for a job decided before they existed), so the park lists every rule the gate
+ * found, not only the approver's and the protected paths.
  */
 export const PP1: Rule = {
   id: 'PP1',
-  when: ({ x }) => {
-    if (!protectedOpen(x)) return false;
+  when: ({ x, f }) => {
+    if (!protectedOpen(x) || gateSince(x.events, f.reviewedAt) === null) return false;
     const flag = x.job.protectedPaths!;
     if (flag.hits.some((h) => typeof h.path === 'string' && isCiHit(h.path)) || Number(flag.more) > 0) return true;
     const at = lastIdx(x, (e) => e.type === 'protected-path' && e.gate === 'pr' && e.action === 'escalate' && e.blocked === true);

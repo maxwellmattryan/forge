@@ -14,6 +14,8 @@ export const HUMAN_ONLY_RULES: readonly GateRule[] = ['protected-paths', 'lens-e
 
 /** The collapsed escalation park's reason prefix; PP1 puts PUSH_HELD before it. */
 export const ESCALATION_PREFIX = 'escalation: ';
+// A copy of PUSH_HELD_PREFIX in lib/engine/guard/push-hold.ts, which imports guard/protected.ts, which imports this module: a cycle
+// if this one imported it. The dashboard keeps a third (its gates/inbox.ts). Change all three together.
 const PUSH_HELD = 'push held: ';
 
 /** The `approver` reason's detail: fixed words, so decision.md's text never reaches a reason. */
@@ -96,11 +98,24 @@ export function readGateReasons(v: unknown): GateReason[] {
   return out;
 }
 
-/** The last `gate` event, when it comes after position `after` (any, when null): its position and checked reasons. */
-export function latestGate(events: readonly JobEvent[], after: number | null): { i: number; reasons: GateReason[] } | null {
-  const i = events.findLastIndex((e) => e.type === 'gate');
-  if (i < 0 || (after !== null && i <= after)) return null;
-  return { i, reasons: readGateReasons(events[i].reasons) };
+/**
+ * The gate reasons of the `gate` events after position `after` (any, when null), checked, in rule order,
+ * and the last such event's position; null without one. Every gate event since the review counts, so a
+ * session that deletes runbook.md or edits build.md and runs `forge job gate` again can't shrink the list
+ * within one review (a new review starts a new list). A rule keeps the reasons of the latest event that
+ * lists it.
+ */
+export function gateSince(events: readonly JobEvent[], after: number | null): { i: number; reasons: GateReason[] } | null {
+  let i = -1;
+  const byRule = new Map<GateRule, GateReason[]>();
+  for (let k = after === null ? 0 : after + 1; k < events.length; k++) {
+    if (events[k].type !== 'gate') continue;
+    i = k;
+    const now = new Map<GateRule, GateReason[]>();
+    for (const r of readGateReasons(events[k].reasons)) now.set(r.rule, [...(now.get(r.rule) ?? []), r]);
+    for (const [rule, reasons] of now) byRule.set(rule, reasons);
+  }
+  return i < 0 ? null : { i, reasons: ESCALATION_RULES.flatMap((rule) => byRule.get(rule) ?? []) };
 }
 
 /** The `protected-paths` reason for an unapproved flag: the count of every hit, and the first REASON_PATHS paths. */
@@ -111,14 +126,15 @@ export function protectedGateReason(flag: Pick<ProtectedPaths, 'hits' | 'more'>)
 }
 
 /**
- * The reasons of the park at `parkIdx`: each rule its reason lists, with the details of the latest gate
- * event before the park (protected paths from `flag`, when given), else a fixed detail. [] for a park
- * whose reason lists no rule.
+ * The reasons of the park at `parkIdx`: each rule its reason lists, with the details of the gate events
+ * of the round before the park (gateSince; protected paths from `flag`, when given), else a fixed
+ * detail. [] for a park whose reason lists no rule.
  */
 export function parkReasons(events: readonly JobEvent[], parkIdx: number, flag?: Pick<ProtectedPaths, 'hits' | 'more'> | null): GateReason[] {
   const rules = parseEscalationReason(events[parkIdx]?.reason);
   if (!rules.length) return [];
-  const known = readGateReasons(events.slice(0, parkIdx).findLast((e) => e.type === 'gate')?.reasons);
+  const before = events.slice(0, parkIdx);
+  const known = gateSince(before, before.findLastIndex((e) => e.type === 'round'))?.reasons ?? [];
   const out: GateReason[] = [];
   for (const rule of rules) {
     const mine = known.filter((r) => r.rule === rule);
@@ -141,11 +157,11 @@ export function waitingGateReasons(job: Pick<Job, 'state' | 'waitingOn' | 'reaso
 }
 
 /**
- * The approver's and the Foreman assistant's `Gate reasons` line: the latest gate event after `after`
+ * The approver's and the Foreman assistant's `Gate reasons` line: the gate events after `after` (gateSince)
  * as JSON (so a branch path can't start a line of the brief), or `none`.
  */
 export function gateReasonsLine(events: readonly JobEvent[], after: number | null): string {
-  const g = latestGate(events, after);
+  const g = gateSince(events, after);
   if (!g?.reasons.length) return 'Gate reasons: none';
   return `Gate reasons (JSON): ${oneLineJson(g.reasons)} · facts the CLI found, each already held for a person: don't re-derive them, never argue one away, never mark auto-merge eligible while any is listed`;
 }

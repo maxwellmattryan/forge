@@ -572,7 +572,7 @@ export function assistantBrief(
         ]
       : []),
     releaseGateLine(config, job, events),
-    ...(gate === 'escalation' ? [gateReasonsLine(events, null)] : []),
+    ...(gate === 'escalation' ? [gateReasonsLine(events, events.findLastIndex((e) => e.type === 'round'))] : []),
     ...(security ? [`Security review: ${security}. Approving is refused while it stands: security always has to pass, so rework or revise to fix the findings.`] : []),
     ...promptTimeoutLines(gate, job.reason, dir),
     ...(repos ? [repos] : []),

@@ -306,7 +306,7 @@ const MIGRATION = (at = 15) => FLAG(at, ['db/migrations/0001.sql']);
 const MIGRATION_REASON = 'protected paths: db/migrations/0001.sql';
 const CI_REASON = 'push held: CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]';
 /** `forge pr gate` set the PR's gate section and label for (`rule`, `reason`) at minute n. */
-const synced = (n: number, rule: string, reason: string) => ev('pr-gate', n, { action: 'set', rule, reason, number: 7, label: 'forge:needs-human', labeled: true, body: true });
+const synced = (n: number, rule: string, reason: string, reasons?: GateReason[]) => ev('pr-gate', n, { action: 'set', rule, reason, ...(reasons ? { reasons } : {}), number: 7, label: 'forge:needs-human', labeled: true, body: true });
 const PR15_SYNCED = synced(31, 'PR15', ESC('approver'));
 /** pr open logged a held push at minute n. */
 const held = (n: number, reason = CI_REASON) => ev('push-held', n, { kind: 'ci', reason, head: HEAD_SHA, paths: ['.github/workflows/ci.yml'] });
@@ -1484,7 +1484,9 @@ export const rows: Row[] = [
   // ---- The merge gates on the open PR (PR15, the one escalation park, then PR17): AC2–AC4, AC12, AC16
   { name: 'PR14 an ESCALATE on the open PR: forge pr gate says why first', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: gateEvents('ESCALATE') }, want: { ...run('pr', 'gate', 'j'), rule: 'PR14', why: 'say on the PR why it waits on a decision before merge' } },
   { name: 'PR14 a sync of another reason syncs again', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), synced(32, 'PR15', ESC('runbook'))] }, want: { rule: 'PR14' } },
-  { name: 'PR14 a sync before the last push syncs again', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true, 22), synced(29, 'PR15', ESC('approver')), OPENED] }, want: { rule: 'PR14' } },
+  { name: 'PR14 a sync that listed other details under the same reason syncs again', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), synced(32, 'PR15', ESC('version'), [{ rule: 'version', detail: 'version changed in 2 manifests', paths: ['a/package.json', 'package.json'] }])] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR14' } },
+  { name: 'PR15 a sync that listed the same reasons parks', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), synced(32, 'PR15', ESC('version'), [R_VERSION])] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('version')), rule: 'PR15' } },
+  { name: 'PR14 a sync before the last push syncs again',fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true, 22), synced(29, 'PR15', ESC('approver')), OPENED] }, want: { rule: 'PR14' } },
   { name: 'PR15 an ESCALATE parks on escalation after the PR says why', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('approver')), rule: 'PR15' } },
   // AC8: every open reason on one park, after PR14 synced that one gate.
   { name: 'PR14 syncs the collapsed gate first', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), GATE(31, [R_RUNBOOK, R_VERSION])] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR14' } },
@@ -1626,6 +1628,26 @@ export const rows: Row[] = [
     name: 'PP1 the held push lists every open reason',
     fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true, 22)] },
     want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'push held: escalation: approver, protected-paths'), rule: 'PP1' },
+  },
+  {
+    name: 'PP1 lists the gate reasons found before the park too',
+    fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', true, 22), GATE(23, [R_RUNBOOK])] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths', 'runbook')}`), rule: 'PP1' },
+  },
+  {
+    name: "PR19 computes this review's gate event before PP1 holds the push",
+    fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', true, 22)], gate: null },
+    want: { ...run('job', 'gate', 'j'), rule: 'PR19' },
+  },
+  {
+    name: 'PR15 a later gate event that lists fewer reasons does not shrink the park',
+    fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK, R_VERSION]), GATE(33, [R_VERSION]), synced(34, 'PR15', ESC('runbook', 'version'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('runbook', 'version')), rule: 'PR15' },
+  },
+  {
+    name: 'PR5 a later empty gate event does not make an eligible decision mergeable',
+    fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, decisionCurrent: true, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), ...approvedAt(32, 'pr', 'escalation', ESC('version')), GATE(35)] },
+    want: { rule: 'PR5' },
   },
   {
     name: 'PR18 the PP1 approve covers the merge too',

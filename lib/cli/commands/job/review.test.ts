@@ -143,6 +143,10 @@ test('forge job gate prints and records the gate reasons', async () => {
     fs.writeFileSync(path.join(dir, 'runbook.md'), `## Steps\n${PLANTED}\n`);
     fs.writeFileSync(path.join(dir, 'decision.md'), `ESCALATE: ${PLANTED}\n\n## For the human\n${PLANTED}\n`);
     fs.writeFileSync(path.join(dir, 'spec.md'), '## Acceptance criteria\n- [ ] AC1 — a\n');
+    // The lens reason comes from what `forge job verdicts` recorded for the review.
+    const rec = await forgeInProcess(app.dir, ['job', 'verdicts', id, '--round', '1', '--reviewers', 'security']);
+    assert.equal(rec.status, 0, JSON.stringify(rec.error));
+    assert.deepEqual(readEvents(app.dir, id).find((e) => e.type === 'verdicts')?.escalate, { security: true });
     const r = await forgeInProcess(app.dir, ['job', 'gate', id]);
     assert.equal(r.status, 0, JSON.stringify(r.error));
     const want = [
@@ -157,6 +161,13 @@ test('forge job gate prints and records the gate reasons', async () => {
     assert.deepEqual([gates[0].round, gates[0].head, gates[0].reasons], [1, null, want]);
     assert.ok(!JSON.stringify(gates[0]).includes(PLANTED));
     assert.equal((await forgeInProcess(app.dir, ['job', 'gate', 'nope'])).status, 1);
+    // A session can't clear the reason afterwards: not by editing the recorded review, not by planting a clean file for a later round.
+    fs.writeFileSync(path.join(dir, 'review', 'round-1', 'security.md'), '## Summary\nall fine\n');
+    updateJob(app.dir, id, (j) => void (j.round = 2));
+    fs.mkdirSync(path.join(dir, 'review', 'round-2'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'review', 'round-2', 'security.md'), '## Summary\nall fine\n');
+    const again = await forgeInProcess(app.dir, ['job', 'gate', id]);
+    assert.deepEqual((again.data as { reasons: { rule: string }[] }).reasons.map((x) => x.rule), ['lens-escalate', 'runbook', 'acs'], 'the recorded review still says ESCALATE');
   } finally {
     app.cleanup();
   }
@@ -167,13 +178,13 @@ test('a gated decision is never auto-merge eligible', () => {
   try {
     const config = defaults();
     const ended = new Date(Date.now() - 1000).toISOString();
-    const decided = (reasons: unknown[]) => {
+    const decided = (...gates: unknown[][]) => {
       const id = jobAt(app.dir, 'decide', { config }).id;
       updateJob(app.dir, id, (j) => {
         j.agents.approver = { runs: 1, status: 'done', model: 'opus', agentId: 'a1', startedAt: ended, endedAt: ended, round: 1 } as JobAgent;
       });
       logEvent(app.dir, id, 'round', { round: 1 });
-      logEvent(app.dir, id, 'gate', { round: 1, head: null, reasons });
+      for (const reasons of gates) logEvent(app.dir, id, 'gate', { round: 1, head: null, reasons });
       fs.writeFileSync(path.join(jobDir(app.dir, id), 'decision.md'), 'APPROVE: fine\n\nAuto-merge eligible: yes\n');
       const out = decision(app.dir, config, [id], {});
       return { out, event: readEvents(app.dir, id).find((e) => e.type === 'decision') };
@@ -183,6 +194,9 @@ test('a gated decision is never auto-merge eligible', () => {
     assert.equal(decisionEligible(lastDecision([gated.event!])), false, 'PR4 and forge pr merge read it as not eligible');
     const clean = decided([]);
     assert.deepEqual([clean.out.autoMerge, clean.out.gated, clean.event?.autoMerge], [true, undefined, true]);
+    // A later gate event with fewer reasons (a runbook deleted, then `forge job gate` again) clears nothing within the round.
+    const shrunk = decided([{ rule: 'runbook', detail: 'runbook.md has steps for a person' }], []);
+    assert.deepEqual([shrunk.out.autoMerge, shrunk.out.gated], [false, true]);
   } finally {
     app.cleanup();
   }

@@ -1,8 +1,10 @@
 // `forge job round|verdicts|gate|decision|score`: review rounds, the reviewers' verdicts, the gate reasons, the approver's
 // decision, and the post-merge score.
+import path from 'node:path';
 import { enforceBudget } from '#engine/metrics/budget.ts';
-import { recordGate } from '#engine/pipeline/moves/gate-reasons.ts';
-import { ensureReviewDir, loadJob, logEvent, parseDecision, readEvents, roundVerdicts, setJob, updateJob } from '#core/job/store.ts';
+import { recordGate, summaryEscalates } from '#engine/pipeline/moves/gate-reasons.ts';
+import { ensureReviewDir, jobDir, loadJob, logEvent, parseDecision, readEvents, roundVerdicts, setJob, updateJob } from '#core/job/store.ts';
+import { AGENT_TEXT_MAX, readRegularText } from '#core/os/fs.ts';
 import { exists } from '#core/paths.ts';
 import { isMap } from '#core/shape.ts';
 import { memberRepos, trustedMemberWorktree } from '#engine/project/job-repos.ts';
@@ -12,7 +14,7 @@ import { git, historyEnv } from '#integrations/git/runner.ts';
 import { pullPrHead } from '#engine/pr/branch.ts';
 import { FULL_SHA, lastDecision } from '#engine/pr/eligible.ts';
 import { after, orNull } from '#engine/pipeline/step/facts.ts';
-import { latestGate } from '#engine/pipeline/moves/escalation.ts';
+import { gateSince } from '#engine/pipeline/moves/escalation.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config } from '#core/types.ts';
 import { list, req, requireJob, usageError } from '../args.ts';
@@ -65,7 +67,9 @@ export function verdicts(root: string, config: Config, rest: string[], flags: Re
     if (integration) logEvent(root, job.id, 'integration-review', { outcome: v.outcome, sha, ...heads, reviewers: verdicts, coerced: coerced.length ? coerced : undefined });
     else {
       setJob(root, job.id, { fields: { [`verdicts.${round}`]: verdicts } });
-      logEvent(root, job.id, 'verdicts', { round, outcome: v.outcome, sha, ...heads, coerced: coerced.length ? coerced : undefined });
+      // Whether each reviewer's Summary says ESCALATE right now: gate reasons read this record, never a review file edited later.
+      const escalate = Object.fromEntries(Object.entries(v.reviewers).map(([lens, r]) => [lens, summaryEscalates(readRegularText(path.join(jobDir(root, job.id), r.file), AGENT_TEXT_MAX))]));
+      logEvent(root, job.id, 'verdicts', { round, outcome: v.outcome, sha, ...heads, coerced: coerced.length ? coerced : undefined, escalate });
     }
     if (coerced.length) logEvent(root, job.id, 'note', { text: `${integration ? 'integration review' : `round ${round}`}: malformed review(s) from ${coerced.join(', ')} counted as CHANGES` });
   }
@@ -102,7 +106,7 @@ export function decision(root: string, config: Config, rest: string[], flags: Re
   const members = memberRepos(job).filter((m) => !m.verifyOnly);
   const heads = members.length ? { heads: Object.fromEntries(members.map((m) => [m.repo, headOf(trustedMemberWorktree(root, config, job, m.repo))])) } : {};
   // A gate reason of this round holds the merge for a person whatever decision.md says: never auto-merge eligible.
-  const gated = Boolean(latestGate(events, orNull(events.findLastIndex((e) => e.type === 'round')))?.reasons.length);
+  const gated = Boolean(gateSince(events, orNull(events.findLastIndex((e) => e.type === 'round')))?.reasons.length);
   const record = { decision: d.decision, reason: d.reason, autoMerge: d.autoMerge && !gated, head: headOf(job.worktree), ...heads, ...(gated ? { gated: true } : {}) };
   if (!d.decision) return { ...record, recorded: false };
   setJob(root, jobId, { fields: { decision: d.decision } });

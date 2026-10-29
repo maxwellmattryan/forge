@@ -6,10 +6,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { AGENT_TEXT_MAX, readRegular, readRegularText } from '#core/os/fs.ts';
 import { exists } from '#core/paths.ts';
-import { jobDir, loadJob, logEvent, readEvents } from '#core/job/store.ts';
-import { isLens, lensFromReviewFile, reviewedRepoNames } from '#core/job/lens.ts';
+import { jobDir, loadJob, logEvent, readEvents, reviewDir } from '#core/job/store.ts';
+import { isLens, reviewFileName, reviewedRepoNames } from '#core/job/lens.ts';
+import { isMap } from '#core/shape.ts';
 import { git, gitSpawnSync, historyEnv } from '#integrations/git/runner.ts';
-import type { Config, GateReason, Job } from '#core/types.ts';
+import type { Config, GateReason, Job, JobEvent } from '#core/types.ts';
 import { acCoverage } from '../acs.ts';
 import { resolveBase } from '../scope.ts';
 import { diffEntries, protectedApproved } from '../../guard/protected.ts';
@@ -30,7 +31,6 @@ export interface GateResult {
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
 const AC_ID = /^AC\d+$/;
-const ROUND_DIR = /^round-([1-9]\d{0,8})$/;
 /** A manifest blob is read up to this; a larger one can't be parsed, which fails closed. */
 const BLOB_MAX = 4 * 1024 * 1024;
 /** How deep packageDeps sorts a dependency value's keys; anything deeper is compared as written. */
@@ -70,25 +70,80 @@ export function packageDeps(text: string | null): string {
   return JSON.stringify(PACKAGE_DEP_KEYS.map((k) => [k, canonical(Object.hasOwn(doc, k) ? doc[k] : null)]));
 }
 
-/** Whether a TOML table name is a dependency table: a dotted segment ending in `dependencies`, or `dependency-groups`. */
-function isDependencyTable(name: string): boolean {
-  if (name === 'dependency-groups') return true;
-  return name.split('.').some((s) => s.trim().replace(/^["']|["']$/g, '').endsWith('dependencies'));
-}
-
-/** `[` and `{` opened minus closed on a line. */
-const bracketDelta = (line: string): number => {
-  let d = 0;
-  for (const c of line) if (c === '[' || c === '{') d++;
-  else if (c === ']' || c === '}') d--;
-  return d;
+/** A TOML key or table-name segment that holds dependencies: one ending in `dependencies`, or `dependency-groups`. */
+const isDependencyWord = (segment: string): boolean => {
+  const s = segment.trim().replace(/^["']|["']$/g, '');
+  return s.endsWith('dependencies') || s === 'dependency-groups';
 };
 
+/** Whether a TOML table name is a dependency table: some dotted segment is a dependency word. */
+const isDependencyTable = (name: string): boolean => name.split('.').some(isDependencyWord);
+
 /**
- * The dependency content of a Cargo.toml or pyproject.toml, sorted: every non-blank, non-comment line
- * (trimmed) under a dependency table (not `[[`), and inside `[project]` the lines of the
- * `dependencies` and `optional-dependencies` values until their brackets close. Each line carries its
- * table's name, so moving a dependency between tables counts while reordering does not.
+ * One TOML line without its trailing `# comment`, trimmed, and the `[`/`{` it opens minus the `]`/`}`
+ * it closes, both read outside strings (`"…"` with escapes, `'…'`), so a bracket in a comment or a
+ * string neither closes nor opens a value. A multi-line string is not tracked past its line.
+ */
+function scanLine(raw: string): { code: string; delta: number } {
+  let quote = '';
+  let delta = 0;
+  let end = raw.length;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (quote) {
+      if (c === '\\' && quote === '"') i++;
+      else if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === '#') {
+      end = i;
+      break;
+    } else if (c === '[' || c === '{') delta++;
+    else if (c === ']' || c === '}') delta--;
+  }
+  return { code: raw.slice(0, end).trim(), delta };
+}
+
+/** A `[table]` header line's name: what sits between the `[` and the first `]` outside quotes; '' when it never closes. */
+function headerName(code: string): string {
+  let quote = '';
+  for (let i = 1; i < code.length; i++) {
+    const c = code[i];
+    if (quote) {
+      if (c === quote) quote = '';
+    } else if (c === '"' || c === "'") quote = c;
+    else if (c === ']') return code.slice(1, i).trim();
+  }
+  return '';
+}
+
+/** Whether a `key = value` line's dotted key (before the first `=` outside quotes) has a dependency-word segment. */
+function hasDependencyKey(code: string): boolean {
+  let quote = '';
+  let segment = '';
+  for (const c of code) {
+    if (quote) {
+      if (c === quote) quote = '';
+      segment += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      segment += c;
+    } else if (c === '=') return isDependencyWord(segment);
+    else if (c === '.') {
+      if (isDependencyWord(segment)) return true;
+      segment = '';
+    } else segment += c;
+  }
+  return false;
+}
+
+/**
+ * The dependency content of a Cargo.toml or pyproject.toml, sorted: every non-blank line, comments
+ * dropped and trimmed, that is under a dependency table (not `[[`), or is a `key = value` line anywhere
+ * (the root, `[project]`, `[workspace]`, `[tool.poetry]`) whose dotted key has a dependency-word
+ * segment (`dependencies = { … }`, `optional-dependencies.dev = [ … ]`, `dependencies.serde = "1"`).
+ * A value that opens a bracket or brace continues through its closing one, so a comment or a string
+ * holding a bracket can't end it early. Each line carries its table's name, so moving a dependency
+ * between tables counts while reordering does not.
  */
 export function tomlDependencyLines(text: string | null): string[] {
   if (text === null) return [];
@@ -97,23 +152,21 @@ export function tomlDependencyLines(text: string | null): string[] {
   let inside = false;
   let open = 0;
   for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
+    const { code, delta } = scanLine(raw);
     if (open > 0) {
-      if (line && !line.startsWith('#')) out.push(`${table}\t${line}`);
-      open = Math.max(0, open + bracketDelta(line));
+      if (code) out.push(`${table}\t${code}`);
+      open = Math.max(0, open + delta);
       continue;
     }
-    if (line.startsWith('[')) {
-      const end = line.indexOf(']');
-      table = line.startsWith('[[') || end < 0 ? '' : line.slice(1, end).trim();
+    if (!code) continue;
+    if (code.startsWith('[')) {
+      table = code.startsWith('[[') ? '' : headerName(code);
       inside = table !== '' && isDependencyTable(table);
       continue;
     }
-    if (!line || line.startsWith('#')) continue;
-    if (inside) out.push(`${table}\t${line}`);
-    else if (table === 'project' && /^(?:optional-)?dependencies\s*=/.test(line)) {
-      out.push(`${table}\t${line}`);
-      open = Math.max(0, bracketDelta(line));
+    if (inside || hasDependencyKey(code)) {
+      out.push(`${table}\t${code}`);
+      open = Math.max(0, delta);
     }
   }
   return out.sort();
@@ -264,39 +317,37 @@ function manifestReasons(root: string, config: Config, job: Job): GateReason[] {
 
 // ---------- job facts ----------
 
+/** Whether a review's `## Summary` says `ESCALATE:`, case-sensitive; false without text. */
+export function summaryEscalates(text: string | null): boolean {
+  return text !== null && sections(text, ['Summary']).some((s) => s.includes('ESCALATE:'));
+}
+
 /**
- * One reason per lens whose latest review file (the highest `review/round-<n>/`, n ≤ the job's round,
- * that holds it, so a narrowed rework panel keeps an earlier round's file) says `ESCALATE:` inside
- * `## Summary`, case-sensitive. The integration review never counts. No review text reaches a reason.
+ * One reason per lens whose latest recorded review says `ESCALATE:` inside `## Summary`. A review is
+ * recorded by `forge job verdicts`, whose `verdicts` event notes for each lens it read whether the
+ * Summary said it at that moment (`escalate`), so a review file edited or planted afterwards, a round
+ * the CLI never recorded and a lens that did not review can't clear one. A lens's latest record is
+ * the highest round (n ≤ the job's round) that reviewed it, so a narrowed rework panel keeps an
+ * earlier round's ESCALATE. An event recorded before `escalate` existed falls back to that round's
+ * file for each lens `job.verdicts` names. The integration review never counts. No review text
+ * reaches a reason.
  */
-function lensReasons(root: string, job: Job): GateReason[] {
-  const dir = path.join(jobDir(root, job.id), 'review');
-  let rounds: number[] = [];
-  try {
-    rounds = fs
-      .readdirSync(dir)
-      .map((n) => Number(ROUND_DIR.exec(n)?.[1] ?? NaN))
-      .filter((n) => Number.isInteger(n) && n <= job.round)
-      .sort((a, b) => b - a);
-  } catch {
-    return [];
+function lensReasons(root: string, job: Job, events: readonly JobEvent[]): GateReason[] {
+  const recorded = new Map<number, Record<string, any> | null>();
+  for (const e of events) {
+    const n = Number(e.round);
+    if (e.type === 'verdicts' && Number.isInteger(n) && n >= 1 && n <= job.round) recorded.set(n, isMap(e.escalate) ? e.escalate : null);
   }
   const latest = new Map<string, { round: number; escalate: boolean }>();
-  for (const n of rounds) {
-    const roundDir = path.join(dir, `round-${n}`);
-    let files: string[];
-    try {
-      if (!fs.lstatSync(roundDir).isDirectory()) continue;
-      files = fs.readdirSync(roundDir).sort();
-    } catch {
-      continue;
-    }
-    for (const f of files) {
-      const lens = lensFromReviewFile(f);
-      if (!lens || !isLens(lens) || latest.has(lens)) continue;
-      const text = readRegularText(path.join(roundDir, f), AGENT_TEXT_MAX);
-      if (text === null) continue;
-      latest.set(lens, { round: n, escalate: sections(text, ['Summary']).some((s) => s.includes('ESCALATE:')) });
+  for (const n of [...recorded.keys()].sort((a, b) => b - a)) {
+    const flags = recorded.get(n) ?? null;
+    for (const lens of Object.keys(flags ?? job.verdicts?.[n] ?? {})) {
+      if (!isLens(lens) || latest.has(lens)) continue;
+      if (flags) latest.set(lens, { round: n, escalate: flags[lens] === true });
+      else {
+        const text = readRegularText(path.join(reviewDir(root, job.id, n), reviewFileName(lens)), AGENT_TEXT_MAX);
+        if (text !== null) latest.set(lens, { round: n, escalate: summaryEscalates(text) });
+      }
     }
   }
   return [...latest]
@@ -340,10 +391,11 @@ function headOf(job: Job): string | null {
 export function computeGate(root: string, config: Config, id: string): GateResult {
   const job = loadJob(root, id);
   const dir = jobDir(root, job.id);
+  const events = readEvents(root, job.id);
   const reasons: GateReason[] = [];
   const flag = job.protectedPaths;
-  if (flag?.hits?.length && !protectedApproved(flag, readEvents(root, job.id))) reasons.push(protectedGateReason(flag));
-  reasons.push(...lensReasons(root, job));
+  if (flag?.hits?.length && !protectedApproved(flag, events)) reasons.push(protectedGateReason(flag));
+  reasons.push(...lensReasons(root, job, events));
   if (runbookOpen(dir)) reasons.push({ rule: 'runbook', detail: 'runbook.md has steps for a person' });
   const acs = acsReason(dir);
   if (acs) reasons.push(acs);
