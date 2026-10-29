@@ -8,7 +8,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { repoTemplate } from '../../helpers.ts';
 import { PHASE_ASK, draftNotes, draftSection, inferBump, parseMode, plainAsk, runPhase } from '../../../scripts/release.ts';
-import { Refusal } from '../../../scripts/main-update.ts';
+import { Refusal } from '../../../scripts/stable-tree.ts';
 
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
 const SHA = 'a'.repeat(40);
@@ -20,7 +20,7 @@ const developRepo = repoTemplate((dir) => {
     'package.json': '{\n  "name": "forge",\n  "version": "1.0.0"\n}\n',
     'package-lock.json': '{\n  "name": "forge",\n  "version": "1.0.0",\n  "lockfileVersion": 3,\n  "packages": {\n    "": {\n      "name": "forge",\n      "version": "1.0.0"\n    }\n  }\n}\n',
     '.claude-plugin/plugin.json': '{\n  "name": "forge",\n  "version": "1.0.0"\n}\n',
-    '.claude-plugin/marketplace.json': '{\n  "name": "forge",\n  "plugins": [\n    {\n      "name": "forge",\n      "source": { "source": "url", "url": "https://github.com/o/forge.git", "ref": "v1.0.0" }\n    }\n  ]\n}\n',
+    '.claude-plugin/marketplace.json': '{\n  "name": "forge",\n  "plugins": [\n    {\n      "name": "forge",\n      "source": { "source": "github", "repo": "maxwellmattryan/forge", "ref": "stable" }\n    }\n  ]\n}\n',
     'CHANGELOG.md': '# Changelog\n\n## 1.0.0\n\n- First.\n',
   };
   for (const [rel, text] of Object.entries(files)) {

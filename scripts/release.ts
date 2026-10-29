@@ -39,8 +39,8 @@ import { spawnSync } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { gitSync } from './git.ts';
-import { changelogSection, forgeRef, releaseProblems } from './release-check.ts';
-import { isMainUpdate, isReleaseSubject, mainCommit, mainOnlyCommits, oneLine, Refusal } from './main-update.ts';
+import { changelogSection, releaseProblems } from './release-check.ts';
+import { isMainUpdate, isReleaseSubject, mainCommit, mainOnlyCommits, oneLine, Refusal } from './stable-tree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const SEMVER = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -94,28 +94,15 @@ const VERSION_FILES: [string, string[][]][] = [
   ['package-lock.json', [['version'], ['packages', '', 'version']]],
   [path.join('.claude-plugin', 'plugin.json'), [['version']]],
 ];
-/** Where installs added from GitHub read which commit to install: the forge plugin's `source.ref`. */
-export const MARKETPLACE = path.join('.claude-plugin', 'marketplace.json');
-/** Everything a release commit changes next to its parent, as git names the paths. */
-const RELEASE_FILES = [...VERSION_FILES.map(([rel]) => rel), MARKETPLACE, 'CHANGELOG.md'].map((rel) => rel.split(path.sep).join('/'));
+/** Everything a release commit changes next to its parent, as git names the paths. marketplace.json is not one: it names `stable` for good. */
+const RELEASE_FILES = [...VERSION_FILES.map(([rel]) => rel), 'CHANGELOG.md'].map((rel) => rel.split(path.sep).join('/'));
 
 /**
- * `text` of one bumped file (`rel`: a `VERSION_FILES` entry or marketplace.json) taken from `from` to `to`. Rewrites
- * only the version lines, so the file keeps its formatting, and the first `ref` of marketplace.json to `v<to>`, then
- * checks the JSON reads `to` (and the forge plugin's ref `v<to>`). `releaseCommitOf` replays it on the parent's bytes.
+ * `text` of one bumped file (`rel`: a `VERSION_FILES` entry) taken from `from` to `to`. Rewrites only the version
+ * lines, so the file keeps its formatting, then checks the JSON reads `to`. `releaseCommitOf` replays it on the
+ * parent's bytes.
  */
 export function rewriteVersion(rel: string, text: string, from: string, to: string): string {
-  if (rel === MARKETPLACE) {
-    const next = text.replace(/("ref":\s*)"[^"]*"/, (_m, key) => `${key}"v${to}"`);
-    let ref: unknown;
-    try {
-      ref = forgeRef(JSON.parse(next));
-    } catch (e) {
-      throw new Refusal(`.claude-plugin/marketplace.json: ${(e as Error).message}`);
-    }
-    if (ref !== `v${to}`) throw new Refusal(`.claude-plugin/marketplace.json: the forge plugin's source.ref reads ${JSON.stringify(ref ?? null)} after the bump, not v${to}`);
-    return next;
-  }
   const paths = VERSION_FILES.find(([r]) => r === rel)?.[1];
   if (!paths) throw new Refusal(`${rel} is not a file a version bump touches`);
   const line = new RegExp(`("version":\\s*)"${from.replace(/\./g, '\\.')}"`, 'g');
@@ -132,7 +119,7 @@ export function rewriteVersion(rel: string, text: string, from: string, to: stri
 
 /** `rewriteVersion` over every file a bump touches. Each is checked before any is written, so a refusal never leaves a half-bumped tree. */
 export function setVersion(root: string, from: string, to: string): void {
-  const writes = [...VERSION_FILES.map(([rel]) => rel), MARKETPLACE].map((rel): [string, string] => {
+  const writes = VERSION_FILES.map(([rel]): [string, string] => {
     const file = path.join(root, rel);
     return [file, rewriteVersion(rel, fs.readFileSync(file, 'utf8'), from, to)];
   });
@@ -353,7 +340,7 @@ function isBumpOf(root: string, parent: string, c: string, version: string): boo
     const was = text(parent, 'package.json');
     const from: unknown = was === null ? null : JSON.parse(was)?.version;
     if (typeof from !== 'string' || compareVersions(from, version) >= 0) return false;
-    for (const rel of [...VERSION_FILES.map(([r]) => r), MARKETPLACE]) {
+    for (const [rel] of VERSION_FILES) {
       const [before, after] = [text(parent, rel), text(c, rel)];
       if (before === null || after === null || after !== rewriteVersion(rel, before, from, version)) return false;
     }

