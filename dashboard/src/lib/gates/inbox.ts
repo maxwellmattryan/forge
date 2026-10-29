@@ -169,11 +169,20 @@ export function gatePrNote(j: Pick<JobLike, 'stage' | 'state' | 'waitingOn' | 'r
   return j.pr && j.pr.state === 'OPEN' ? { kind: 'open', pr: j.pr } : null;
 }
 
-/** One row of the Needs-you card's `Why it waits` list: an escalation park's rule, its detail and the paths it names. */
+/**
+ * The file a person reads before deciding on an escalation rule, as step's gateTell names it: the
+ * approver's decision.md, the job's review/ dir (a narrowed panel keeps an earlier round's file, so
+ * the dir, not the latest round), runbook.md. Protected paths have the card's own "View diff"; the
+ * other rules' details say it all.
+ */
+const RULE_DOCS: Readonly<Record<string, string>> = { approver: 'decision.md', 'lens-escalate': 'review', runbook: 'runbook.md' };
+
+/** One row of the Needs-you card's `Why it waits` list: an escalation park's rule, its detail, the paths it names and the file to read. */
 export interface GateReasonRow {
   rule: string;
   detail: string;
   paths: string[];
+  doc: string | null;
 }
 
 /**
@@ -186,7 +195,12 @@ export function gateReasonRows(j: { gateReasons?: unknown }): GateReasonRow[] | 
   const rows = list
     .map(obj)
     .filter((r) => typeof r.rule === 'string' && typeof r.detail === 'string')
-    .map((r) => ({ rule: s(r.rule), detail: s(r.detail), paths: Array.isArray(r.paths) ? r.paths.filter((p: unknown): p is string => typeof p === 'string') : [] }));
+    .map((r) => ({
+      rule: s(r.rule),
+      detail: s(r.detail),
+      paths: Array.isArray(r.paths) ? r.paths.filter((p: unknown): p is string => typeof p === 'string') : [],
+      doc: Object.hasOwn(RULE_DOCS, r.rule) ? RULE_DOCS[r.rule] : null,
+    }));
   return rows.length ? rows : null;
 }
 

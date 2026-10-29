@@ -43,9 +43,15 @@ test('gateReasonRows', () => {
     { rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] },
   ];
   assert.deepEqual(gateReasonRows({ gateReasons: reasons }), [
-    { rule: 'approver', detail: 'the approver escalated: see decision.md', paths: [] },
-    { rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] },
+    { rule: 'approver', detail: 'the approver escalated: see decision.md', paths: [], doc: 'decision.md' },
+    { rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'], doc: null },
   ]);
+  // Each rule links the file step's gateTell names for it, so a runbook-only or lens-only park links what the person must read.
+  const docs = (rules: string[]) => gateReasonRows({ gateReasons: rules.map((rule) => ({ rule, detail: 'x' })) })?.map((r) => r.doc);
+  assert.deepEqual(docs(['runbook']), ['runbook.md'], 'a runbook-only park links runbook.md, not decision.md');
+  assert.deepEqual(docs(['lens-escalate']), ['review']);
+  assert.deepEqual(docs(['approver', 'protected-paths', 'runbook', 'acs', 'dependencies']), ['decision.md', null, 'runbook.md', null, null], 'protected paths keep the card View diff button; acs and dependencies say it all');
+  assert.deepEqual(docs(['constructor']), [null], 'a rule that is an Object.prototype key links nothing');
   for (const [name, v] of [
     ['null', null],
     ['an older server', undefined],
@@ -54,7 +60,7 @@ test('gateReasonRows', () => {
     ['malformed rows only', [{ rule: 1, detail: 'x' }, null, { rule: 'runbook' }]],
   ] as [string, unknown][])
     assert.equal(gateReasonRows({ gateReasons: v }), null, name);
-  assert.deepEqual(gateReasonRows({ gateReasons: [{ rule: 'acs', detail: 'unmapped: AC2', paths: [1, 'a.md'] }, 'junk'] }), [{ rule: 'acs', detail: 'unmapped: AC2', paths: ['a.md'] }], 'only string paths, malformed rows dropped');
+  assert.deepEqual(gateReasonRows({ gateReasons: [{ rule: 'acs', detail: 'unmapped: AC2', paths: [1, 'a.md'] }, 'junk'] }), [{ rule: 'acs', detail: 'unmapped: AC2', paths: ['a.md'], doc: null }], 'only string paths, malformed rows dropped');
   // The card hides the raw park reason while the list shows.
   assert.equal(showParkReason({ reason: 'escalation: approver, version', protectedPaths: null, gateReasons: reasons }), false);
   assert.equal(showParkReason({ reason: 'escalation: approver, version', protectedPaths: null, gateReasons: null }), true);
