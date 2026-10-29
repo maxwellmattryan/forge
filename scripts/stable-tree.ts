@@ -18,7 +18,6 @@ import { releaseProblems } from './release-check.ts';
 
 export const ASSET = /^assets\/[\w.-]+\.(js|css|woff2)$/;
 const SHA = /^[0-9a-f]{40}$/;
-const SEMVER = /^\d+\.\d+\.\d+$/;
 const FIXED = ['index.html', 'manifest.json', STAMP];
 /** What the stable tree leaves out of the develop commit's tree. */
 export const STABLE_DROPS = ['.github/workflows'];
@@ -103,18 +102,6 @@ function gitBuffer(args: string[]): Buffer {
 function requireCommit(sha: string, what: string): void {
   if (!SHA.test(sha)) throw new Refusal(`${what} must be a 40-character lowercase hex sha, got ${JSON.stringify(sha)}`);
   if (git(['cat-file', '-t', sha]).trim() !== 'commit') throw new Refusal(`${what} ${sha} is not a commit`);
-}
-
-/** develop's package.json version, X.Y.Z only: it becomes a PR title and a commit subject. */
-function developVersion(develop: string): string {
-  let v: unknown;
-  try {
-    v = JSON.parse(git(['cat-file', 'blob', `${develop}:package.json`]))?.version;
-  } catch (e) {
-    throw new Refusal(`cannot read develop's package.json: ${(e as Error).message}`);
-  }
-  if (typeof v !== 'string' || !SEMVER.test(v)) throw new Refusal(`develop's package.json version ${JSON.stringify(v)} is not X.Y.Z`);
-  return v;
 }
 
 /** sourceHash of develop's dashboard/ and package-lock.json, read from its tree rather than the checkout. */
@@ -227,58 +214,11 @@ export function checkStable(develop: string, dist: string): string {
   }
 }
 
-/** `Release <v>`, refused once v<v> is tagged: main moves only to release a new version. */
-function title(develop: string): string {
-  const v = developVersion(develop);
-  // Any rev-parse failure reads as "no tag", so this needs the tags in the checkout (release.ts fetches them).
-  const tagged = gitSync(['rev-parse', '-q', '--verify', `refs/tags/v${v}`]).status === 0;
-  if (tagged) throw new Refusal(`v${v} is already tagged: bump the version on develop to release again`);
-  return `Release ${v}`;
-}
-
-/** The main update's commit; `subjectOf` gives its subject, and may refuse (see `title`). */
-function buildMain(main: string, develop: string, dist: string, subjectOf: (develop: string) => string): string {
-  requireCommit(main, '--main');
-  requireCommit(develop, '--develop');
-  const { dir, files } = checkedDist(develop, dist);
-  const subject = subjectOf(develop);
-  const tree = writeTree(develop, dir, files, []);
-  const sha = git(['commit-tree', '--no-gpg-sign', tree, '-p', main, '-p', develop, '-F', '-'], { input: `${subject}\n` }).trim();
-  if (!SHA.test(sha)) throw new Refusal(`git commit-tree printed ${JSON.stringify(sha)}`);
-  return sha;
-}
-
-export function mainCommit(main: string, develop: string, dist: string): string {
-  return buildMain(main, develop, dist, title);
-}
-
-export function isMainUpdate(main: string, develop: string, commit: string, dist: string): boolean {
-  if (!SHA.test(commit)) return false;
-  const tree = (c: string) => git(['rev-parse', '--verify', `${c}^{tree}`]).trim();
-  return tree(buildMain(main, develop, dist, (d) => `Release ${developVersion(d)}`)) === tree(commit);
-}
-
 /** One line of commit text, safe to print: no control characters, bounded length. */
 export const oneLine = (s: string) => {
   const flat = s.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
   return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat;
 };
-
-export function mainOnlyCommits(main: string, develop: string): { sha: string; subject: string }[] {
-  requireCommit(main, '--main');
-  requireCommit(develop, '--develop');
-  const last = git(['log', '--first-parent', '--merges', '-1', '--format=%H', main]).trim();
-  const range = last ? [`${last}..${main}`] : [main];
-  const log = git(['log', '--first-parent', '--no-merges', '--format=%h%x09%s', ...range, '--not', develop, '--']);
-  return log
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => {
-      const tab = l.indexOf('\t');
-      return { sha: l.slice(0, tab).replace(/[^0-9a-f]/g, ''), subject: oneLine(l.slice(tab + 1)) };
-    })
-    .filter((c) => !isReleaseSubject(c.subject));
-}
 
 const USAGE = 'usage: node scripts/stable-tree.ts --develop <sha> --dist <dir>\n';
 

