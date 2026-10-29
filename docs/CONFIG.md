@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 48            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 49            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -159,6 +159,7 @@ pipeline:                    # how a job moves from request to PR
   design: none               # none | reference | mockup
   maxRounds: 3               # build→review rounds before asking a human (eval jobs are graded instead); twice this while the security review isn't PASS
   maxTotalRounds: null       # the total-round ceiling: rounds of any kind, reworks included; past it each round needs a person's rework (null: twice maxRounds; see "Total-round ceiling")
+  resumeRework: true         # true | false: a rework round's builder and each re-run lens resume their role's last session (see docs/architecture/daemon-runtime.md › Role runs)
   budget:                    # per-job limits; null = unlimited. Over budget → waiting on "budget"
     tokens: null             # job.usage.totalTokens
     usd: null                # estimated cost (job.usage.estCostUsd)

@@ -67,6 +67,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
   // and ignores the field.
   { id: 'context-session-event', up: (e) => e },
+  // v20 adds `resume` (the session a role run continued) and `resumeSkipped` (why a rework spawn did not resume) on
+  // `agent-start`, and `resumeFailed` on a role run's `agent-end`; an older Forge ignores the fields.
+  { id: 'agent-resume', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

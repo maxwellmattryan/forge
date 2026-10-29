@@ -162,6 +162,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
   { step: 'improve-transcripts', input: { improve: { retroEvery: 5 } }, fields: { improve: { retroEvery: 5 } }, removed: ['improve.transcripts'], note: ONLY_VERSION },
   { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
+  { step: 'resume-rework', input: { pipeline: { maxRounds: 4 } }, fields: { pipeline: { maxRounds: 4 } }, removed: ['pipeline.resumeRework'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -307,6 +308,13 @@ const EVENT_ROWS: Row[] = [
   { step: 'person-ci-rerun', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, fields: { type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, note: "a person's re-run keeps its actor" },
   { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
   { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
+  {
+    step: 'agent-resume',
+    input: { ts: 't', type: 'agent-start', role: 'builder', model: 'opus', resumeSkipped: 'context over ceiling' },
+    fields: { type: 'agent-start', ts: 't', role: 'builder', model: 'opus', resumeSkipped: 'context over ceiling' },
+    removed: ['resume'],
+    note: "read as written; agent-start's resume and agent-end's resumeFailed are the same identity step",
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [

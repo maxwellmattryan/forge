@@ -121,6 +121,9 @@ export const API_CHANGES = [
   // Job.contexts (ContextSession): the context sessions `forge job agent run` started; ContextMark as `context` on a
   // role run's agent-end event, and the `context-session` event with its usage under role `context`.
   { id: 'context-sessions' },
+  // PipelineConfig.resumeRework; `resume` and `resumeSkipped` on the agent-start event and `resumeFailed` on a role
+  // run's agent-end.
+  { id: 'resume-rework' },
 ] as const;
 
 /**
