@@ -157,14 +157,27 @@ export const JOB: HelpGroup = {
       docs: ['Interim strategies', 'docs/CONFIG.md#interim-strategies'],
       common: true,
     },
-    { command: 'job note', args: '<id> [text] [--body B | --body-file F]', summary: 'log a note event', flags: BODY, exits: [NO_JOB] },
+    {
+      command: 'job note',
+      args: '<id> [text] [--body B | --body-file F] [--for builder]',
+      summary:
+        "log a note event. With --for builder it is a person's hint for the job's builder instead: logs a builder-note event, rewrites approval-notes.md (which the builder brief lists) and returns approvalNotes { path, written, error? }",
+      flags: [
+        ...BODY,
+        ['--for builder', "a hint for the job's builder; refused in the office session and in another job's session"],
+      ],
+      exits: [
+        [1, 'no such job, or --for builder in the office session or in a job session for another job'],
+        [2, 'usage: --for other than builder, or --for builder with no text'],
+      ],
+    },
     {
       command: 'job human',
       args: '<id> <action> [--note N] [--link <ref>|new|none] [--reason R] [--repo A[,B]] [--actor human|foreman]',
       summary:
         "record a human decision: approve-spec, revise-spec, approve-split, revise-split, approve, rework, answer, or approve-repos or reject-repos on the pending repo proposals named by --repo (approve adds each repo to the job), or the foreman's approve-release of the job's pending release plan (logs release-approval and moves no job). In a chat session the decision records actor source chat (docs/architecture/daemon-security.md › Chats)",
       flags: [
-        ['--note N', 'the human\'s note'],
+        ['--note N', "the human's note; with approve-spec a person's note is also written to approval-notes.md, which the builder brief lists"],
         ['--repo A[,B]', 'with approve-repos or reject-repos (required): the pending repos you decide'],
         ['--link <ref>|new|none', 'with approve or approve-spec: link an issue, create one, or record that none is needed'],
         ['--reason R', 'why, with --link none'],

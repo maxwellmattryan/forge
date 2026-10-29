@@ -250,6 +250,8 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, docs/architecture/job-model.md › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
 
+A person's `approve-spec` with a note (`--note`, or the words after the action) also writes `approval-notes.md` in the job folder, which the builder brief lists: the result gains `approvalNotes: {path, written: true}`, or `{path, written: false, error}` when the write failed, in which case the decision still stands and the exit is still 0. No note, a whitespace-only note, a refused call or the Foreman's decision writes nothing. A hint a person adds later goes in with `forge job note <id> --for builder "…"` (or `--body`, `--body-file`): it logs a `builder-note` event `{note, actor}`, rewrites the file and returns `{ok: true, approvalNotes}`. The file is rendered from events on every write, so a hand edit is overwritten. `--for` with any other value, or without text, exits 2; in the office session, or in a job session for another job, `--for builder` exits 1 before reading the body or writing anything. The builder brief lists the file after `tasks.md` on a fresh round, and on a findings-first rework only when a note came after the last builder started.
+
 A **Foreman hand-off** is recorded only by a gate run, never from the CLI: when it leaves the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the policy refused its decision), it logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}`, the gate taken from the job and the reason cleaned and cut to 200 characters.
 
 `forge status --json` rows and `forge job show` carry `foremanHandoff`: that `{gate, class, reason, at}` while the job still waits on the gate it was handed off at, with no newer transition and no `human` event (anyone's decision) since, and `null` otherwise. It is derived from events on read; job.json has no such field. `forge status` marks such a job `waiting:<gate> (left for a human)` in its agent-mode table, and adds a `handoff` column (`<class>: <reason>`) in human mode.
@@ -1154,7 +1156,7 @@ See [Effort](CONFIG.md#effort).
 |---|---|
 | `--actor human\|foreman` | who decided (default human). foreman is refused in every scope, approve-release included: only forge dash's gate runner records foreman decisions, in-process |
 | `--link <ref>\|new\|none` | with approve or approve-spec: link an issue, create one, or record that none is needed |
-| `--note N` | the human's note |
+| `--note N` | the human's note; with approve-spec a person's note is also written to approval-notes.md, which the builder brief lists |
 | `--reason R` | why, with --link none |
 | `--repo A[,B]` | with approve-repos or reject-repos (required): the pending repos you decide |
 
@@ -1237,16 +1239,18 @@ See [Local links](CONFIG.md#local-links).
 |---|---|
 | 1 | an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's |
 
-**`forge job note <id> [text] [--body B | --body-file F]`**: log a note event
+**`forge job note <id> [text] [--body B | --body-file F] [--for builder]`**: log a note event. With --for builder it is a person's hint for the job's builder instead: logs a builder-note event, rewrites approval-notes.md (which the builder brief lists) and returns approvalNotes { path, written, error? }
 
 | Flag | Meaning |
 |---|---|
 | `--body B` | the text |
 | `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
+| `--for builder` | a hint for the job's builder; refused in the office session and in another job's session |
 
 | Exit | When |
 |---|---|
-| 1 | no such job |
+| 1 | no such job, or --for builder in the office session or in a job session for another job |
+| 2 | usage: --for other than builder, or --for builder with no text |
 
 **`forge job panel <id>`**: this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens; each reviewed job repo adds the lenses its clone's panel defines, as &lt;repo>:&lt;lens>; on a narrowed rework round, rerun and skipped name the rework panel
 

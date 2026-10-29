@@ -5,6 +5,7 @@ import { logHumanEvent, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { decideRepoProposals } from '#engine/project/repo-proposals.ts';
+import { writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
 import { daemonScope, inChat, inOffice } from '#core/job/requests.ts';
 import { chatGateRefusal } from '#office/chat/authority.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
@@ -29,6 +30,8 @@ export async function human(root: string, config: Config, rest: string[], flags:
   const jobId = job.id;
   const action = oneOf(rest[1], HUMAN_ACTIONS, 'action');
   const note = str(flags.note, '--note');
+  // --note, else the words after the action: what the human event records.
+  const noted = note ?? (rest.slice(2).join(' ') || null);
   const who = flags.actor === undefined ? 'human' : oneOf(str(flags.actor, '--actor'), ['human', 'foreman'] as const, 'actor');
   // A chat acts for the owner, but a reserved gate stays the owner's own to decide: refused before anything is written.
   const chatRefusal = inChat() ? chatGateRefusal(root, config, job, action, note) : null;
@@ -58,7 +61,7 @@ export async function human(root: string, config: Config, rest: string[], flags:
     const repos = flags.repo === undefined ? [] : list(flags.repo);
     if (!repos.length) throw new ForgeError(`forge job human ${action} needs --repo A[,B]: the pending repos you decide (see repo-proposals.md)`, 1);
     // A person may name a subset.
-    const decided = decideRepoProposals(root, config, jobId, action === 'approve-repos' ? 'approve' : 'reject', { repos, note: note ?? (rest.slice(2).join(' ') || null), actor: currentActor(root) });
+    const decided = decideRepoProposals(root, config, jobId, action === 'approve-repos' ? 'approve' : 'reject', { repos, note: noted, actor: currentActor(root) });
     return { ok: true, ...decided };
   }
   // A rejected split re-plans as one job; recorded before the event so step never sees one without the other.
@@ -70,8 +73,10 @@ export async function human(root: string, config: Config, rest: string[], flags:
   if (link === 'none') linked = markNoIssue(root, jobId, reason ?? null, actor);
   else if (link === 'new') linked = createAndLink(root, config, await loadTracker(root, config), jobId, actor);
   else if (typeof link === 'string') linked = linkJob(root, config, await loadTracker(root, config), jobId, [link], actor);
-  logHumanEvent(root, jobId, 'human', { action, note: note ?? (rest.slice(2).join(' ') || null) }, actor);
-  return { ok: true, ...(link !== undefined ? { link: linked } : {}) };
+  logHumanEvent(root, jobId, 'human', { action, note: noted }, actor);
+  // A person's note reaches the builder: approval-notes.md, which the builder brief lists. A failed write never undoes the decision.
+  const approvalNotes = action === 'approve-spec' && noted?.trim() ? writeApprovalNotes(root, jobId) : null;
+  return { ok: true, ...(link !== undefined ? { link: linked } : {}), ...(approvalNotes ? { approvalNotes } : {}) };
 }
 
 /**

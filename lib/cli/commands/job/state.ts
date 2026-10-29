@@ -2,11 +2,12 @@
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/owner.ts';
 import { checkOfficeSetFor } from '#office/foreman/policy.ts';
-import { inChat, inOffice } from '#core/job/requests.ts';
+import { daemonScope, inChat, inOffice, sharedScope } from '#core/job/requests.ts';
 import { chatSetRefusal } from '#office/chat/authority.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
-import { loadJob, logEvent, setJobEffort } from '#core/job/store.ts';
+import { writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
+import { loadJob, logEvent, logHumanEvent, setJobEffort } from '#core/job/store.ts';
 import { checkFieldKey, checkJobFields, reopensShelved } from '#core/job/fields.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
@@ -99,10 +100,26 @@ export function refreshRequestCmd(root: string, config: Config, rest: string[], 
   return refreshRequest(root, config, requireJob(root, id).id, 'cli');
 }
 
+export const OFFICE_HINT_REFUSAL = 'the office session writes no builder hints: a person adds one from their own terminal, a chat or the dashboard inbox';
+
 export function note(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const id = rest[0];
-  logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags, root, config) });
-  return { ok: true };
+  const jobId = requireJob(root, id).id;
+  if (flags.for === undefined) {
+    logEvent(root, jobId, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags, root, config) });
+    return { ok: true };
+  }
+  oneOf(str(flags.for, '--for'), ['builder'] as const, 'for');
+  // A builder reads the hint: the office session (it reads tracker titles and mandate guidance) writes none, and a
+  // job session only for its own job. Refused before the body is read and before anything is written.
+  if (inOffice()) throw new ForgeError(OFFICE_HINT_REFUSAL, 1);
+  const s = daemonScope();
+  if ('problem' in s) throw new ForgeError(s.problem);
+  if (s.daemon && !sharedScope(s.scope) && s.scope !== jobId) throw new ForgeError(`forge job note --for builder in job ${s.scope}'s session may only add a hint for that job`, 1);
+  const text = rest.slice(1).join(' ') || bodyFrom(flags, root, config);
+  if (!text.trim()) throw usageError(JOB, 'note');
+  logHumanEvent(root, jobId, 'builder-note', { note: text });
+  return { ok: true, approvalNotes: writeApprovalNotes(root, jobId) };
 }
 
 export async function budget(root: string, config: Config, rest: string[], flags: Record<string, any>) {
