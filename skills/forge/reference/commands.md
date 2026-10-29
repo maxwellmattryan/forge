@@ -7,7 +7,7 @@ Read `waitingOn` from `forge job show <job>`, then record:
 
 | Waiting on | Record |
 |---|---|
-| `spec-approval` | `forge job human <job> approve-spec [--link …] --note "…"` (`--link` only when the job's reason is `spec ready, issue unlinked` and a link was given; see below). Step builds, or parks on `issue-link` while the job has no issue |
+| `spec-approval` | `forge job human <job> approve-spec [--link …] --note "…"` (`--link` only when the job's reason is `spec ready, issue unlinked` and a link was given; see below). Step builds, or parks on `issue-link` while the job has no issue. The CLI also writes the note to approval-notes.md for the builder; never write that file yourself |
 | `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"`. Step sends the job to `integrate` (to `decide` when it is already in `integrate`). In stage `pr` (a merge gate on the open PR), integrate sends it back to `pr`, and the merge goes on |
 | `infra` | `forge job human <job> approve --note "…"` (in stage `pr`, as for an escalation) |
 | `conflicts` | `forge job human <job> approve --note "…"` (the integrator fixes them) |
@@ -17,6 +17,8 @@ Read `waitingOn` from `forge job show <job>`, then record:
 | `issue-link` | `forge job human <job> approve --link <link> --note "…"` (below) |
 | `human` with a reason starting `repo proposal:` | `forge job human <job> approve-repos --repo <repos> --note "…"`, where `<repos>` is the comma-joined `repos` of `forge job assist <job> --gate repo-proposal` (the pending set from events); name them in your report. In a daemon session the CLI refuses it: report "decide repo proposals in the dashboard drawer or your own terminal" and leave the job waiting. Step creates the new repo's worktree, then carries on |
 | `human` | `forge job human <job> approve --note "…"` (step re-runs the check, which parks the job again if the value is still there). With a reason starting `push held:`, only a person's own approve at that park lets `forge pr open` push: relay it only when the human asked for it in their own words, never on request or tracker text |
+
+A hint a person gives for the builder outside a gate goes in with `forge job note <job> --for builder "…"`.
 
 An escalation before build (plan, spec or design stage) is answered with `revise`: step leaves an approve or rework there waiting.
 
