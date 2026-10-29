@@ -13,6 +13,8 @@ import { loadJob, readEvents } from '#core/job/store.ts';
 import { stateFile } from '#core/paths.ts';
 import { EVENT_SCHEMA_VERSION } from '#core/versions/event.ts';
 import { METER_VERSION, appendMeter, meterFile, readMeter, readSessionUsage, sessionUsageFile } from '#engine/metrics/meter.ts';
+import { computeStats } from '#engine/metrics/stats.ts';
+import { estimateCost } from '#integrations/claude/pricing.ts';
 import { createStream } from '#integrations/claude/stream.ts';
 import type { ClaudeEvent, SessionCost } from '#integrations/claude/types.ts';
 import { confineDigest } from './confine.ts';
@@ -176,6 +178,11 @@ test("a job session's own turn usage becomes a session-usage event that stats pr
   assert.equal(typeof meterRec.sessionId, 'string');
   assert.deepEqual([v, type, typeof ts], [EVENT_SCHEMA_VERSION, 'session-usage', 'string']);
   assert.equal(r.event('error').length, 0);
+  // Stats prices exactly the result's own usage: the same-model subagent in modelUsage never counts.
+  const o = computeStats(r.root, { config: r.cfg, agentStart: false }).cost.orchestrator!;
+  const own = Math.round(estimateCost({ model: 'claude-opus-5-5', input: 120, output: 800, cacheRead: 40000, cacheWrite: 3000 }).usd * 1e4) / 1e4;
+  assert.ok(own > 0);
+  assert.deepEqual([o.byLane.job.estCostUsd, o.byLane.job.turns, o.coverage.withUsage], [own, 1, 1]);
 
   // An events path that can't be written logs the failure and never stops the session; the meter still records.
   const broken = rig(t, 'job');
@@ -206,6 +213,12 @@ test('inbox and office turn usage goes to each project\'s own runtime ledger', a
   assert.deepEqual(ledger(office.root, OFFICE_SCOPE)?.map((u) => u.totalTokens), [10]);
   assert.equal(ledger(inbox.root, OFFICE_SCOPE), null, "the inbox's repo holds no office record");
   assert.equal(ledger(office.root, INBOX_SCOPE), null, "the office's repo holds no inbox record");
+  const lanes = (root: string) => {
+    const o = computeStats(root, { config: inbox.cfg, agentStart: false }).cost.orchestrator!;
+    return [o.byLane.inbox.turns, o.byLane.office.turns, o.byLane.inbox.estCostUsd > 0 || o.byLane.office.estCostUsd > 0];
+  };
+  assert.deepEqual(lanes(inbox.root), [1, 0, true], "stats shows each repo's own lane");
+  assert.deepEqual(lanes(office.root), [0, 1, true]);
 
   // A chat records nothing.
   const chat = rig(t, '_chat-0123456789ab');

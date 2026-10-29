@@ -22,7 +22,7 @@ export const HELP: HelpGroup[] = [
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
-          ['--csv', 'spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE'],
+          ['--csv', 'spend as RFC 4180 CSV with CRLF line ends: key columns, a source column (reported, supervisor, or session-usage, which the supervisor rows already count), then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE'],
           ['--by K', 'with --csv: one row per job (default, keyed job,kind,title), role, model or day; `prompt` (JSON only): one cohort per prompt hash the role last started on, each with its own stats'],
           ['--role R', 'with --by prompt: the agents/*.md role or reviewer:<lens> whose starts key the cohorts (default builder)'],
           ['--mandate ID', "the mandate's report card as JSON, computed live (any status): what merged, scores, review rounds, interventions by gate, spend against budget and outcomes, a figure still awaiting a score run or outcome window reading pending; takes no other stats flag"],
@@ -96,6 +96,7 @@ export function statsSections(s: Stats): StatsSections {
   const gaps = sp.handoffSeconds;
   const extra = sp.minutesPerExtraRound;
   const shares = Object.entries(s.cost.byRole ?? {}).flatMap(([k, v]) => (typeof v.cacheReadShare === 'number' ? [`${k} ${pct(v.cacheReadShare)}`] : []));
+  const orch = s.cost.orchestrator;
   return {
     // An older stats.json (or /api/stats) has no shelved count.
     jobs: [`jobs ${s.counts.total}${s.counts.archived ? ` (${s.counts.archived} archived)` : ''} (active ${s.counts.active}, done ${s.counts.done}, waiting ${s.counts.waiting}, shelved ${s.counts.shelved ?? 0}, cancelled ${s.counts.cancelled})`],
@@ -118,6 +119,10 @@ export function statsSections(s: Stats): StatsSections {
     cost: [
       `tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`,
       ...(shares.length ? [`cache-read share ${shares.join(' · ')}`] : []),
+      // An older stats.json (or /api/stats) has no orchestrator figure.
+      ...(orch
+        ? [`orchestrator $${orch.estCostUsd} (job $${orch.byLane.job.estCostUsd} · inbox $${orch.byLane.inbox.estCostUsd} · office $${orch.byLane.office.estCostUsd}) · ${orch.turns} turns · session usage on ${orch.coverage.withUsage}/${orch.coverage.jobs} jobs`]
+        : []),
     ],
     // An older stats.json (or /api/stats) has no miss rate, sole or reopened counts.
     reviewers: Object.entries(s.reviewers).map(([k, v]) => [

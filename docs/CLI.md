@@ -2034,7 +2034,7 @@ Pipeline metrics: quality, speed and cost.
 | Flag | Meaning |
 |---|---|
 | `--by K` | with --csv: one row per job (default, keyed job,kind,title), role, model or day; `prompt` (JSON only): one cohort per prompt hash the role last started on, each with its own stats |
-| `--csv` | spend as RFC 4180 CSV with CRLF line ends: key columns, then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE |
+| `--csv` | spend as RFC 4180 CSV with CRLF line ends: key columns, a source column (reported, supervisor, or session-usage, which the supervisor rows already count), then runs,tokens,input,output,cache_read,cache_write,usd; with it, --since keeps events at or after DATE |
 | `--include-evals` | count eval jobs too (--csv always counts every job) |
 | `--mandate ID` | the mandate's report card as JSON, computed live (any status): what merged, scores, review rounds, interventions by gate, spend against budget and outcomes, a figure still awaiting a score run or outcome window reading pending; takes no other stats flag |
 | `--role R` | with --by prompt: the agents/\*.md role or reviewer:&lt;lens> whose starts key the cohorts (default builder) |
