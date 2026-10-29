@@ -1093,7 +1093,7 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing
+**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when the round's latest gate event lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
 
 | Exit | When |
 |---|---|
@@ -1141,6 +1141,12 @@ See [Effort](CONFIG.md#effort).
 | 3 | the tracker claim was lost to another job |
 | 4 | the repo budget holds new work |
 | 5 | gh failed (GitHub tracker) |
+
+**`forge job gate <id>`**: compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that says ESCALATE, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}
+
+| Exit | When |
+|---|---|
+| 1 | no such job |
 
 **`forge job get <id> [path]`**: one value of job.json by dotted path (null when absent)
 

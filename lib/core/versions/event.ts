@@ -67,6 +67,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
   // and ignores the field.
   { id: 'context-session-event', up: (e) => e },
+  // v20 adds the `gate` event ({round, head, reasons: [{rule, detail, paths?}]}): `forge job gate` recorded the job's gate
+  // reasons, which DC12, PR19, the approver's brief and the escalation park read; and `gated: true` on a `decision` the
+  // gate reasons kept from auto-merge. An older Forge reads the event as generic and ignores the field.
+  { id: 'gate-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

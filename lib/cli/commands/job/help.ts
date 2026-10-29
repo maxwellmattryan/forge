@@ -317,7 +317,14 @@ export const JOB: HelpGroup = {
       ],
       exits: [[1, 'no such job, or no reviewers selected']],
     },
-    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
+    {
+      command: 'job gate',
+      args: '<id>',
+      summary:
+        'compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that says ESCALATE, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}',
+      exits: [NO_JOB],
+    },
+    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when the round's latest gate event lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
     {
       command: 'job score',
       args: 'record <id>',

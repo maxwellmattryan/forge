@@ -1,5 +1,5 @@
 // A job as job.json and events.jsonl hold it, as /api/state and /api/jobs/:id serve it.
-import type { ActorSource, BudgetKey, Complexity, Effort, GateClass, HandoffClass, InterimStrategy, JobState, Stage, WaitingOn } from './enums.ts';
+import type { ActorSource, BudgetKey, Complexity, Effort, GateClass, GateRule, HandoffClass, InterimStrategy, JobState, Stage, WaitingOn } from './enums.ts';
 
 /**
  * One of a job's issues: lib/core/job/issue-ref.ts. `tracker` is the tracker kind; `ref` is `owner/repo#12`
@@ -468,6 +468,17 @@ export interface ProtectedPaths {
   head: string | null;
   /** sha256 over every (path, blob) of the set, `more` included; absent on a flag from before it. */
   digest?: string;
+}
+
+/**
+ * One reason a job needs a person before merge (lib/engine/pipeline/moves/gate-reasons.ts), as the `gate`
+ * event and an escalation park list it. `detail` is CLI-composed (fixed words, numbers, lens, AC and repo
+ * names); only `paths` come from the branch, at most 10.
+ */
+export interface GateReason {
+  rule: GateRule;
+  detail: string;
+  paths?: string[];
 }
 
 /** tasks.md checkbox counts: progress in lib/core/job/store.ts. */
