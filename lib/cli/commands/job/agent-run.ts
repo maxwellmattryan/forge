@@ -313,6 +313,10 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+  const release = () => {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  };
   const parent = ipc ? parentChannel(sp.role, () => onSignal('SIGTERM')) : null;
   parent?.send({ event: 'started' });
   let log = '';
@@ -468,62 +472,69 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       reported = null;
       outcome = await launch(argv, sessionId, brief, { attach: true, timeoutMs });
     }
+  } catch (e) {
+    release();
+    throw e;
   } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
     parent?.close();
   }
-  const wallMs = Date.now() - t0;
-  const agentId: string = reported ?? sessionId;
-  if (mark) {
-    const firstRead = outcome.firstRequest?.cacheRead ?? null;
-    // A fork whose first request read no more than the context's own first request missed the cache: logged cold, not repeated.
-    mark = fork && cacheMiss(firstRead, fork.startPrefix) === true ? { ...cold('cache miss', fork.id), firstRead } : { ...mark, firstRead };
-  }
-  // 15. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
-  let failure: RoleFailure | null = outcome.failure;
-  if (trustMoved()) failure = { class: 'untrusted', reason: CHANGED, resetsAt: null };
-
-  // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
-  const resumed = resumeId !== null && !resumeFailed;
-  const base = resumed ? baseline : fork && outcome.cost ? forkBase(sidecarCum(roleRunFiles(root, jobId, fork.id).cum), outcome.cost) : ZERO;
-  const { usage, unmeasured } = measure(agentId, sp.role, outcome, base, wallMs);
-
-  // 17. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
-  const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
-  // The reply's first line is model output, the likeliest place for a known secret to appear: redacted before Forge stores it.
-  const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
-  let ended: ReturnType<typeof endAgent>;
+  // The handlers stay until the end is recorded: they only mark the run interrupted, and a signal after the child is gone
+  // (a stop sends one per call) must not kill the runner with its role still `running`.
   try {
-    ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, resumeFailed, env, fence: { epoch: epoch ?? job.lease.epoch } });
-  } catch (e) {
-    if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the role's end was not recorded, and its run log is kept at ${log}`, 'stale_epoch');
-    throw e;
+    const wallMs = Date.now() - t0;
+    const agentId: string = reported ?? sessionId;
+    if (mark) {
+      const firstRead = outcome.firstRequest?.cacheRead ?? null;
+      // A fork whose first request read no more than the context's own first request missed the cache: logged cold, not repeated.
+      mark = fork && cacheMiss(firstRead, fork.startPrefix) === true ? { ...cold('cache miss', fork.id), firstRead } : { ...mark, firstRead };
+    }
+    // 15. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
+    let failure: RoleFailure | null = outcome.failure;
+    if (trustMoved()) failure = { class: 'untrusted', reason: CHANGED, resetsAt: null };
+
+    // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
+    const resumed = resumeId !== null && !resumeFailed;
+    const base = resumed ? baseline : fork && outcome.cost ? forkBase(sidecarCum(roleRunFiles(root, jobId, fork.id).cum), outcome.cost) : ZERO;
+    const { usage, unmeasured } = measure(agentId, sp.role, outcome, base, wallMs);
+
+    // 17. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
+    const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
+    // The reply's first line is model output, the likeliest place for a known secret to appear: redacted before Forge stores it.
+    const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
+    let ended: ReturnType<typeof endAgent>;
+    try {
+      ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, resumeFailed, env, fence: { epoch: epoch ?? job.lease.epoch } });
+    } catch (e) {
+      if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the role's end was not recorded, and its run log is kept at ${log}`, 'stale_epoch');
+      throw e;
+    }
+    const data = {
+      id: jobId,
+      role: sp.role,
+      rule: sp.rule,
+      agentId,
+      resumed,
+      ...(resumeFailed ? { resumeFailed: true } : {}),
+      ...(sp.resumeSkipped ? { resumeSkipped: sp.resumeSkipped } : {}),
+      status: failure ? ('failed' as const) : ('done' as const),
+      summary: summary ?? null,
+      failure: failure ? { class: failure.class, reason, resetsAt: failure.resetsAt === null ? null : new Date(failure.resetsAt).toISOString() } : null,
+      denied: outcome.denied,
+      wallMs,
+      log,
+      prefix,
+      ...(prefixRefused ? { prefixRefused } : {}),
+      context: mark,
+      usage: ended.usage ? { tokens: ended.usage.tokens, exact: ended.usage.exact } : null,
+      ...(ended.unmeasured ? { unmeasured: true } : {}),
+      jobTokens: ended.jobTokens,
+      jobCostUsd: ended.jobCostUsd,
+      ...(ended.outputMissing !== undefined ? { outputMissing: ended.outputMissing } : {}),
+      ...(ended.secrets ? { secrets: ended.secrets } : {}),
+      ...(ended.budget ? { budget: ended.budget } : {}),
+    };
+    return { data, exitCode: failure ? (EXTERNAL.has(failure.class) ? 5 : 1) : 0 };
+  } finally {
+    release();
   }
-  const data = {
-    id: jobId,
-    role: sp.role,
-    rule: sp.rule,
-    agentId,
-    resumed,
-    ...(resumeFailed ? { resumeFailed: true } : {}),
-    ...(sp.resumeSkipped ? { resumeSkipped: sp.resumeSkipped } : {}),
-    status: failure ? ('failed' as const) : ('done' as const),
-    summary: summary ?? null,
-    failure: failure ? { class: failure.class, reason, resetsAt: failure.resetsAt === null ? null : new Date(failure.resetsAt).toISOString() } : null,
-    denied: outcome.denied,
-    wallMs,
-    log,
-    prefix,
-    ...(prefixRefused ? { prefixRefused } : {}),
-    context: mark,
-    usage: ended.usage ? { tokens: ended.usage.tokens, exact: ended.usage.exact } : null,
-    ...(ended.unmeasured ? { unmeasured: true } : {}),
-    jobTokens: ended.jobTokens,
-    jobCostUsd: ended.jobCostUsd,
-    ...(ended.outputMissing !== undefined ? { outputMissing: ended.outputMissing } : {}),
-    ...(ended.secrets ? { secrets: ended.secrets } : {}),
-    ...(ended.budget ? { budget: ended.budget } : {}),
-  };
-  return { data, exitCode: failure ? (EXTERNAL.has(failure.class) ? 5 : 1) : 0 };
 }
