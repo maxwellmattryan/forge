@@ -183,24 +183,6 @@ const RESUME_SKIP_ROWS: [string, FixtureOpts][] = [
   ['context unknown', resumableBuilder({}, { lastSessions: { builder: resumable(BUILDER_SID, null) } })],
   ['context over ceiling', resumableBuilder({}, { lastSessions: { builder: resumable(BUILDER_SID, 120_001) } })],
 ];
-/** n verifier questions, named v00, v01, … in loadVerifiers' order. */
-const QUESTIONS = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `v${String(i).padStart(2, '0')}`, question: `Does change ${i} hold?` }));
-/** The panel's checklists: code from the plugin, docs from the repo, tests without one. */
-const STANDARDS: Pick<FixtureOpts, 'checklists'> = { checklists: { code: path.join(PLUGIN_ROOT, 'reviewers', 'code.md'), tests: null, docs: path.join(ROOT, '.forge', 'reviewers', 'docs.md') } };
-const CHECKLISTS_LINE = `Review checklists (JSON): ${JSON.stringify({ code: path.join(PLUGIN_ROOT, 'reviewers', 'code.md'), docs: path.join(ROOT, '.forge', 'reviewers', 'docs.md') })} · the panel reviews against these: read each before you write code`;
-const QUESTIONS_SUFFIX = ' · yes/no checks the main checkout runs on files your file map names: read them before you write code';
-/** The round-1 builder's brief with n matching verifiers: both standards lines directly after File map:, checklists first. */
-const standardsCheck = (n: number) => (a: any) => {
-  const lines: string[] = a.brief.split('\n');
-  const i = lines.findIndex((l) => l.startsWith('File map: '));
-  assert.ok(i >= 0, a.brief);
-  assert.equal(lines[i + 1], CHECKLISTS_LINE);
-  const shown = QUESTIONS(n).slice(0, 20).map((v) => `${v.name} · ${v.question}`);
-  assert.equal(lines[i + 2], `Verifier questions (JSON): ${JSON.stringify(shown)}${n > 20 ? ` (+${n - 20} more)` : ''}${QUESTIONS_SUFFIX}`);
-  assert.equal(lines.filter((l) => l.startsWith('Review checklists (JSON): ')).length, 1);
-  assert.equal(lines.filter((l) => l.startsWith('Verifier questions (JSON): ')).length, 1);
-  assert.equal(lines.length, 16);
-};
 
 /** approval-notes.md, present, and a person's actor for the notes in it. */
 const NOTES_MD = path.join(JOB_DIR, 'approval-notes.md');
@@ -1032,16 +1014,14 @@ export const rows: Row[] = [
     check: (a) => assert.ok(!a.brief.includes('Maps (JSON):'), a.brief),
   },
   {
-    name: 'B4 the round-1 builder sees the review standards',
-    fx: { files: ['spec', 'tasks'], ...STANDARDS, verifierQuestions: QUESTIONS(23), job: job({ stage: 'build', round: 1, reviewers: ['code', 'tests', 'docs'] }), events: [ev('round', 4)] },
+    name: 'B4 the round-1 builder brief carries no review standards',
+    fx: { files: ['spec', 'tasks'], job: job({ stage: 'build', round: 1, reviewers: ['code', 'tests', 'docs'] }), events: [ev('round', 4)] },
     want: { action: 'spawn', rule: 'B4', role: 'builder' },
-    check: standardsCheck(23),
-  },
-  {
-    name: 'B4 the round-1 builder sees exactly 20 verifier questions without a suffix',
-    fx: { files: ['spec', 'tasks'], ...STANDARDS, verifierQuestions: QUESTIONS(20), job: job({ stage: 'build', round: 1, reviewers: ['code', 'tests', 'docs'] }), events: [ev('round', 4)] },
-    want: { action: 'spawn', rule: 'B4', role: 'builder' },
-    check: standardsCheck(20),
+    check: (a) => {
+      const lines: string[] = a.brief.split('\n');
+      assert.ok(lines.some((l) => l.startsWith('File map: ')), a.brief);
+      assert.ok(!lines.some((l) => l.startsWith('Review checklists') || l.startsWith('Verifier questions')), a.brief);
+    },
   },
   {
     name: 'B4 a review rework spawns a fresh builder with a findings-first brief',
@@ -1049,8 +1029,6 @@ export const rows: Row[] = [
       files: ['spec', 'feedback', 'tasks', 'build'],
       present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'review', 'round-1', 'tests.md')],
       folderMaps: { maps: [path.join(WT, 'lib', 'AGENTS.md')], topics: [] },
-      ...STANDARDS,
-      verifierQuestions: QUESTIONS(3),
       job: job({ stage: 'build', round: 2, reviewers: ['code', 'tests', 'docs'], verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
       events: [ev('round', 7)],
     },
@@ -1066,8 +1044,6 @@ export const rows: Row[] = [
       assert.ok(lines.includes(`Reference: ${path.join(JOB_DIR, 'spec.md')}`));
       assert.ok(!a.brief.includes('File map:'));
       assert.ok(!a.brief.includes('Maps (JSON):'));
-      assert.ok(!a.brief.includes('Review checklists (JSON):'));
-      assert.ok(!a.brief.includes('Verifier questions (JSON):'));
     },
   },
   {

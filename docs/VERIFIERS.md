@@ -37,10 +37,6 @@ Any other frontmatter key, a missing or empty `paths`, an invalid value, an empt
 
 Always the **main checkout**, never a job's worktree or branch, the same rule as `.forge/config.yml` and `.forge/secrets-allow.txt`. A job that adds or edits a verifier on its branch changes nothing until that change is merged and lands in the main checkout. `forge job step` counts the main checkout's `.forge/verifiers/*.md` to decide whether the gate runs at all.
 
-## Before the build
-
-The builder sees the questions before it writes code. A fresh builder brief (round 1, or a round whose only rework input is an answered question) carries a `Verifier questions (JSON)` line: `<name> · <question>` for each of the main checkout's valid verifiers with a `paths` glob matching a path in the spec's Approach › `Files:` table, the same glob match the round uses on the diff, at most 20 with ` (+<k> more)` past that. Problem files and a worktree's `.forge/verifiers/` never appear, and a spec without a `Files:` table gets no line. Above it, a `Review checklists (JSON)` line maps each lens on the job's panel to the checklist that lens reviews against. Both lines carry paths and the parsed one-line questions only, never a checklist or a verifier's rationale, and a findings-first rework brief carries neither. The builder prompt asks the builder to meet them as standards, not to copy them into `tasks.md`.
-
 ## What happens in a round
 
 Inside the verify stage, after the round's last verify passed (`forge job step` rules VF1–VF3):
