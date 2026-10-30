@@ -2,12 +2,12 @@
 // model label, the connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input.
 // No DOM and no svelte component import, so node:test can pin them.
 // Model strings come from config.yml and the roster, session state from session output: all plain strings, rendered as text.
-import { familyPill, obj, poolModel } from '../sessions/daemon.ts';
+import { obj, poolModel } from '../sessions/daemon.ts';
 import type { Pill, PoolInput } from '../sessions/daemon.ts';
 import { activeSessions } from '../sessions/live.ts';
 import { pendingPrompts } from '../sessions/permissions.ts';
 import { gateRunsHeader } from '../office/gate-runs.ts';
-import { OFFICE_SCOPE } from '../core/types.ts';
+import { officeRunsHeader } from '../office/runs.ts';
 import type { Roster } from '../core/types.ts';
 import { lampState } from '../logs/station.ts';
 import type { LampState } from '../logs/station.ts';
@@ -113,26 +113,26 @@ export function connectionState({ online, apiVersion, clientApi }: { online: boo
 export type DaemonIndicator = { off: true; active: false; cap: number } | { off: false; pill: Pill; live: number; cap: number; active: boolean };
 
 /**
- * The Foreman (the office session and forge dash's gate runs) supervises the pool, so the bar always shows it, even while
- * it or the daemon is off. `pill` and `prompts` are the office session's (a gate run asks no one), `officeError` its last
- * error; `active` is true while the office is busy or any gate run is live; `gates` is /api/state's gate runner, as sent,
- * for the popover's list (lib/office/gate-runs.ts reads it).
+ * The Foreman (forge dash's office runs and gate runs) supervises the pool, so the bar always shows it, even while it
+ * or the daemon is off. No run asks anyone, so it has no prompts. `active` is true while an office run or a gate run is
+ * live, and `pill` says busy then, idle while the pool is wanted, else stopped; `officeError` is the office runs'
+ * daily-cap hold; `gates` is /api/state's gate runner, as sent, for the popover's list (lib/office/gate-runs.ts reads it).
  */
-export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; prompts: number; officeError: string | null; gates: unknown };
+export type ForemanIndicator = { on: false } | { on: true; daemon: boolean; pill: Pill; active: boolean; officeError: string | null; gates: unknown };
 
 /** The Foreman indicator for a pool; `daemon` says whether the daemon is on (poolModel is not null). */
 export function foremanIndicator(pool: PoolInput, daemon: boolean): ForemanIndicator {
   const p = obj(pool);
   if (p.foreman !== true) return { on: false };
-  const office = p.office ?? null;
-  const error = obj(office).lastError;
+  const office = officeRunsHeader(p.office);
+  const active = office.live > 0 || gateRunsHeader(p.gates).live > 0;
+  const pill: Pill = active ? { label: 'busy', tone: 'live', title: 'Foreman: busy' } : p.wanted === true ? { label: 'idle', tone: 'ok', title: 'Foreman: idle' } : { label: 'stopped', tone: 'muted', title: 'Foreman: stopped' };
   return {
     on: true,
     daemon,
-    pill: familyPill([{ name: 'Foreman', session: office }]),
-    active: obj(office).status === 'busy' || gateRunsHeader(p.gates).live > 0,
-    prompts: pendingPrompts(pool ?? null, OFFICE_SCOPE).length,
-    officeError: typeof error === 'string' && error.trim() ? error : null,
+    pill,
+    active,
+    officeError: office.held?.kind === 'cap' ? office.held.message : null,
     gates: p.gates ?? null,
   };
 }
@@ -178,7 +178,7 @@ export interface BarLamps {
 
 /**
  * The bar's lamps; the model button has none. Needs: you while anything waits on a person. Foreman: dark while it or the
- * daemon is off, you with office prompts, working while the office is busy or a gate run is live, else done. Workers: dark while the daemon is off, you with any prompt in the pool (the inbox's and the office's
+ * daemon is off, working while an office run or a gate run is live, else done. Workers: dark while the daemon is off, you with any prompt in the pool (the inbox's
  * included), working while any session works, else done. Inbox: dark while the daemon is off, else the inbox session's
  * own lamp (logs/station.ts lampState). Connection: done when live, dark while connecting, fault offline, you when the server is newer.
  */
@@ -187,7 +187,7 @@ export function barLamps(bar: BarModel, { needs, conn }: { needs: number; conn: 
   const d = bar.daemon;
   return {
     needs: needs > 0 ? 'you' : 'idle',
-    foreman: !f.on || !f.daemon ? 'idle' : f.prompts > 0 ? 'you' : f.active ? 'working' : 'done',
+    foreman: !f.on || !f.daemon ? 'idle' : f.active ? 'working' : 'done',
     workers: d.off ? 'idle' : bar.prompts > 0 ? 'you' : d.active ? 'working' : 'done',
     // `in`, not `.off`: test/tsconfig.json (strict: false) reads this file too, and there a boolean discriminant doesn't narrow.
     inbox: 'lamp' in bar.inbox ? bar.inbox.lamp : 'idle',

@@ -1,31 +1,33 @@
 // The status bar's lamps: the Inbox indicator's lamp follows the inbox session alone, while Workers keeps the pool-wide rule;
-// the Foreman indicator follows the office session and the gate runs.
+// the Foreman indicator follows the office runs and the gate runs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { barLamps, barModel, foremanIndicator } from './statusbar.ts';
 
-test('foremanIndicator: active for a live gate run, prompts only the office', () => {
+test('foremanIndicator: active for a live office or gate run, its error the office cap', () => {
   const prompt = { id: 'p1', tool: 'Bash', input: '{}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-26T00:00:00.000Z' };
-  const office = { scope: '_office', status: 'idle', running: true, wanted: true, lastError: null };
+  const office = (live: number, held: object | null = null) => ({ enabled: true, live, held, runs: [] });
   const gates = (live: number) => ({ enabled: true, parallel: 2, live, held: null, runs: [] });
-  const base = { enabled: true, wanted: true, maxConcurrent: 2, live: 0, lastError: null, foreman: true, office, gates: gates(0), jobs: {}, permissionModes: {} };
-  const rows: [string, object, { active: boolean; prompts: number; officeError: string | null }][] = [
-    ['idle', base, { active: false, prompts: 0, officeError: null }],
-    ['a live gate run', { ...base, gates: gates(1) }, { active: true, prompts: 0, officeError: null }],
-    ['the office busy', { ...base, office: { ...office, status: 'busy' } }, { active: true, prompts: 0, officeError: null }],
-    ['an office prompt', { ...base, office: { ...office, permissions: [prompt] } }, { active: false, prompts: 1, officeError: null }],
-    ["a job's prompt is not the Foreman's", { ...base, jobs: { 'a-job': { scope: 'a-job', status: 'idle', running: true, permissions: [prompt] } } }, { active: false, prompts: 0, officeError: null }],
-    ['an office error', { ...base, office: { ...office, lastError: 'daily cap reached' } }, { active: false, prompts: 0, officeError: 'daily cap reached' }],
-    ['an older server with no gates', { ...base, gates: undefined }, { active: false, prompts: 0, officeError: null }],
+  const base = { enabled: true, wanted: true, maxConcurrent: 2, live: 0, lastError: null, foreman: true, office: office(0), gates: gates(0), jobs: {}, permissionModes: {} };
+  const cap = { reason: 'daily-cap', until: null, message: 'daemon stopped: the office runs and gate runs spent $1.05 of the $1.00 daily cap' };
+  const rows: [string, object, { active: boolean; pill: string; officeError: string | null }][] = [
+    ['idle', base, { active: false, pill: 'idle', officeError: null }],
+    ['a live gate run', { ...base, gates: gates(1) }, { active: true, pill: 'busy', officeError: null }],
+    ['a live office run', { ...base, office: office(1) }, { active: true, pill: 'busy', officeError: null }],
+    ["a job's prompt is not the Foreman's", { ...base, jobs: { 'a-job': { scope: 'a-job', status: 'idle', running: true, permissions: [prompt] } } }, { active: false, pill: 'idle', officeError: null }],
+    ['the office cap', { ...base, office: office(0, cap) }, { active: false, pill: 'idle', officeError: cap.message }],
+    ['a retry hold is no error', { ...base, office: office(0, { reason: 'retry', until: '2026-10-26T01:00:00.000Z', message: 'x' }) }, { active: false, pill: 'idle', officeError: null }],
+    ['the pool not wanted', { ...base, wanted: false }, { active: false, pill: 'stopped', officeError: null }],
+    ['an older server with no gates or runs', { ...base, gates: undefined, office: { scope: '_office', status: 'busy' } }, { active: false, pill: 'idle', officeError: null }],
   ];
   for (const [name, pool, want] of rows) {
     const f = foremanIndicator(pool as any, true);
     assert.ok(f.on, name);
-    assert.deepEqual({ active: f.active, prompts: f.prompts, officeError: f.officeError }, want, name);
+    assert.deepEqual({ active: f.active, pill: f.pill.label, officeError: f.officeError }, want, name);
   }
   assert.deepEqual(foremanIndicator({ ...base, foreman: false } as any, true), { on: false });
   const lamps = (pool: object) => barLamps(barModel(pool as any, { pending: false }), { needs: 0, conn: 'live' }).foreman;
-  assert.deepEqual([lamps(base), lamps({ ...base, gates: gates(1) }), lamps({ ...base, office: { ...office, permissions: [prompt] } })], ['done', 'working', 'you']);
+  assert.deepEqual([lamps(base), lamps({ ...base, gates: gates(1) }), lamps({ ...base, office: office(1) })], ['done', 'working', 'working']);
 });
 
 test('barLamps: the Inbox lamp follows the inbox session only', () => {

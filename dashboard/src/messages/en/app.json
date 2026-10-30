@@ -6,7 +6,7 @@
     "tagline": "software factory",
     "noConfig": "This repo has no .forge/config.yml yet. Run /forge init.",
     "launchCommand": "forge dash --permission-mode {mode}",
-    "launchMode": "started this run: every job, inbox and office session in every project starts in {mode} unless you switch it."
+    "launchMode": "started this run: every job and inbox session in every project starts in {mode} unless you switch it."
   },
   "nav": {
     "global": "General",
