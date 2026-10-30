@@ -76,6 +76,8 @@ describe('the code driver', { concurrency: 4 }, () => {
     assert.deepEqual([handed[0].type, handed[0].status, handed[0].text], ['resume', 'pending', HANDOFF_TEXT]);
     const [session] = rig.sessions.children.filter((c) => c.scope === id);
     assert.equal(session.turns, 1, 'one turn');
+    await waitFor(() => rig.log(id).some((l) => l.event === 'turn'), { what: "the session's turn line" });
+    assert.deepEqual(rig.log(id).filter((l) => l.event === 'turn').map((l) => l.requests), [1], 'given the one hand-off request');
     assert.deepEqual(pool.state().jobs[id].status, 'busy');
     const job = loadJob(root, id);
     assert.ok(job.lease.driver === null || leaseStatus(job).status !== 'live', 'the driver let the job go');
