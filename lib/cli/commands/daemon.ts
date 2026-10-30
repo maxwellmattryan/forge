@@ -33,7 +33,7 @@ const DAEMON: HelpGroup = {
       args: '<job>|--inbox|--office|--gates [--lines N] [--follow]',
       summary: "a session's log, or the office runs' or gate runs' log, from the terminal",
       flags: [
-        ['--inbox', "the inbox session's log instead of a job's"],
+        ['--inbox', "the inbox's log (its session's and the intake runner's lines) instead of a job's"],
         ['--office', "the office runs' log (office-start, office-step, office-child, office-end, office-held and error lines) instead of a job's"],
         ['--gates', "the gate runs' log (gate-start, gate-end, gate-held and error lines) instead of a job's"],
         ['--lines N', 'the last N lines (default 100, at most 5000)'],

@@ -1,7 +1,8 @@
 // The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn,
 // appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. A job scope runs the budget
 // checkpoint `session-meter`; the inbox and the chats stop at their daemon.dailyUsd cap (forge dash's office and gate
-// runs share the office's through officeCapRefusal and officeCapLeft, and every chat the project's one chat cap,
+// runs share the office's through officeCapRefusal and officeCapLeft, the intake runner's triage child the inbox's
+// through inboxCapRefusal, and every chat the project's one chat cap,
 // summed), and when a meter it sums can't be read the cap can't be checked, so they stop too. claude reports its cost
 // itself, so a session's own reporting never moves what is enforced (docs/architecture/daemon-security.md). Each result
 // first records the turn's own usage (recordTurnUsage), which nothing enforces.
@@ -111,6 +112,15 @@ function familyOverCap(root: string, c: Config, shared: Family, at: number): { m
  */
 export function officeCapRefusal(root: string, c: Config, at: number): { message: string } | null {
   const over = familyOverCap(root, c, 'office', at);
+  return over ? { message: over.message } : null;
+}
+
+/**
+ * Why the inbox (its session and the intake runner's triage child, both metered to `_inbox`) may not spend at `at`,
+ * else null: today's metered spend reached daemon.dailyUsd.inbox, or its meter can't be read (fails closed).
+ */
+export function inboxCapRefusal(root: string, c: Config, at: number): { message: string } | null {
+  const over = familyOverCap(root, c, 'inbox', at);
   return over ? { message: over.message } : null;
 }
 

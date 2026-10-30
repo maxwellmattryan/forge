@@ -81,7 +81,7 @@ export function sessionBrowser(root: string, scope: string, env: NodeJS.ProcessE
   }
 }
 
-/** Spawns `s` when no child runs, then hands it `eligible` as a turn (none for null: the eager inbox). False when the spawn was refused. */
+/** Spawns `s` when no child runs, then hands it `eligible` as a turn (none for null: a chat, whose owner's message is its turn). False when the spawn was refused. */
 export function startWork(s: Session, c: Config, reason: string, eligible: string[] | null): boolean {
   if (!s.running && !s.spawn(c, reason)) return false;
   if (eligible !== null) s.writeTurn(eligible);

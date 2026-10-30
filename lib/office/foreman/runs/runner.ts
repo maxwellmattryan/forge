@@ -17,7 +17,7 @@ import { now } from '#core/utils.ts';
 import { cleanReason } from '../verdict.ts';
 import { officeCapRefusal } from '../../session/meter.ts';
 import type { SessionContext, SessionOptions } from '../../session/contract.ts';
-import type { ChildStop } from '../../sync-child.ts';
+import type { ChildStop } from '../../inbox/children.ts';
 import { officeArgv, officeChildEnv, officeCliResult, runOfficeCli, type OfficeCliRun } from './cli.ts';
 import { startOfficeChild, type OfficeChild } from './child.ts';
 import { runDraft } from './draft.ts';

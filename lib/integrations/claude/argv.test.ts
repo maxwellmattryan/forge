@@ -187,6 +187,10 @@ test("roleArgv builds a role child's command line", () => {
     { name: 'a fork', vars: { fork: true, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid, '--fork-session'])] },
     { name: 'fork false changes nothing', vars: { fork: false, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid])] },
     { name: 'a fork without a resume', vars: { fork: true }, throws: /--fork-session needs --resume/ },
+    // A one-shot child: nothing resumes it, so claude keeps no transcript of it.
+    { name: 'persist false', vars: { persist: false }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid, '--no-session-persistence'])] },
+    { name: 'persist false after a fork', vars: { persist: false, fork: true, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid, '--fork-session', '--no-session-persistence'])] },
+    { name: 'persist true changes nothing', vars: { persist: true }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
     // The agent's tool list: built-in names only, so none becomes a flag, a second word or an MCP grant.
     { name: "a builder's tools", vars: { agent: 'forge:builder', tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'], effort: null }, want: [...head.slice(0, 10), 'forge:builder', ...head.slice(11, 16), 'Read,Grep,Glob,Bash,Edit,Write', '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
     { name: 'no tools', vars: { tools: [] }, throws: /tools must be built-in tool names/ },

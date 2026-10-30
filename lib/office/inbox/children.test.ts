@@ -1,14 +1,15 @@
 // syncChildEnv, and a tracked core.hooksPath hook against a real `git fetch` under that env; runChild's stop
-// signal against real node children.
+// signal against real node children; runForgeCall against a real `bin/forge` stand-in.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scratchGitConfig, waitFor } from '../../test/helpers.ts';
+import { pathToFileURL } from 'node:url';
+import { scratchGitConfig, waitFor } from '../../../test/helpers.ts';
 import { SYNC_PINS } from '#integrations/git/runner.ts';
-import { STDOUT_MAX, runChild, runChildOutput, syncChildEnv } from './sync-child.ts';
+import { STDOUT_MAX, runChild, runChildOutput, runForgeCall, syncChildEnv } from './children.ts';
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = process.env) => execFileSync('git', args, { cwd, env, stdio: 'pipe', encoding: 'utf8' });
 
@@ -89,6 +90,41 @@ test('an aborted child is stopped: SIGTERM, then SIGKILL after the grace period'
     const message = await run;
     assert.equal(message, row.message, row.name);
     if (row.message === 'exit SIGKILL') assert.ok(Date.now() - abortedAt >= graceMs - 5, `${row.name}: killed only after the grace period`);
+  }
+});
+
+test('runForgeCall returns the exit code and parsed JSON', async (t) => {
+  if (process.platform === 'win32') return t.skip('POSIX signals');
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-call-')));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  // A module node loads before bin/forge: it answers in forge's place, then exits, so no real command runs.
+  const preload = (name: string, body: string) => {
+    const file = path.join(base, `${name}.mjs`);
+    fs.writeFileSync(file, `import fs from 'node:fs';\n${body}\n`);
+    return { ...process.env, NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${JSON.stringify(pathToFileURL(file).href)}`.trim() };
+  };
+  const stop = { signal: new AbortController().signal, graceMs: 100 };
+  const rows = [
+    {
+      name: 'JSON and exit 3',
+      env: preload('json', `fs.writeSync(1, JSON.stringify({ id: 'j1', n: 2 }) + '\\n'); fs.writeSync(2, 'noise\\nforge: request 1-a is being handled by session s\\n'); process.exit(3);`),
+      want: { code: 3, signal: null, json: { id: 'j1', n: 2 }, error: 'request 1-a is being handled by session s' },
+    },
+    {
+      name: 'a JSON error line',
+      env: preload('err', `fs.writeSync(2, JSON.stringify({ error: 'repo budget: held' }) + '\\n'); process.exit(4);`),
+      want: { code: 4, signal: null, json: null, error: 'repo budget: held' },
+    },
+    {
+      name: 'output over 1 MiB',
+      env: preload('big', `const chunk = 'x'.repeat(64 * 1024); for (let i = 0; i < 40; i++) fs.writeSync(1, chunk); process.exit(0);`),
+      want: { code: null, signal: 'SIGKILL', json: null, error: 'output over 1 MiB' },
+    },
+  ];
+  for (const row of rows) {
+    const r = await runForgeCall(base, ['sync'], { env: row.env, stop });
+    assert.deepEqual({ code: r.code, signal: r.signal, json: r.json, error: r.error }, row.want, row.name);
+    assert.ok(Number.isFinite(r.ms) && r.ms >= 0, `${row.name}: ms`);
   }
 });
 

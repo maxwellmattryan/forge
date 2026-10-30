@@ -11,7 +11,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { sessionEnv } from '#integrations/claude/argv.ts';
 import { checkLaunch } from '../../session/launch.ts';
 import { spawnConfinement } from '../../session/confine.ts';
-import { runChildOutput, type ChildStop } from '../../sync-child.ts';
+import { runChildOutput, type ChildStop } from '../../inbox/children.ts';
 import { cleanReason } from '../verdict.ts';
 import type { SessionContext, SessionOptions } from '../../session/contract.ts';
 import type { Config } from '#core/types.ts';

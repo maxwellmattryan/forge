@@ -58,8 +58,7 @@ test('a draft request becomes an office run, never a session turn', async (t) =>
     }
     assert.equal(of('_office').length, 0, 'no office session');
     assert.equal(pool.facts('_office'), null);
-    assert.ok(of('_inbox').every((c) => c.turns === 0), 'the inbox gets no turn for it');
-    assert.deepEqual(fake.children.map((c) => c.scope), ['_inbox'], 'no job session');
+    assert.deepEqual(fake.children.map((c) => c.scope), [], 'no inbox, office or job session');
     // No session serves `_office`: a start or a mode is refused, and a stop does nothing.
     assert.deepEqual(pool.startSession('_office'), { error: OFFICE_NO_SESSION });
     assert.deepEqual(pool.setPermissionMode('_office', 'auto', { login: null, source: 'dashboard' }), { error: OFFICE_NO_SESSION });
@@ -142,8 +141,10 @@ test('chat text reaches only its chat session', async (t) => {
   const claude = fakeClaude();
   const pool = poolFor(t, repo, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   pool.start('boot');
-  const others = ['_inbox', job];
-  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the inbox and job sessions run');
+  // The inbox spawns no session at start: the intake runner answers its requests.
+  const others = [job];
+  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the job session runs');
+  assert.ok(!claude.children.some((c) => c.scope === '_inbox' || c.scope === '_office'), 'no inbox or office session');
 
   const chat = '_chat-0123456789ab';
   assert.deepEqual(pool.sendChat(chat, 'hello, Foreman'), { error: null });

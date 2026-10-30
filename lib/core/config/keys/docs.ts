@@ -312,7 +312,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'daemon.dailyUsd': {
     doc: 'dollars per UTC day the inbox, office and chat sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)',
   },
-  'daemon.dailyUsd.inbox': { doc: "the inbox session's daily cap in USD (null: none)" },
+  'daemon.dailyUsd.inbox': { doc: "the inbox's daily cap in USD, its session and the intake runner's triage child together (null: none)" },
   'daemon.dailyUsd.office': { doc: 'the daily cap in USD on the office runs and the gate runs, summed: at the cap no office or gate run starts (null: none)' },
   'daemon.dailyUsd.chat': { doc: "the daily cap in USD on every chat session of the project, summed: at the cap a chat refuses the owner's next message, and a running one stops after its reply (null: none)" },
   'daemon.keepAwake': {

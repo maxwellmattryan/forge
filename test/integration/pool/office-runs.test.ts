@@ -151,8 +151,8 @@ test('a draft request ends with a stored draft and an acked request', async (t) 
   const run = pool.state().office.runs[0];
   assert.deepEqual([run.type, run.mandate, run.outcome, run.calls, run.usd], ['draft', 'g1', 'drafted', 1, 0.25]);
 
-  // The pool start brings the inbox session up as always; the office run adds one model child and no session.
-  assert.deepEqual(scopes(claude.children), ['_inbox', '_office']);
+  // The pool start spawns no inbox session (the intake runner answers its requests); the office run adds one model child and no session.
+  assert.deepEqual(scopes(claude.children), ['_office']);
   assert.ok(office().every((x) => x.argv.includes('--agent')), 'every office child is an agent, none a session');
   assert.equal(pool.facts('_office'), null);
 });
@@ -167,7 +167,7 @@ test('a stale or refused draft run', async (t) => {
   await settled(a.dir, stale);
   assert.equal(request(a.dir, stale).status, 'done');
   assert.match(request(a.dir, stale).result ?? '', /^stale: /);
-  assert.deepEqual([scopes(one.claude.children), one.pool.state().office.runs[0]?.outcome], [['_inbox'], 'stale'], 'no model child');
+  assert.deepEqual([scopes(one.claude.children), one.pool.state().office.runs[0]?.outcome], [[], 'stale'], 'no model child');
 
   // Refused: a staging file that breaks the draft rules.
   const b = draftRepo();
@@ -327,7 +327,7 @@ test('the office cap stops both runners', async (t) => {
     const { pool, claude } = poolFor(t, repo);
     pool.start('boot');
     pool.poke();
-    assert.deepEqual(scopes(claude.children), ['_inbox'], `${row}: no office or gate child`);
+    assert.deepEqual(scopes(claude.children), [], `${row}: no office or gate child`);
     assert.deepEqual([pool.state().office.held?.reason, pool.state().gates.held?.reason], ['daily-cap', 'daily-cap'], row);
     assert.ok(listRequests(repo.dir).every((r) => r.status === 'pending'), `${row}: everything waits`);
   }
