@@ -70,7 +70,7 @@ export interface FixtureOpts {
   checklists?: StepInput['checklists'];
   /** loadStepInput's verifierQuestions; null by default, as at any stage but build. */
   verifierQuestions?: StepInput['verifierQuestions'];
-  /** loadStepInput's instructionsChanged; [] (nothing changed) by default. */
+  /** loadStepInput's instructionsChanged; [] (nothing changed) by default, and null (git failed) when given. */
   instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
   budgetExceeded?: StepInput['budgetExceeded'];
@@ -146,7 +146,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
     verifierQuestions: o.verifierQuestions ?? null,
-    instructionsChanged: o.instructionsChanged ?? [],
+    instructionsChanged: o.instructionsChanged === undefined ? [] : o.instructionsChanged,
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
     events: o.events ?? [],

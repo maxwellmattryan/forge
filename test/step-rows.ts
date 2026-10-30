@@ -6,6 +6,7 @@ import { shellLine, step } from '#engine/pipeline/step.ts';
 import type { Config, Job, JobAgent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
+import { defaults } from '#core/config/load.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
 import { REVIEWED_HEAD_NOTE } from '#engine/pipeline/step/facts.ts';
 import { JOB_DIR, RECALL_HASH, ROOT, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
@@ -306,6 +307,117 @@ const recallWaiver = (reason = RECALL_REASON, human: Record<string, unknown> = {
   said('approve', 33, human),
   tr(34, { stage, state: 'waiting', waitingOn: 'human' }, { stage }),
 ];
+
+// ---- The clean pass (approver.skipWhenClean): DC13 records Forge's APPROVE, anything else keeps the approver (DC1)
+/** The gate check's event at minute n (`forge job gate`): `reasons` as logged. */
+const GATE = (n: number, reasons: unknown = []) => ev('gate', n, { reasons });
+/** Round 1 at 4, review → integrate at 25 (`reviewed`), integrate → decide at 33. */
+const DECIDE_EVENTS = [ev('round', 4, { round: 1 }), reviewed, tr(33, { stage: 'integrate' }, { stage: 'decide' })];
+/** …and the gate check at 34 found nothing. */
+const CLEAN_EVENTS = [...DECIDE_EVENTS, GATE(34)];
+/** A clean decision `forge job decision --clean` logged at minute n. */
+const cleanDecided = (n: number) => ev('decision', n, { decision: 'APPROVE', reason: null, autoMerge: false, head: HEAD_SHA, clean: true });
+/**
+ * A clean pass at decide, round 1: code and security PASS in their files and on record, both ACs proven, CLEAN_EVENTS and the
+ * flag on. Each row changes one fact through `more`; its config runs after the flag is set.
+ */
+const clean = (more: FixtureOpts = {}): FixtureOpts => ({
+  verdicts: { round: verdicts({ code: 'PASS', security: 'PASS' }) },
+  acs: { total: 2, covered: 2 },
+  events: CLEAN_EVENTS,
+  ...more,
+  config: (c) => {
+    c.approver.skipWhenClean = true;
+    more.config?.(c);
+  },
+  job: job({ stage: 'decide', round: 1, reviewers: ['code', 'security'], verdicts: { 1: { code: 'PASS', security: 'PASS' } }, ...more.job }),
+});
+const APPROVER = { action: 'spawn', rule: 'DC1', role: 'approver' };
+/** A narrowed round 2: round 1's verdicts, then a review of `code` alone (PASS), review → integrate at 50, decide at 53, the gate check at 54. */
+const narrowed = (round1: Job['verdicts'][string]): FixtureOpts =>
+  clean({
+    job: { round: 2, verdicts: { 1: round1, 2: { code: 'PASS' } } },
+    verdicts: { round: verdicts({ code: 'PASS' }) },
+    events: [...CLEAN_EVENTS, ev('round', 40, { round: 2 }), tr(50, { stage: 'review' }, { stage: 'integrate' }), tr(53, { stage: 'integrate' }, { stage: 'decide' }), GATE(54)],
+  });
+/** One path each `escalate` rule of the default policy covers, a glob made concrete. */
+const ESCALATE_PATHS = defaults()
+  .policy.protectedPaths.filter((r) => r.action === 'escalate')
+  .map((r) => r.paths[0].replace(/\*\*/g, 'x').replace(/\*/g, 'x'));
+
+function cleanPassRows(): Row[] {
+  return [
+    { name: "DC13 a clean pass records Forge's APPROVE", fx: clean(), want: { ...run('job', 'decision', 'j', '--clean'), rule: 'DC13' } },
+    { name: 'DC13 a narrowed round 2 whose skipped lens passed in round 1', fx: narrowed({ code: 'CHANGES', security: 'PASS' }), want: { rule: 'DC13' } },
+    // AC11: the gate check, read raw and failing closed.
+    ...['protected-paths', 'lens-escalate', 'runbook', 'acs', 'version', 'dependencies'].map((rule) => ({ name: `DC1 gate reason ${rule} runs the approver`, fx: clean({ events: [...DECIDE_EVENTS, GATE(34, [{ rule, detail: 'x' }])] }), want: APPROVER })),
+    { name: 'DC1 a gate reason it cannot read runs the approver', fx: clean({ events: [...DECIDE_EVENTS, GATE(34, [{ rule: 'bogus' }])] }), want: APPROVER },
+    { name: 'DC1 gate reasons that are not a list run the approver', fx: clean({ events: [...DECIDE_EVENTS, GATE(34, 'none')] }), want: APPROVER },
+    { name: 'DC1 an empty gate check followed by one with a reason runs the approver', fx: clean({ events: [...CLEAN_EVENTS, GATE(35, [{ rule: 'runbook' }])] }), want: APPROVER },
+    { name: 'DC1 no gate check since the review runs the approver', fx: clean({ events: DECIDE_EVENTS }), want: APPROVER },
+    { name: 'DC1 an empty gate check planted during integrate runs the approver', fx: clean({ events: [ev('round', 4, { round: 1 }), reviewed, GATE(30), tr(33, { stage: 'integrate' }, { stage: 'decide' })] }), want: APPROVER },
+    // AC12: protected paths, approved or not.
+    ...ESCALATE_PATHS.map((p) => ({ name: `DC1 protected path ${p} runs the approver`, fx: clean({ job: { protectedPaths: FLAG(15, [p]) } }), want: APPROVER })),
+    { name: "DC1 a protected path a person approved still runs the approver", fx: clean({ job: { protectedPaths: FLAG(15) }, events: [...CLEAN_EVENTS, said('approve', 36)] }), want: APPROVER },
+    { name: 'DC1 protected hits past the stored ones run the approver', fx: clean({ job: { protectedPaths: FLAG(15, [], 1) } }), want: APPROVER },
+    // AC13: every lens of the full panel passed.
+    ...['CHANGES', 'MISSING', 'MALFORMED', 'PENDING'].map((v) => ({ name: `DC1 security ${v} runs the approver`, fx: clean({ verdicts: { round: verdicts({ code: 'PASS', security: v }) } }), want: APPROVER })),
+    { name: 'DC1 code CHANGES runs the approver', fx: clean({ verdicts: { round: verdicts({ code: 'CHANGES', security: 'PASS' }) } }), want: APPROVER },
+    { name: "DC1 a narrowed round 2 can't drop security's CHANGES", fx: narrowed({ code: 'PASS', security: 'CHANGES' }), want: APPROVER },
+    // AC14: the rest of the checks.
+    { name: 'DC1 approver.skipWhenClean off runs the approver', fx: clean({ config: (c) => (c.approver.skipWhenClean = false) }), want: APPROVER },
+    { name: 'DC1 merge.auto on runs the approver', fx: clean({ config: (c) => (c.merge.auto = true) }), want: APPROVER },
+    { name: 'DC1 foreman.ship merge runs the approver', fx: clean({ config: (c) => ((c.foreman.enabled = true), (c.foreman.ship = 'merge')) }), want: APPROVER },
+    { name: 'DC1 a runbook runs the approver', fx: clean({ files: ['runbook'] }), want: APPROVER },
+    { name: 'DC1 an unmapped AC runs the approver', fx: clean({ acs: { total: 2, covered: 1, unmapped: ['AC2'] } }), want: APPROVER },
+    { name: 'DC1 a failing AC runs the approver', fx: clean({ acs: { total: 2, covered: 1, failing: ['AC2'] } }), want: APPROVER },
+    { name: 'DC1 a changed instruction file runs the approver', fx: clean({ instructionsChanged: ['AGENTS.md'] }), want: APPROVER },
+    { name: 'DC1 an instruction diff git could not compute runs the approver', fx: clean({ instructionsChanged: null }), want: APPROVER },
+    {
+      name: 'DC1 a park since the review runs the approver',
+      fx: clean({ events: [...CLEAN_EVENTS, tr(35, { stage: 'decide' }, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }), tr(36, { stage: 'decide', state: 'waiting', waitingOn: 'budget' }, { stage: 'decide' })] }),
+      want: APPROVER,
+    },
+    { name: 'DC1 a recall eval still required after its two starts runs the approver', fx: clean({ recall: { changed: ['agents/x.md'] }, events: [...CLEAN_EVENTS, recallStart(35), recallStart(36)] }), want: APPROVER },
+    { name: 'DC1 an eval job never takes the clean pass', fx: clean({ job: { kind: 'eval', eval: { run: 'r', task: 'hello' } }, evalTask: { rubric: 'rubric.md', reference: null } }), want: APPROVER },
+    { name: 'DC2 an approver that ran since the review is recorded, never replaced', fx: clean({ job: { agents: { approver: ag(1, 35, 36) } }, decision: { decision: 'ESCALATE' } }), want: { ...run('job', 'decision', 'j'), rule: 'DC2' } },
+    // AC15: after the clean decision, the APPROVE path; a new review makes it stale.
+    {
+      name: 'DC9b a clean decision goes on to integrate',
+      fx: clean({ decision: { decision: 'APPROVE' }, events: [ev('round', 4, { round: 1 }), tr(25, { stage: 'review' }, { stage: 'decide' }), GATE(26), cleanDecided(27)] }),
+      want: { ...setRunning('integrate'), rule: 'DC9b' },
+    },
+    {
+      name: 'DC9 a clean decision after integrate goes to pr',
+      fx: clean({
+        decision: { decision: 'APPROVE' },
+        events: [ev('round', 4, { round: 1 }), tr(25, { stage: 'review' }, { stage: 'decide' }), GATE(26), cleanDecided(27), tr(28, { stage: 'decide' }, { stage: 'integrate' }), ev('integrated', 29, { behind: 0 }), tr(30, { stage: 'integrate' }, { stage: 'decide' })],
+      }),
+      want: { ...setRunning('pr'), rule: 'DC9' },
+    },
+    {
+      name: "DC1 a clean decision from an earlier review doesn't count",
+      fx: clean({
+        job: { round: 2, verdicts: { 1: { code: 'PASS', security: 'PASS' }, 2: { code: 'PASS', security: 'PASS' } } },
+        decision: { decision: 'APPROVE' },
+        events: [...CLEAN_EVENTS, cleanDecided(35), tr(36, { stage: 'decide' }, { stage: 'build' }), ev('round', 40, { round: 2 }), tr(50, { stage: 'review' }, { stage: 'integrate' }), tr(53, { stage: 'integrate' }, { stage: 'decide' })],
+      }),
+      want: APPROVER,
+    },
+    {
+      name: 'DC13 a clean decision from an earlier review is checked again',
+      fx: clean({
+        job: { round: 2, verdicts: { 1: { code: 'PASS', security: 'PASS' }, 2: { code: 'PASS', security: 'PASS' } } },
+        decision: { decision: 'APPROVE' },
+        events: [...CLEAN_EVENTS, cleanDecided(35), tr(36, { stage: 'decide' }, { stage: 'build' }), ev('round', 40, { round: 2 }), tr(50, { stage: 'review' }, { stage: 'integrate' }), tr(53, { stage: 'integrate' }, { stage: 'decide' }), GATE(54)],
+      }),
+      want: { rule: 'DC13' },
+    },
+    // A clean decision counts only as Forge records it: in decide, with the flag on.
+    { name: "DC1 a clean decision logged outside decide doesn't count", fx: clean({ decision: { decision: 'APPROVE' }, events: [ev('round', 4, { round: 1 }), reviewed, cleanDecided(30), tr(33, { stage: 'integrate' }, { stage: 'decide' }), GATE(34)] }), want: APPROVER },
+    { name: "DC1 a clean decision with the flag off doesn't count", fx: clean({ config: (c) => (c.approver.skipWhenClean = false), decision: { decision: 'APPROVE' }, events: [...CLEAN_EVENTS, cleanDecided(35)] }), want: APPROVER },
+  ];
+}
 
 // ---- The moved gates: the PR opens, then the merge waits (PR13, PR15–PR17, PP1b)
 const ESCALATED = 'approver escalated: see decision.md';
@@ -1422,6 +1534,7 @@ export const rows: Row[] = [
     check: (a) => assert.ok(a.brief.split('\n').includes('Reviewer recall: not checked (no recall fixtures in the main checkout)'), a.brief),
   },
   { name: 'DC5 an eval job with a PR record still grades, never DC10', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' }, pr: OPEN_PR }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], evalTask: { rubric: null, reference: null } }, want: { rule: 'DC5' } },
+  ...cleanPassRows(),
 
   // ---- Integrate
   { name: 'IG1 integrates the base', fx: { job: atIntegrate(), events: [entered] }, want: run('integrate', 'j') },
