@@ -16,8 +16,8 @@ import type { SessionCore } from '../contract.ts';
 import { recordPrompt, type PromptReason } from './history.ts';
 import type { DaemonPermissionMode, DaemonPermissionPrompt, DaemonTimedOutPrompt, EventActor, PermissionDecision } from '#core/types.ts';
 
-/** Prompts waiting at once per session; past this, new ones are denied without asking. */
-const MAX_PROMPTS = 20;
+/** Prompts waiting at once per session (and per code turn, lib/office/code/relay.ts); past this, new ones are denied without asking. */
+export const MAX_PROMPTS = 20;
 /** Timed-out prompts a session keeps for the dashboard, newest first. */
 export const MAX_TIMED_OUT = 10;
 /** setTimeout's own ceiling (about 24.8 days); a longer timeout is none. */
