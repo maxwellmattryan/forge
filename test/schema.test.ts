@@ -322,6 +322,14 @@ const EVENT_ROWS: Row[] = [
     note: "read as written; agent-start's resume and agent-end's resumeFailed are the same identity step",
   },
   { step: 'gate-event', input: { ts: 't', type: 'gate', round: 2, head: null, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }] }, fields: { type: 'gate', round: 2, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }] }, note: "read as written; a decision's gated is the same identity step" },
+  { step: 'builder-note-event', input: { ts: 't', type: 'builder-note', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } }, fields: { type: 'builder-note', ts: 't', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } }, note: 'a builder hint reads as written' },
+  {
+    step: 'approval-note-mark',
+    input: { ts: 't', type: 'human', action: 'approve-spec', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } },
+    fields: { type: 'human', ts: 't', action: 'approve-spec', note: 'build on main after #91', actor: { login: 'al', source: 'gh' } },
+    removed: ['approvalNote'],
+    note: 'an approve-spec from before the mark reads as written and gains none, so approval-notes.md never renders it',
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [
