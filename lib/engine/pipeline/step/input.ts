@@ -96,6 +96,7 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
   // reviewCurrent reads the full log: the `verdicts` event stays out of step's own events.
   const all = readEvents(root, job.id);
   const events = all.filter((e) => STEP_EVENTS.has(e.type));
+  const logged = all.findLast((e) => e.type === 'verdicts' && e.round === job.round)?.outcome;
   // The same list review() reads, or a narrowed round's verdicts would never complete.
   const lenses = roundLenses(job, config, currentRerun({ job, config, events }));
   const compact =(v: ReturnType<typeof roundVerdicts>): StepVerdicts => ({
@@ -137,6 +138,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
     // Only where DC11 and PR12 read it: the check runs git in every job repo.
     reviewCurrent: ['decide', 'pr'].includes(job.stage) && job.state === 'running' && job.kind !== 'eval' ? reviewCurrent(root, config, job, all) : null,
+    // The full log, as for reviewCurrent.
+    panelOutcome: typeof logged === 'string' ? logged : null,
     // The full log: `verdicts` stays out of step's own events, as for reviewCurrent.
     reviewedShas: loadReviewedShas(job, all),
     runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),

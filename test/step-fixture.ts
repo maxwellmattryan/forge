@@ -41,6 +41,8 @@ export interface FixtureOpts {
   decisionCurrent?: StepInput['decisionCurrent'];
   /** loadStepInput's reviewCurrent: every job repo's HEAD follows the head the round's review was given; true by default. */
   reviewCurrent?: StepInput['reviewCurrent'];
+  /** loadStepInput's panelOutcome: the outcome the round's `verdicts` event logged; PASS by default. */
+  panelOutcome?: StepInput['panelOutcome'];
   /** loadStepInput's reviewedShas; {} by default. */
   reviewedShas?: StepInput['reviewedShas'];
   runbookBeforeMerge?: boolean;
@@ -140,6 +142,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     decision: { decision: null, ...o.decision },
     decisionCurrent: o.decisionCurrent ?? true,
     reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
+    panelOutcome: o.panelOutcome === undefined ? 'PASS' : o.panelOutcome,
     reviewedShas: o.reviewedShas ?? {},
     runbookBeforeMerge: o.runbookBeforeMerge ?? false,
     verdicts: { round: null, integration: null, ...o.verdicts },

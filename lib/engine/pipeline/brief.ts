@@ -323,7 +323,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Review panel: ${c.review.panel.map((x) => x.name).join(', ') || 'none'}`,
           c.resources.length ? `Resources: ${c.resources.length} in ${p('config')}` : 'Resources: none configured',
           ...(ctx.foldIn ? ['Fold in the Spec deltas from design.md.'] : []),
-          ...(ctx.splitCheck ? [`Split check: yes · split mode ${ctx.splitMode}`] : []),
+          // Only the two modes: job.splitMode is settable with --field.
+          ...(ctx.splitCheck ? [`Split check: yes · split mode ${ctx.splitMode === 'auto' ? 'auto' : 'ask'}`] : []),
           ...components,
           ...repos,
         ],

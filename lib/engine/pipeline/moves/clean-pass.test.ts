@@ -74,6 +74,24 @@ test('renderCleanPr', () => {
       },
     },
     {
+      name: 'HTML in builder and spec text becomes entities, so no tag folds or opens the body',
+      out: pr({
+        spec: '# Title <b>\n\n## Goal\nGoal <details> text\n',
+        build: '## Round 1\nChanges:\n- <details><summary>Changes</summary> then <img src=x onerror=y>\n- a < b > c\n\n| AC | Proof | Result |\n|---|---|---|\n| AC1 | <div>x</div> | pass |\n',
+      }),
+      check: (s) => {
+        assert.ok(!/[<>]/.test(s), s);
+        assert.ok(s.startsWith('## Summary\n**Title &lt;b&gt;.** Goal &lt;details&gt; text\n'), s);
+        assert.ok(s.includes('\n- &lt;details&gt;&lt;summary&gt;Changes&lt;/summary&gt; then &lt;img src=x onerror=y&gt;\n- a &lt; b &gt; c\n'), s);
+        assert.ok(s.includes('| AC1 | &lt;div&gt;x&lt;/div&gt; | pass |'), s);
+      },
+    },
+    {
+      name: 'a bullet is cut before its entities are made, so none is split',
+      out: pr({ build: bulletsBuild(['<'.repeat(1000)]) }),
+      check: (s) => assert.ok(s.includes(`\n- ${'&lt;'.repeat(399)}…\n`), s),
+    },
+    {
       name: '35 bullets give 30 and the rest counted',
       out: pr({ build: bulletsBuild(Array.from({ length: 35 }, (_, i) => `b${i}`)) }),
       check: (s) => {

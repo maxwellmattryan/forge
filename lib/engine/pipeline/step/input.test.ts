@@ -98,6 +98,7 @@ test('loadStepInput binds decide and pr to the reviewed head', (t) => {
   logEvent(repo.dir, id, 'scope', { round: 1, head: reviewed });
   logEvent(repo.dir, id, 'verdicts', { round: 1, outcome: 'PASS', sha: reviewed });
   assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, true, 'HEAD is the reviewed head');
+  assert.equal(loadStepInput(repo.dir, config, id).panelOutcome, 'PASS', "the round's verdicts event");
 
   fs.writeFileSync(path.join(wt, 'late.txt'), 'late\n');
   git('add', '-A');
@@ -131,6 +132,8 @@ test('loadStepInput binds decide and pr to the reviewed head', (t) => {
     j.stage = 'build';
   });
   assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'at stage build');
+  updateJob(repo.dir, id, (j) => void (j.round = 2));
+  assert.equal(loadStepInput(repo.dir, config, id).panelOutcome, null, "an earlier round's verdicts event binds nothing");
 });
 
 test('loadStepInput reads the shas earlier reviews saw only for a round 2+ review', (t) => {

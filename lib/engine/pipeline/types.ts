@@ -119,6 +119,11 @@ export interface StepInput {
    */
   reviewCurrent: boolean | null;
   /**
+   * The `outcome` the CLI logged on the round's last `verdicts` event, when the whole panel's review ended; null when
+   * the round has none. The clean pass reads it beside the lens verdicts, which a later edit of `job.reviewers` can narrow.
+   */
+  panelOutcome: string | null;
+  /**
    * Earlier round (as a string) → the validated sha its review saw (reviewedSha in
    * lib/engine/pipeline/scope.ts), for a round 2+ reviewer brief's `Changed since:` line. Only at stage
    * review, round ≥ 2, no open PR, no reviewed member, with a worktree; `{}` otherwise.

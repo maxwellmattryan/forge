@@ -58,9 +58,13 @@ export function cleanPass(x: StepInput, f: Facts): CleanPass {
   if (j.kind === 'eval') return no('an eval job');
   if (autoMerge(x.config)) return no('auto-merge is on');
   if (isPrRework(x)) return no('the PR is open');
+  // Only `true` binds HEAD to a reviewed head: null (no `verdicts` event for the round) binds nothing, so the approver reads it.
   if (x.reviewCurrent === false) return no('a commit after review');
+  if (x.reviewCurrent !== true) return no('the reviewed head is not bound');
   const lenses = passedPanel(x);
   if (typeof lenses === 'string') return no(lenses);
+  // The CLI's record of how the whole panel ended: a lens dropped from job.reviewers since can't hide behind passedPanel.
+  if (x.panelOutcome !== 'PASS') return no('the panel did not end PASS');
   // Raw `gate` events, not a reader that skips what it can't parse: anything but [] keeps the approver.
   const reviewed = f.reviewedAt;
   const entry = f.stageEntry?.i ?? null;
@@ -82,7 +86,7 @@ export function cleanPass(x: StepInput, f: Facts): CleanPass {
 
 /**
  * A clean decision stands for this review: the last `decision` event since the review is a clean one, logged while
- * the job was in decide (an agent in integrate can't plant one), and the key is still on.
+ * the job was in decide (a `forge job set` session can't plant one), and the key is still on.
  */
 export function cleanDecidedSince(x: StepInput, f: Facts): boolean {
   if (x.config.approver?.skipWhenClean !== true || f.reviewedAt === null) return false;
@@ -108,17 +112,21 @@ const BULLETS_SHOWN = 30;
 // NEL is not in \s.
 const SPACES = /[\s\x85]+/gu;
 
+/** `<` and `>` as entities, so copied text never forms an HTML tag (GitHub would let `<details>` fold the rest of the body). */
+const noHtml = (s: string) => s.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 /**
  * Builder or spec text as one line of a PR body: what visibleText removes (HTML comments, Forge's markers among
  * them, and invisible characters) goes, line breaks and runs of space become one space, and it is cut to `max`
- * characters with `…`.
+ * characters with `…`. `<` and `>` become entities after the cut, so `max` counts the source characters and a cut
+ * never splits an entity. Inside a code span GitHub shows the entities as typed: the price of failing closed.
  */
 export function prText(s: string, max: number): string {
   const one = visibleText(String(s ?? '')).text.replace(SPACES, ' ').trim();
-  if (one.length <= max) return one;
+  if (one.length <= max) return noHtml(one);
   let cut = one.slice(0, Math.max(0, max - 1));
   if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
-  return `${cut}…`;
+  return `${noHtml(cut)}…`;
 }
 
 /** A table cell: every `|` escaped once, whatever backslashes stood before it. A loop, not a regex, over outside text. */

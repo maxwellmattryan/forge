@@ -134,14 +134,17 @@ test('forge job decision --clean renders and records only a clean pass', () => {
     const config = defaults();
     config.approver.skipWhenClean = true;
     const decisions = (id: string) => readEvents(app.dir, id).filter((e) => e.type === 'decision');
+    const head = app.git('rev-parse', 'HEAD').toString().trim();
     // Round 1 of code and security, both reviewed and recorded, every AC proven, review → integrate → decide, then the gate check.
-    const setup = (title: string, security: string, gate: boolean) => {
+    // The round was verified on HEAD before its scope event, and the panel's `verdicts` event logged `ended` (null: none).
+    const setup = (title: string, security: string, gate: boolean, ended: string | null = 'PASS') => {
       const id = jobAt(app.dir, 'decide', { config, title }).id;
       updateJob(app.dir, id, (j) => {
         j.worktree = app.dir;
         j.round = 1;
         j.reviewers = ['code', 'security'];
         j.verdicts = { 1: { code: 'PASS', security } } as Job['verdicts'];
+        j.verifyRuns = [{ round: 1, attempt: 1, sha: head, ok: true, at: new Date(Date.now() - 60_000).toISOString(), file: 'verify/round-1.md', failure: null }];
       });
       const review = ensureReviewDir(app.dir, id, 1);
       fs.writeFileSync(path.join(review, 'code.md'), 'VERDICT: PASS\n');
@@ -151,6 +154,8 @@ test('forge job decision --clean renders and records only a clean pass', () => {
       fs.writeFileSync(path.join(dir, 'build.md'), '## Round 1\nChanges: the change\n\n| AC | Proof | Result |\n|---|---|---|\n| AC1 | `t.test.ts` | pass |\n');
       const side = (stage: string) => ({ stage, state: 'running', waitingOn: null });
       logEvent(app.dir, id, 'round', { round: 1 });
+      logEvent(app.dir, id, 'scope', { round: 1, head });
+      if (ended !== null) logEvent(app.dir, id, 'verdicts', { round: 1, outcome: ended, sha: head });
       logEvent(app.dir, id, 'transition', { from: side('review'), to: side('integrate') });
       logEvent(app.dir, id, 'transition', { from: side('integrate'), to: side('decide') });
       if (gate) logEvent(app.dir, id, 'gate', { reasons: [] });
@@ -158,7 +163,6 @@ test('forge job decision --clean renders and records only a clean pass', () => {
     };
 
     const id = setup('clean', 'PASS', true);
-    const head = app.git('rev-parse', 'HEAD').toString().trim();
     const first = decision(app.dir, config, [id], { clean: true });
     assert.deepEqual(first, { decision: 'APPROVE', reason: null, autoMerge: false, head, clean: true, recorded: true });
     assert.deepEqual(parseDecision(app.dir, id), { decision: 'APPROVE', reason: null, autoMerge: false });
@@ -169,11 +173,15 @@ test('forge job decision --clean renders and records only a clean pass', () => {
     assert.deepEqual(decision(app.dir, config, [id], { clean: true }), { ...first, recorded: false });
     assert.equal(decisions(id).length, 1);
 
-    for (const [title, security, gate, why] of [
-      ['security asked for changes', 'CHANGES', true, 'lens security did not pass'],
-      ['no gate check', 'PASS', false, 'no gate check since the review'],
+    for (const [title, security, gate, ended, why] of [
+      ['security asked for changes', 'CHANGES', true, 'CHANGES', 'lens security did not pass'],
+      ['no gate check', 'PASS', false, 'PASS', 'no gate check since the review'],
+      // Nothing binds the head: planting the round's files and verdicts doesn't make a clean pass.
+      ['no verdicts event for the round', 'PASS', true, null, 'the reviewed head is not bound'],
+      // job.reviewers narrowed after the review leaves only passing lenses; the panel's own record still says CHANGES.
+      ['a panel that ended CHANGES', 'PASS', true, 'CHANGES', 'the panel did not end PASS'],
     ] as const) {
-      const other = setup(title, security, gate);
+      const other = setup(title, security, gate, ended);
       assert.throws(() => decision(app.dir, config, [other], { clean: true }), { message: `job ${other} is not a clean pass: ${why}` }, title);
       for (const f of ['decision.md', 'pr.md']) assert.equal(fs.existsSync(path.join(jobDir(app.dir, other), f)), false, `${title}: ${f}`);
       assert.equal(decisions(other).length, 0, title);
