@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import { tempRepo } from '../../test/helpers.ts';
 import { sessionFiles } from '#core/job/session-files.ts';
 import { INBOX_SCOPE } from '#core/job/requests.ts';
-import { daemonSessionIds, inboxSessionIds, recordIds, whoDrives, type Drive } from './driver.ts';
+import { daemonSessionIds, driverIdOf, inboxSessionIds, recordIds, whoDrives, type Drive } from './driver.ts';
 import { judge } from './reconcile.ts';
 import type { Job } from '#core/types.ts';
 
@@ -64,6 +64,15 @@ test('whoDrives answers who drives a job', (t) => {
   assert.deepEqual(inboxSessionIds(repo.dir), [y, s, p]);
   assert.deepEqual(new Set(daemonSessionIds(repo.dir)), new Set([y, s, p, stranger]));
   assert.equal(daemonSessionIds(repo.dir).length, 4, 'deduped across records');
+
+  // A code driver's id: a uuid only, never one of the record's session ids, but one of the ids a pool boot releases.
+  const driver = crypto.randomUUID();
+  for (const [info, want] of [[{ driverId: driver }, driver], [{ driverId: '--resume' }, null], [{ driverId: 7 }, null], [{}, null], [null, null]] as const) assert.equal(driverIdOf(info), want, JSON.stringify(info));
+  write('job-c', { sessionId: p, driverId: driver });
+  assert.deepEqual(recordIds({ sessionId: p, driverId: driver }), [p], 'a session release never passes the driver id');
+  assert.deepEqual(new Set(daemonSessionIds(repo.dir)), new Set([y, s, p, stranger, driver]));
+  write('job-d', { sessionId: stranger, driverId: 'not-a-uuid' });
+  assert.equal(daemonSessionIds(repo.dir).length, 5, 'a planted driver id is no id');
 
   // The reconciler gives the same answer for the session-changed case: S is still the session's own.
   const off = { ids: [y, s], status: 'off', background: -1, idleSince: null };

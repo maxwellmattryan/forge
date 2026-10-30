@@ -29,9 +29,30 @@ export function inboxSessionIds(root: string): string[] {
   return rec ? recordIds(readInfo(rec.info)) : [];
 }
 
-/** Every id of every session record: the sessions `forge dash` ran, as opposed to interactive ones. */
+/**
+ * The code driver's own id in a job scope's record (lib/office/code/job-driver.ts), or null: only a uuid counts, since the
+ * record is a local file a session can write. It is no session id, so recordIds never returns it and an inner session's
+ * release never lets the driver's lease go.
+ */
+export function driverIdOf(info: any): string | null {
+  const id = info?.driverId;
+  return typeof id === 'string' && UUID.test(id) ? id : null;
+}
+
+/**
+ * Every id of every session record, and every code driver's id: the drivers `forge dash` ran, as opposed to interactive
+ * ones, so a pool boot's release also expires a code turn's lease that a dead dash left.
+ */
 export function daemonSessionIds(root: string): string[] {
-  return [...new Set(sessionRecords(root).flatMap((r) => recordIds(readInfo(r.info))))];
+  return [
+    ...new Set(
+      sessionRecords(root).flatMap((r) => {
+        const info = readInfo(r.info);
+        const driver = driverIdOf(info);
+        return driver ? [...recordIds(info), driver] : recordIds(info);
+      }),
+    ),
+  ];
 }
 
 /** The lease has a driver and it is one of `ids`, live or expired. */

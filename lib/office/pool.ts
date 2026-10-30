@@ -9,7 +9,8 @@ import { confineDigest } from './session/confine.ts';
 import { createSession } from './session/lifecycle.ts';
 import { TRUST_CHANGED } from './session/launch.ts';
 import { CHAT_START, sendChat } from './chat/send.ts';
-import { runPassChild, runSyncChild } from './sync-child.ts';
+import { runPassChild, runSyncChild } from './code/children.ts';
+import { createCodeDriver } from './code/job-driver.ts';
 import { createPassScheduler } from './mandates/cadence.ts';
 import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
 import { offState, otherOwner, reapOrphans } from './session/records.ts';
@@ -160,7 +161,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   function session(scope: string): Session {
     let s = sessions.get(scope);
     if (!s) {
-      s = createSession(root, scope, ctx, o);
+      s = shared(scope) ? createSession(root, scope, ctx, o) : createCodeDriver(root, scope, ctx, o);
       sessions.set(scope, s);
     }
     return s;
