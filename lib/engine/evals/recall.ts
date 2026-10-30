@@ -112,7 +112,7 @@ function readRegular(file: string, max: number): { text: string } | { problem: s
 /** The new-side paths a diff's `+++ b/` headers name. */
 function diffPaths(diff: string): Set<string> {
   const out = new Set<string>();
-  for (const line of diff.split('\n')) if (line.startsWith('+++ b/')) out.add(line.slice(6).replace(/\t.*$/, '').trimEnd());
+  for (const line of diff.split('\n')) if (line.startsWith('+++ b/')) out.add(line.slice(6).split('\t', 1)[0].trimEnd());
   return out;
 }
 
@@ -151,7 +151,7 @@ export function patchLineFor(diff: string, file: string, line: number): number |
       oldLeft = newLeft = 0;
     }
     if (l.startsWith('diff --git ')) current = null;
-    else if (l.startsWith('+++ ')) current = l.startsWith('+++ b/') ? l.slice(6).replace(/\t.*$/, '').trimEnd() : null;
+    else if (l.startsWith('+++ ')) current = l.startsWith('+++ b/') ? l.slice(6).split('\t', 1)[0].trimEnd() : null;
     else {
       const m = HUNK.exec(l);
       if (m) {

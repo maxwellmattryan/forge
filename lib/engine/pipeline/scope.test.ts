@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempRepo } from '../../../test/helpers.ts';
-import { renderDiff, reviewedSha, roundDiffText, writeRoundDiff } from './scope.ts';
+import { approachSection, renderDiff, reviewedSha, roundDiffText, writeRoundDiff } from './scope.ts';
 import type { DiffSection } from './scope.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { JobEvent } from '#core/types.ts';
@@ -61,6 +61,13 @@ test("round diff holds every section's stat, then its diff", () => {
     root.cleanup();
     lib.cleanup();
   }
+});
+
+test('approachSection finds a heading with trailing spaces', () => {
+  assert.equal(approachSection('# T\n\n## Approach   \nbody\n### Sub\nmore\n## Files\nafter\n'), 'body\n### Sub\nmore');
+  assert.equal(approachSection('# Approach\t\nx\n# Next\n'), 'x');
+  assert.equal(approachSection('## Approaches\nx\n'), null);
+  assert.equal(approachSection(`## Approach${' '.repeat(10_000)}\nx`), 'x');
 });
 
 test('writes the round diff without following links', () => {

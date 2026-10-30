@@ -48,6 +48,12 @@ test('prototype keys are refused with their line', () => {
   assert.equal(({} as any).polluted, undefined);
 });
 
+test('a key keeps its text without the spaces before its colon', () => {
+  assert.deepEqual(parse('key   : 1\nother key\t: two\n'), { key: 1, 'other key': 'two' });
+  assert.deepEqual(parse('-x  : 2'), { '-x': 2 });
+  assert.deepEqual(parse(`long${' '.repeat(10_000)}: 3`), { long: 3 });
+});
+
 test('duplicate keys are refused in block and flow maps', () => {
   refused('a: {b: 1, b: 2}', 1, 'duplicate key "b"');
   refused('a: {"b": 1, b: 2}', 1, 'duplicate key "b"');
