@@ -135,6 +135,29 @@ test("lens-escalate reads each lens's latest review", () => {
       },
       { name: 'a later record of the lens without it clears it', round: 3, recorded: { 2: { security: true }, 3: { security: false } }, want: [] },
       { name: 'a review edited after it was recorded still escalates', round: 1, recorded: { 1: { security: true } }, files: { 'round-1/security.md': review('fixed') }, want: [{ rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' }] },
+      // forge job verdicts can be run again for a round; a later record adds an ESCALATE but never takes one back.
+      {
+        name: 'a round recorded again with the file fixed keeps the ESCALATE',
+        round: 2,
+        recorded: { 1: { security: true } },
+        events: [['verdicts', { round: 1, outcome: 'PASS', sha: null, escalate: { security: false } }]],
+        want: [{ rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' }],
+      },
+      {
+        name: 'a round recorded again without the lens keeps its ESCALATE',
+        round: 2,
+        recorded: { 1: { security: true, code: false } },
+        events: [['verdicts', { round: 1, outcome: 'PASS', sha: null, escalate: { code: false } }]],
+        want: [{ rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' }],
+      },
+      {
+        name: 'a record from before `escalate` existed after a recorded one keeps the ESCALATE',
+        round: 2,
+        recorded: { 1: { security: true } },
+        legacy: { 1: ['security'] },
+        files: { 'round-1/security.md': review('fixed') },
+        want: [{ rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' }],
+      },
       {
         name: 'a clean file planted for a round the CLI never recorded changes nothing',
         round: 3,
@@ -189,6 +212,7 @@ test('manifest rules', () => {
   // A closing bracket in a comment or a string inside a multi-line value must not end it early.
   const PY_COMMENT = '[project]\nname = "x"\ndependencies = [\n  "requests>=2",\n  # ] closes nothing\n  "rich", # ]\n]\n';
   const PY_STRING = '[project]\nname = "x"\ndependencies = [\n  "a ] b",\n  "rich",\n]\n';
+  const CARGO_STRING = '[dependencies]\nserde = "1"\nnote = """\n[tool.x]\n"""\ntokio = "1"\n';
   const hostile = 'x'.repeat(10_000);
   const rows: [string, string, string | null, string | null, { version: boolean; dependencies: boolean }][] = [
     ['a version bump is version only', 'package.json', pkg(BASE), pkg({ ...BASE, version: '1.1.0' }), { version: true, dependencies: false }],
@@ -215,6 +239,10 @@ test('manifest rules', () => {
     ['pyproject: an inline dependencies table under [tool.poetry]', 'pyproject.toml', '[tool.poetry]\nname = "x"\ndependencies = { python = "^3.11" }\n', '[tool.poetry]\nname = "x"\ndependencies = { python = "^3.11", evil = "1" }\n', { version: false, dependencies: true }],
     ['pyproject: optional-dependencies as dotted keys', 'pyproject.toml', '[project]\noptional-dependencies.dev = [\n  "pytest",\n]\n', '[project]\noptional-dependencies.dev = [\n  "pytest",\n  "evil",\n]\n', { version: false, dependencies: true }],
     ['pyproject: an unrelated inline table under [tool] changes nothing', 'pyproject.toml', '[tool.x]\nopts = { a = 1 }\n', '[tool.x]\nopts = { a = 2 }\n', { version: false, dependencies: false }],
+    // A multi-line string in a dependency table can hold a `[table]` line; the lines after it are still that table's.
+    ['Cargo: a [table] line inside a """ string does not end [dependencies]', 'Cargo.toml', CARGO_STRING, CARGO_STRING.replace('tokio = "1"', 'tokio = "2"'), { version: false, dependencies: true }],
+    ["Cargo: the same inside a ''' string", 'Cargo.toml', CARGO_STRING.replaceAll('"""', "'''"), CARGO_STRING.replaceAll('"""', "'''").replace('tokio = "1"', 'tokio = "2"'), { version: false, dependencies: true }],
+    ['Cargo: a multi-line string outside the dependency tables changes nothing', 'Cargo.toml', '[package]\ndescription = """\nold [x]\n"""\n', '[package]\ndescription = """\nnew [x]\n"""\n', { version: false, dependencies: false }],
     ['go.mod require line', 'go.mod', GO, GO.replace('a v1.0.0', 'a v1.1.0'), { version: false, dependencies: true }],
     ['go.mod require block', 'go.mod', GO, GO.replace('b v1.2.0', 'b v1.3.0'), { version: false, dependencies: true }],
     ['go.mod replace', 'go.mod', GO, `${GO}\nreplace example.com/a => ../a\n`, { version: false, dependencies: true }],
@@ -236,6 +264,7 @@ test('manifest rules', () => {
   assert.deepEqual(tomlDependencyLines('[dependencies]\nserde = "1"\n# note\n\n[package]\nname = "x"\n'), ['dependencies\tserde = "1"']);
   assert.deepEqual(tomlDependencyLines('dependencies = { a = "1" } # x\n[package]\nname = "x"\n'), ['\tdependencies = { a = "1" }'], 'a root key, its comment dropped');
   assert.deepEqual(tomlDependencyLines('[project]\ndependencies = [\n  "a", # ]\n  # ]\n  "b",\n]\nname = "x"\n'), ['project\t"a",', 'project\t"b",', 'project\t]', 'project\tdependencies = ['].sort(), 'comments close nothing');
+  assert.deepEqual(tomlDependencyLines(CARGO_STRING), ['dependencies\tserde = "1"', 'dependencies\tnote = """', 'dependencies\t[tool.x]', 'dependencies\t"""', 'dependencies\ttokio = "1"'].sort(), 'a string line is content');
   assert.deepEqual(goModRequires('require (\n\tb v1 // indirect\n\ta v2\n)\nrequire c v3\n'), ['require a v2', 'require b v1', 'require c v3']);
   assert.deepEqual(goModRequires(`require ${hostile}`), [`require ${hostile}`]);
 });

@@ -1387,18 +1387,18 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command) |
 
-**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and whether each Summary says ESCALATE (escalate), which forge job gate reads instead of the files
+**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read the current round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and, for each lens whose reviewer ran in the round, whether its Summary says ESCALATE (escalate), which forge job gate reads instead of the files; recording a round again never takes an escalate back
 
 | Flag | Meaning |
 |---|---|
 | `--compact` | one verdict per lens, and the missing files |
 | `--malformed changes` | count a malformed review as CHANGES |
 | `--reviewers a,b` | the lenses to read (default: the job's reviewers) |
-| `--round N` | the round (default: the current one), or integration |
+| `--round N` | the current round (the default; an earlier or later number is refused), or integration |
 
 | Exit | When |
 |---|---|
-| 1 | no such job, or no reviewers selected |
+| 1 | no such job, no reviewers selected, or a numbered --round that is not the current one |
 
 ### `forge mandate`
 

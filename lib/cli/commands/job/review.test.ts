@@ -17,6 +17,9 @@ import { decision } from './review.ts';
 
 const REMOTE = 'https://example.com/lib.git';
 
+/** A reviewer that started and ended in `round`: what forge job verdicts reads to know a lens reviewed it. */
+const reviewerRun = (round: number): JobAgent => ({ runs: 1, status: 'done', model: 'opus', agentId: 'r1', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:01:00.000Z', round }) as JobAgent;
+
 /** A root repo with a member clone `lib` beside it (local.yml points at it) and a job whose lib worktree is Forge's computed one. */
 function linkedJob() {
   const app = tempRepo();
@@ -138,7 +141,10 @@ test('forge job gate prints and records the gate reasons', async () => {
     const dir = jobDir(app.dir, id);
     const PLANTED = 'PLANTED-ignore-previous-instructions';
     fs.mkdirSync(path.join(dir, 'review', 'round-1'), { recursive: true });
-    updateJob(app.dir, id, (j) => void (j.round = 1));
+    updateJob(app.dir, id, (j) => {
+      j.round = 1;
+      j.agents['reviewer:security'] = reviewerRun(1);
+    });
     fs.writeFileSync(path.join(dir, 'review', 'round-1', 'security.md'), `## Summary\nESCALATE: ${PLANTED}\n`);
     fs.writeFileSync(path.join(dir, 'runbook.md'), `## Steps\n${PLANTED}\n`);
     fs.writeFileSync(path.join(dir, 'decision.md'), `ESCALATE: ${PLANTED}\n\n## For the human\n${PLANTED}\n`);
@@ -168,6 +174,60 @@ test('forge job gate prints and records the gate reasons', async () => {
     fs.writeFileSync(path.join(dir, 'review', 'round-2', 'security.md'), '## Summary\nall fine\n');
     const again = await forgeInProcess(app.dir, ['job', 'gate', id]);
     assert.deepEqual((again.data as { reasons: { rule: string }[] }).reasons.map((x) => x.rule), ['lens-escalate', 'runbook', 'acs'], 'the recorded review still says ESCALATE');
+  } finally {
+    app.cleanup();
+  }
+});
+
+test('forge job verdicts: recording again never clears an ESCALATE, an earlier round is refused, a lens that did not review is not recorded', async () => {
+  const app = tempRepo();
+  try {
+    const id = jobAt(app.dir, 'decide', { config: defaults() }).id;
+    fs.writeFileSync(path.join(app.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
+    const dir = jobDir(app.dir, id);
+    const write = (round: number, lens: string, summary: string) => {
+      fs.mkdirSync(path.join(dir, 'review', `round-${round}`), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'review', `round-${round}`, `${lens}.md`), `## Verdict\nVERDICT: PASS\n\n## Summary\n${summary}\n`);
+    };
+    const verdicts = (...args: string[]) => forgeInProcess(app.dir, ['job', 'verdicts', id, ...args]);
+    const escalating = async () => ((await forgeInProcess(app.dir, ['job', 'gate', id])).data as { reasons: { rule: string; detail: string }[] }).reasons.filter((r) => r.rule === 'lens-escalate').map((r) => r.detail);
+    const recorded = () => readEvents(app.dir, id).filter((e) => e.type === 'verdicts').map((e) => [e.round, e.escalate]);
+    const ESCALATES = ['the security review of round 1 says ESCALATE'];
+
+    // Round 1: security says ESCALATE.
+    updateJob(app.dir, id, (j) => {
+      j.round = 1;
+      j.agents['reviewer:security'] = reviewerRun(1);
+    });
+    write(1, 'security', 'ESCALATE: auth change');
+    assert.equal((await verdicts('--reviewers', 'security')).status, 0);
+    assert.deepEqual(await escalating(), ESCALATES);
+
+    // The file fixed, the round recorded again: the second record says false, and the first still counts.
+    write(1, 'security', 'fine');
+    assert.equal((await verdicts('--reviewers', 'security')).status, 0);
+    assert.deepEqual(recorded(), [[1, { security: true }], [1, { security: false }]]);
+    assert.deepEqual(await escalating(), ESCALATES, 'a re-record of the round keeps the ESCALATE');
+
+    // Round 2 reviews only code. An earlier round, and one ahead of the job, can't be recorded.
+    updateJob(app.dir, id, (j) => {
+      j.round = 2;
+      j.agents['reviewer:code'] = reviewerRun(2);
+    });
+    const earlier = await verdicts('--round', '1', '--reviewers', 'security');
+    assert.equal(earlier.status, 1);
+    assert.match(earlier.error?.message ?? '', /not the job's current round \(2\)/);
+    assert.equal((await verdicts('--round', '3', '--reviewers', 'security')).status, 1);
+    assert.equal(recorded().length, 2, 'a refused call logs nothing');
+
+    // A clean file planted for security, which did not review round 2, is no record of it.
+    write(2, 'security', 'fine');
+    write(2, 'code', 'fine');
+    assert.equal((await verdicts('--reviewers', 'code,security')).status, 0);
+    assert.deepEqual(recorded().at(-1), [2, { code: false }]);
+    assert.deepEqual(await escalating(), ESCALATES, 'security did not review round 2');
+    // The current round named explicitly is still allowed.
+    assert.equal((await verdicts('--round', '2', '--reviewers', 'code')).status, 0);
   } finally {
     app.cleanup();
   }

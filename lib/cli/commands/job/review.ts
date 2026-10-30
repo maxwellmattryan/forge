@@ -46,6 +46,8 @@ export function verdicts(root: string, config: Config, rest: string[], flags: Re
   const integration = flags.round === 'integration';
   if (flags.round !== undefined && !integration && !/^[1-9]\d*$/.test(String(flags.round))) throw new ForgeError('--round must be a positive integer or "integration"', 'usage');
   const round: number | 'integration' = integration ? 'integration' : Number(flags.round ?? job.round);
+  // Only the review in progress is recorded: an earlier round's record is what the gate reasons read, so it is never written again.
+  if (!integration && round !== job.round) throw new ForgeError(`--round ${round} is not the job's current round (${job.round}): forge job verdicts records the current round or integration`);
   // job.reviewers is settable with --field: a qualified lens counts only for a reviewed member of the job.
   const reviewers = list(flags.reviewers).length ? list(flags.reviewers) : integration ? ['code'] : job.reviewers.filter((l) => isLens(l) && lensRepoAllowed(job, l));
   if (!reviewers.length) throw new ForgeError(`job ${id} has no reviewers selected; set them with: forge job set ${id} --field reviewers='["code","tests"]'`);
@@ -68,7 +70,17 @@ export function verdicts(root: string, config: Config, rest: string[], flags: Re
     else {
       setJob(root, job.id, { fields: { [`verdicts.${round}`]: verdicts } });
       // Whether each reviewer's Summary says ESCALATE right now: gate reasons read this record, never a review file edited later.
-      const escalate = Object.fromEntries(Object.entries(v.reviewers).map(([lens, r]) => [lens, summaryEscalates(readRegularText(path.join(jobDir(root, job.id), r.file), AGENT_TEXT_MAX))]));
+      // Only a lens whose reviewer ran in this round (job.agents is written by forge job agent alone; a record without a round
+      // is from before it was kept) is a record of it: a file planted for a lens that did not review can't become its latest.
+      const reviewed = ([lens]: [string, unknown]): boolean => {
+        const a = Object.hasOwn(job.agents, `reviewer:${lens}`) ? job.agents[`reviewer:${lens}`] : undefined;
+        return a !== undefined && (a.round === undefined || a.round === round);
+      };
+      const escalate = Object.fromEntries(
+        Object.entries(v.reviewers)
+          .filter(reviewed)
+          .map(([lens, r]) => [lens, summaryEscalates(readRegularText(path.join(jobDir(root, job.id), r.file), AGENT_TEXT_MAX))]),
+      );
       logEvent(root, job.id, 'verdicts', { round, outcome: v.outcome, sha, ...heads, coerced: coerced.length ? coerced : undefined, escalate });
     }
     if (coerced.length) logEvent(root, job.id, 'note', { text: `${integration ? 'integration review' : `round ${round}`}: malformed review(s) from ${coerced.join(', ')} counted as CHANGES` });

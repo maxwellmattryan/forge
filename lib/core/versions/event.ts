@@ -69,9 +69,10 @@ export const EVENT_STEPS: readonly Step[] = [
   { id: 'context-session-event', up: (e) => e },
   // v20 adds the `gate` event ({round, head, reasons: [{rule, detail, paths?}]}): `forge job gate` recorded the job's gate
   // reasons, which DC12, PR19, the approver's brief and the escalation park read; and `gated: true` on a `decision` the
-  // gate reasons kept from auto-merge; `escalate` ({lens: boolean}, whether that review's Summary said ESCALATE) on a
-  // `verdicts` event, and `reasons` on a `pr-gate` one. An older Forge reads the event as generic and ignores the
-  // fields; a `verdicts` event without `escalate` makes the gate read that round's review files instead.
+  // gate reasons kept from auto-merge; `escalate` ({lens: boolean}, whether that review's Summary said ESCALATE, for each
+  // lens whose reviewer ran in the round) on a `verdicts` event, and `reasons` on a `pr-gate` one. An older Forge reads
+  // the event as generic and ignores the fields; a `verdicts` event without `escalate` makes the gate read that round's
+  // review files instead.
   { id: 'gate-event', up: (e) => e },
 ];
 

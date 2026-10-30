@@ -308,14 +308,14 @@ export const JOB: HelpGroup = {
     {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
-      summary: "read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and whether each Summary says ESCALATE (escalate), which forge job gate reads instead of the files",
+      summary: "read the current round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and, for each lens whose reviewer ran in the round, whether its Summary says ESCALATE (escalate), which forge job gate reads instead of the files; recording a round again never takes an escalate back",
       flags: [
-        ['--round N', 'the round (default: the current one), or integration'],
+        ['--round N', 'the current round (the default; an earlier or later number is refused), or integration'],
         ['--reviewers a,b', 'the lenses to read (default: the job\'s reviewers)'],
         ['--malformed changes', 'count a malformed review as CHANGES'],
         ['--compact', 'one verdict per lens, and the missing files'],
       ],
-      exits: [[1, 'no such job, or no reviewers selected']],
+      exits: [[1, 'no such job, no reviewers selected, or a numbered --round that is not the current one']],
     },
     {
       command: 'job gate',

@@ -81,18 +81,26 @@ const isDependencyTable = (name: string): boolean => name.split('.').some(isDepe
 
 /**
  * One TOML line without its trailing `# comment`, trimmed, and the `[`/`{` it opens minus the `]`/`}`
- * it closes, both read outside strings (`"…"` with escapes, `'…'`), so a bracket in a comment or a
- * string neither closes nor opens a value. A multi-line string is not tracked past its line.
+ * it closes, both read outside strings (`"…"` with escapes, `'…'`, and the `"""…"""`/`'''…'''` forms),
+ * so a bracket in a comment or a string neither closes nor opens a value. `inString` is the
+ * multi-line delimiter the line before left open ('' for none); `open` is the one this line leaves
+ * open, for the caller to hand to the next line.
  */
-function scanLine(raw: string): { code: string; delta: number } {
-  let quote = '';
+function scanLine(raw: string, inString = ''): { code: string; delta: number; open: string } {
+  let quote = inString;
   let delta = 0;
   let end = raw.length;
   for (let i = 0; i < raw.length; i++) {
     const c = raw[i];
     if (quote) {
-      if (c === '\\' && quote === '"') i++;
-      else if (c === quote) quote = '';
+      if (c === '\\' && quote[0] === '"') i++;
+      else if (raw.startsWith(quote, i)) {
+        i += quote.length - 1;
+        quote = '';
+      }
+    } else if (raw.startsWith('"""', i) || raw.startsWith("'''", i)) {
+      quote = raw.slice(i, i + 3);
+      i += 2;
     } else if (c === '"' || c === "'") quote = c;
     else if (c === '#') {
       end = i;
@@ -100,7 +108,8 @@ function scanLine(raw: string): { code: string; delta: number } {
     } else if (c === '[' || c === '{') delta++;
     else if (c === ']' || c === '}') delta--;
   }
-  return { code: raw.slice(0, end).trim(), delta };
+  // A one-line string never runs past its line; only the multi-line forms carry over.
+  return { code: raw.slice(0, end).trim(), delta, open: quote.length === 3 ? quote : '' };
 }
 
 /** A `[table]` header line's name: what sits between the `[` and the first `]` outside quotes; '' when it never closes. */
@@ -141,9 +150,11 @@ function hasDependencyKey(code: string): boolean {
  * dropped and trimmed, that is under a dependency table (not `[[`), or is a `key = value` line anywhere
  * (the root, `[project]`, `[workspace]`, `[tool.poetry]`) whose dotted key has a dependency-word
  * segment (`dependencies = { … }`, `optional-dependencies.dev = [ … ]`, `dependencies.serde = "1"`).
- * A value that opens a bracket or brace continues through its closing one, so a comment or a string
- * holding a bracket can't end it early. Each line carries its table's name, so moving a dependency
- * between tables counts while reordering does not.
+ * A value that opens a bracket or brace, or a multi-line string, continues through its close, so a
+ * comment or a string holding a bracket or a `[table]` line can't end it early. Only a value that
+ * is itself dependency content is followed across lines: tracking any other one would let a
+ * crafted string hide the tables after it. Each line carries its table's name, so moving a
+ * dependency between tables counts while reordering does not.
  */
 export function tomlDependencyLines(text: string | null): string[] {
   if (text === null) return [];
@@ -151,11 +162,13 @@ export function tomlDependencyLines(text: string | null): string[] {
   let table = '';
   let inside = false;
   let open = 0;
+  let inString = '';
   for (const raw of text.split(/\r?\n/)) {
-    const { code, delta } = scanLine(raw);
-    if (open > 0) {
+    const { code, delta, open: left } = scanLine(raw, inString);
+    if (open > 0 || inString) {
       if (code) out.push(`${table}\t${code}`);
       open = Math.max(0, open + delta);
+      inString = left;
       continue;
     }
     if (!code) continue;
@@ -167,6 +180,7 @@ export function tomlDependencyLines(text: string | null): string[] {
     if (inside || hasDependencyKey(code)) {
       out.push(`${table}\t${code}`);
       open = Math.max(0, delta);
+      inString = left;
     }
   }
   return out.sort();
@@ -323,32 +337,52 @@ export function summaryEscalates(text: string | null): boolean {
 }
 
 /**
- * One reason per lens whose latest recorded review says `ESCALATE:` inside `## Summary`. A review is
- * recorded by `forge job verdicts`, whose `verdicts` event notes for each lens it read whether the
- * Summary said it at that moment (`escalate`), so a review file edited or planted afterwards, a round
- * the CLI never recorded and a lens that did not review can't clear one. A lens's latest record is
- * the highest round (n ≤ the job's round) that reviewed it, so a narrowed rework panel keeps an
- * earlier round's ESCALATE. An event recorded before `escalate` existed falls back to that round's
- * file for each lens `job.verdicts` names. The integration review never counts. No review text
- * reaches a reason.
+ * Per round, per lens, whether the round's recorded reviews said ESCALATE. Every `verdicts` event of a
+ * round counts, not only the last: a lens listed by any of them was reviewed in that round, and one
+ * record saying ESCALATE for it stays true however often the round is recorded again, so a re-record
+ * (a review file edited, then `forge job verdicts` run again) can add an ESCALATE but never remove
+ * one. An event from before `escalate` existed adds each lens `job.verdicts` names for its round,
+ * read from that round's file; an unreadable file adds nothing. Rounds past the job's, the
+ * integration review and names that are not lenses never count.
  */
-function lensReasons(root: string, job: Job, events: readonly JobEvent[]): GateReason[] {
-  const recorded = new Map<number, Record<string, any> | null>();
+function recordedEscalations(root: string, job: Job, events: readonly JobEvent[]): Map<number, Map<string, boolean>> {
+  const rounds = new Map<number, Map<string, boolean>>();
+  const note = (n: number, lens: string, escalates: boolean) => {
+    if (!isLens(lens)) return;
+    const lenses = rounds.get(n) ?? new Map<string, boolean>();
+    lenses.set(lens, lenses.get(lens) === true || escalates);
+    rounds.set(n, lenses);
+  };
+  const legacy = new Set<number>();
   for (const e of events) {
     const n = Number(e.round);
-    if (e.type === 'verdicts' && Number.isInteger(n) && n >= 1 && n <= job.round) recorded.set(n, isMap(e.escalate) ? e.escalate : null);
+    if (e.type !== 'verdicts' || !Number.isInteger(n) || n < 1 || n > job.round) continue;
+    if (isMap(e.escalate)) for (const [lens, said] of Object.entries(e.escalate)) note(n, lens, said === true);
+    else legacy.add(n);
   }
-  const latest = new Map<string, { round: number; escalate: boolean }>();
-  for (const n of [...recorded.keys()].sort((a, b) => b - a)) {
-    const flags = recorded.get(n) ?? null;
-    for (const lens of Object.keys(flags ?? job.verdicts?.[n] ?? {})) {
-      if (!isLens(lens) || latest.has(lens)) continue;
-      if (flags) latest.set(lens, { round: n, escalate: flags[lens] === true });
-      else {
-        const text = readRegularText(path.join(reviewDir(root, job.id, n), reviewFileName(lens)), AGENT_TEXT_MAX);
-        if (text !== null) latest.set(lens, { round: n, escalate: summaryEscalates(text) });
-      }
+  for (const n of legacy) {
+    for (const lens of Object.keys(job.verdicts?.[n] ?? {})) {
+      const text = isLens(lens) ? readRegularText(path.join(reviewDir(root, job.id, n), reviewFileName(lens)), AGENT_TEXT_MAX) : null;
+      if (text !== null) note(n, lens, summaryEscalates(text));
     }
+  }
+  return rounds;
+}
+
+/**
+ * One reason per lens whose latest recorded review says `ESCALATE:` inside `## Summary`. A review is
+ * recorded by `forge job verdicts`, whose `verdicts` event notes for each lens that reviewed the round
+ * whether the Summary said it at that moment (`escalate`), so a review file edited or planted
+ * afterwards, a round the CLI never recorded and a lens that did not review can't clear one
+ * (recordedEscalations). A lens's latest record is the highest round (n ≤ the job's round) that
+ * reviewed it, so a narrowed rework panel keeps an earlier round's ESCALATE. No review text reaches
+ * a reason.
+ */
+function lensReasons(root: string, job: Job, events: readonly JobEvent[]): GateReason[] {
+  const rounds = recordedEscalations(root, job, events);
+  const latest = new Map<string, { round: number; escalate: boolean }>();
+  for (const n of [...rounds.keys()].sort((a, b) => b - a)) {
+    for (const [lens, escalate] of rounds.get(n)!) if (!latest.has(lens)) latest.set(lens, { round: n, escalate });
   }
   return [...latest]
     .filter(([, v]) => v.escalate)
