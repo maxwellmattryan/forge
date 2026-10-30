@@ -50,8 +50,9 @@ export function roster(root: string, config: Config): Roster {
       return {
         role,
         description: meta.description ?? '',
-        // The assistant's model is foreman.assistants.model, as forge job assist resolves it; a surveyor's foreman.surveyors.model, as forge office board does.
-        model: role === 'assistant' || role === 'surveyor' ? resolveModel(config, null, role) : (config.runtime.models[role] ?? meta.model ?? 'inherit'),
+        // The assistant's model is foreman.assistants.model, as forge job assist resolves it; a surveyor's foreman.surveyors.model, as forge office board does;
+        // the director's foreman.model, as an office run's director call spawns it.
+        model: role === 'assistant' || role === 'surveyor' || role === 'director' ? resolveModel(config, null, role) : (config.runtime.models[role] ?? meta.model ?? 'inherit'),
         // Null only for a file name that is no role (agentRoles' rule); the roster still lists it.
         promptHash: promptHash(root, config, role) ?? '',
         addendum: exists(addendumFile) ? path.relative(root, addendumFile) : null,

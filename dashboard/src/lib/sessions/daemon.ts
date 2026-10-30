@@ -37,8 +37,6 @@ const contextOf = (s: Record<string, any>): number | null => (typeof s.contextTo
 export interface PoolModel {
   pill: Pill;
   inbox: Pill;
-  /** The office session's pill, or null while foreman.enabled is false. */
-  office: Pill | null;
   live: number;
   cap: number;
   held: string[];
@@ -102,7 +100,7 @@ export function sessionPill(session: SessionInput): Pill {
 
 /**
  * Several sessions as one chip: the most urgent of their pills by ORDER (needs permission first, the first session on a
- * tie), titled with one `name: label` line per session. One session keeps its own pill, as the Foreman's office session does.
+ * tie), titled with one `name: label` line per session. One session keeps its own pill.
  */
 export function familyPill(sessions: readonly { name: string; session: SessionInput }[]): Pill {
   const pills = sessions.map(({ name, session }) => ({ name, pill: sessionPill(session) }));
@@ -115,8 +113,8 @@ export function familyPill(sessions: readonly { name: string; session: SessionIn
 export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): PoolModel | null {
   const p = obj(pool);
   const jobs = Object.entries(obj(p.jobs)).map(([id, s]) => [id, obj(s)] as const);
-  const foreman = p.foreman === true;
-  const sessions = [obj(p.inbox), ...(foreman ? [obj(p.office)] : []), ...jobs.map(([, s]) => s)];
+  // No session serves the office: its runs are the Foreman indicator's (lib/shell/statusbar.ts), not a session here.
+  const sessions = [obj(p.inbox), ...jobs.map(([, s]) => s)];
   const anyRunning = sessions.some(running);
   if (!pool || (!p.enabled && !p.wanted && !anyRunning)) return null;
   // Off because nobody has approved the files yet: an expected state a human acts on, never an error.
@@ -145,7 +143,6 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
       title: p.lastError ? String(p.lastError) : [`${jobs.filter(([, s]) => running(s)).length} job sessions running`, ...sessions.filter((s) => s.lastError).map((s) => `${String(s.scope ?? '')}: ${String(s.lastError)}`)].join('\n'),
     },
     inbox: sessionPill(p.inbox ?? null),
-    office: foreman ? sessionPill(p.office ?? null) : null,
     live: Number(p.live) || 0,
     cap: Number(p.maxConcurrent) || 0,
     held: jobs.filter(([, s]) => s.held).map(([id]) => id),
@@ -199,11 +196,11 @@ export function sessionToggle(controls: { canStart: boolean; canStop: boolean },
   return { action: 'stop', enabled: controls.canStop };
 }
 
-/** The pool's session for a scope (the inbox's, the office's or a job's; own keys only, so a job id never reads Object.prototype), or null. */
+/** The pool's session for a scope (the inbox's or a job's; own keys only, so a job id never reads Object.prototype), or null; `_office` has none. */
 export function scopeSession(pool: PoolInput, scope: string): Partial<DaemonSessionState> | null {
   const p = obj(pool);
   if (scope === INBOX_SCOPE) return p.inbox ?? null;
-  if (scope === OFFICE_SCOPE) return p.office ?? null;
+  if (scope === OFFICE_SCOPE) return null;
   const jobs = obj(p.jobs);
   return Object.hasOwn(jobs, scope) ? (jobs[scope] ?? null) : null;
 }

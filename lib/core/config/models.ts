@@ -68,13 +68,14 @@ export function validModel(v: unknown): string | null {
  * The builder takes the first valid of: runtime.reworkModel on a rework round whose only inputs
  * are review findings, runtime.modelByComplexity[job.complexity], runtime.models.builder, inherit.
  * The judge on a real (non-eval) job is the post-merge scorer: scoring.model, then runtime.models.judge.
- * The Foreman's gate assistant takes foreman.assistants.model, and its surveyors foreman.surveyors.model.
- * The senior pass (`senior`) takes foreman.senior.model, then the assistant's.
+ * The Foreman's gate assistant takes foreman.assistants.model, its surveyors foreman.surveyors.model, and
+ * an office run's director call (`director`) foreman.model. The senior pass (`senior`) takes foreman.senior.model, then the assistant's.
  */
 export function resolveModel(config: Config, job: { complexity?: unknown; round?: unknown; kind?: unknown } | null, role: string, rework: readonly string[] = []): string {
   if (role === 'senior') return validModel(config.foreman?.senior?.model) ?? resolveModel(config, job, 'assistant');
   if (role === 'assistant') return validModel(config.foreman?.assistants?.model) ?? 'inherit';
   if (role === 'surveyor') return validModel(config.foreman?.surveyors?.model) ?? 'inherit';
+  if (role === 'director') return validModel(config.foreman?.model) ?? 'inherit';
   if (role === 'judge' && job && job.kind !== 'eval') {
     return validModel(config.scoring?.model) ?? config.runtime.models.judge ?? 'inherit';
   }
@@ -112,7 +113,7 @@ function bumpEffort(level: Effort): Effort {
  * The one place effort levels combine: the daemon's argv, `forge job step`, the brief, the roster
  * and /api/state all call it, so they can never disagree. A null level passes nothing.
  * First valid of: job.effort, the lens's panel `effort` (reviewers), runtime.efforts.<base role>
- * (foreman.assistants.effort for the assistant, foreman.surveyors.effort for a surveyor), runtime.effortByComplexity[job.complexity],
+ * (foreman.assistants.effort for the assistant, foreman.surveyors.effort for a surveyor, foreman.effort for the director), runtime.effortByComplexity[job.complexity],
  * runtime.effort. With no `role` (a daemon session runs
  * the orchestrator) only the job and runtime.effort layers apply. A builder on a rework round
  * (round >= 2) gets one level more unless the human set the job's own effort. The senior pass (`senior`) takes
@@ -142,6 +143,8 @@ export function resolveEffort(
         ? validEffort(config.foreman?.assistants?.effort)
         : base === 'surveyor'
           ? validEffort(config.foreman?.surveyors?.effort)
+          : base === 'director'
+          ? validEffort(config.foreman?.effort)
           : efforts && typeof efforts === 'object' && Object.hasOwn(efforts, base)
           ? validEffort(efforts[base])
           : null;

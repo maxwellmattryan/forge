@@ -10,6 +10,7 @@ import type {
   GATE_RUN_OUTCOMES as ENGINE_GATE_RUN_OUTCOMES,
   INBOX_SCOPE as ENGINE_INBOX_SCOPE,
   OFFICE_GATES as ENGINE_OFFICE_GATES,
+  OFFICE_RUN_OUTCOMES as ENGINE_OFFICE_RUN_OUTCOMES,
   JOBS_SCOPE as ENGINE_JOBS_SCOPE,
   MANDATE_ID_SOURCE as ENGINE_MANDATE_ID_SOURCE,
   MANDATE_ON_UNFINISHABLE as ENGINE_MANDATE_ON_UNFINISHABLE,
@@ -24,7 +25,7 @@ import type { API_VERSION as ENGINE_API_VERSION } from '#api/versions.ts';
 export type * from '#api/types.ts';
 
 /** lib/api/versions.ts API_VERSION: the dashboard refuses data from a newer server. */
-export const API_VERSION = 77 satisfies typeof ENGINE_API_VERSION;
+export const API_VERSION = 78 satisfies typeof ENGINE_API_VERSION;
 /** lib/api/constants.ts SIGNED_OUT_ERROR: the 401 body of an /api request without the login cookie. */
 export const SIGNED_OUT_ERROR = 'not signed in: open the link forge dash url prints' satisfies typeof ENGINE_SIGNED_OUT_ERROR;
 /** lib/api/constants.ts PROJECT_NAME_SOURCE: a registered project's name, the `/api/p/<project>/` segment. */
@@ -33,7 +34,7 @@ export const PROJECT_NAME_SOURCE = '^[a-z0-9][a-z0-9._-]{0,63}$' satisfies typeo
 export const MANDATE_ID_SOURCE = '^[a-z0-9][a-z0-9-]{0,39}$' satisfies typeof ENGINE_MANDATE_ID_SOURCE;
 /** lib/core/job/requests.ts INBOX_SCOPE: the daemon session for requests without a job. */
 export const INBOX_SCOPE = '_inbox' satisfies typeof ENGINE_INBOX_SCOPE;
-/** lib/core/job/requests.ts OFFICE_SCOPE: the Foreman's session for draft and direct requests; forge dash's gate runner decides the gates. */
+/** lib/core/job/requests.ts OFFICE_SCOPE: the request group of draft and direct requests, which forge dash's office runner runs; no session serves it. */
 export const OFFICE_SCOPE = '_office' satisfies typeof ENGINE_OFFICE_SCOPE;
 
 /** lib/api/constants.ts CHAT_SCOPE_PREFIX: a chat session's scope is this prefix and the chat's id. */
@@ -63,6 +64,8 @@ export function sharedScope(s: unknown): boolean {
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'] as const satisfies typeof ENGINE_OFFICE_GATES;
 /** lib/api/constants.ts GATE_RUN_OUTCOMES: how a gate run ended. */
 export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed', 'shelved'] as const satisfies typeof ENGINE_GATE_RUN_OUTCOMES;
+/** lib/api/constants.ts OFFICE_RUN_OUTCOMES: how an office run ended. */
+export const OFFICE_RUN_OUTCOMES = ['drafted', 'directed', 'stale', 'refused', 'requeued', 'failed'] as const satisfies typeof ENGINE_OFFICE_RUN_OUTCOMES;
 /** lib/api/constants.ts JOBS_SCOPE: POST /api/daemon/mode's scope for the job sessions' default. */
 export const JOBS_SCOPE = '_jobs' satisfies typeof ENGINE_JOBS_SCOPE;
 

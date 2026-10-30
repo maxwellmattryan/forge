@@ -9,7 +9,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { scratchGitConfig, waitFor } from '../../../test/helpers.ts';
 import { SYNC_PINS } from '#integrations/git/runner.ts';
-import { runChild, runForgeCall, syncChildEnv } from './children.ts';
+import { STDOUT_MAX, runChild, runChildOutput, runForgeCall, syncChildEnv } from './children.ts';
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = process.env) => execFileSync('git', args, { cwd, env, stdio: 'pipe', encoding: 'utf8' });
 
@@ -126,4 +126,19 @@ test('runForgeCall returns the exit code and parsed JSON', async (t) => {
     assert.deepEqual({ code: r.code, signal: r.signal, json: r.json, error: r.error }, row.want, row.name);
     assert.ok(Number.isFinite(r.ms) && r.ms >= 0, `${row.name}: ms`);
   }
+});
+
+test("runChildOutput keeps a child's stdout, and runChild's message is unchanged", async (t) => {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-child-')));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const run = (script: string) => runChildOutput(process.execPath, ['-e', script], { cwd: base, env: process.env, stdout: true });
+  const ok = await run("process.stdout.write(JSON.stringify({ok: true}) + '\\n')");
+  assert.deepEqual([ok.code, ok.signal, ok.error, JSON.parse(ok.stdout)], [0, null, null, { ok: true }]);
+  const refused = await run("process.stdout.write('{\"error\":{\"message\":\"no\"}}'); process.stderr.write('first\\nlast\\n'); process.exit(3)");
+  assert.deepEqual([refused.code, JSON.parse(refused.stdout).error.message], [3, 'no']);
+  assert.equal(await runChild(process.execPath, ['-e', "process.stderr.write('first\\nlast\\n'); process.exit(3)"], { cwd: base, env: process.env }), 'last');
+  // A child that prints past the cap is killed and its output reported as cut.
+  const flood = await run(`const b = Buffer.alloc(1024 * 1024, 120); for (let i = 0; i < ${STDOUT_MAX / 1024 / 1024 + 2}; i++) process.stdout.write(b); setInterval(() => {}, 1000)`);
+  assert.match(flood.error ?? '', /stdout passed 4 MiB/);
+  assert.ok(flood.stdout.length <= STDOUT_MAX);
 });

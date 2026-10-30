@@ -145,6 +145,7 @@ Why these sit in core, and why so:
 | owner | ← `daemon-owner.ts` |
 | leaves | `driver.ts` (#459: the id helpers out of `owner.ts`, and the one release), `session-agents.ts` (folded into `session/owned.ts` in #551, to make room for `chat/` under the 12-entry cap), `reconcile.ts`, `foreman.ts`, `notify.ts` |
 | `chat/` | #551: the owner's chats (`store.ts`, `recorder.ts`, `send.ts`, `authority.ts`, `brief.ts`) |
+| `foreman/runs/` | #643: the office runs that retired the office session (`runner.ts`, `draft.ts`, `direct.ts`, `plan.ts`, `child.ts`, `cli.ts`, `steps.ts`), under `foreman/` because `lib/office/` is at its 12-entry cap |
 
 ### server
 

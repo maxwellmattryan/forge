@@ -17,6 +17,7 @@ import type {
   MANDATE_STATUSES,
   MANDATE_UNTIL,
   OFFICE_GATES,
+  OFFICE_RUN_OUTCOMES,
   REPO_BUDGET_KEYS,
   REPO_BUDGET_MODES,
   REQUEST_TYPES,
@@ -57,6 +58,8 @@ export type HandoffClass = (typeof HANDOFF_CLASSES)[number];
 export type GateRule = (typeof ESCALATION_RULES)[number];
 /** How a gate run ended: GATE_RUN_OUTCOMES in lib/api/constants.ts. */
 export type GateRunOutcome = (typeof GATE_RUN_OUTCOMES)[number];
+/** How an office run ended: OFFICE_RUN_OUTCOMES in lib/api/constants.ts. */
+export type OfficeRunOutcome = (typeof OFFICE_RUN_OUTCOMES)[number];
 /** Where an event's actor came from: ACTOR_SOURCES in lib/core/job/schema.ts. */
 export type ActorSource = (typeof ACTOR_SOURCES)[number];
 

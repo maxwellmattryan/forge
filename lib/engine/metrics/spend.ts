@@ -1,6 +1,6 @@
 // The repo spend ledger, one ledger from two sources: every job's agent-end usage (reported), re-priced with
 // today's table, and every daemon session's supervisor-metered spend (lib/engine/metrics/meter.ts), each bucketed by
-// UTC day, role and model, across live jobs, archive records and the inbox and office sessions. A job's metered
+// UTC day, role and model, across live jobs, archive records, the inbox session and the office runs. A job's metered
 // cell is the remainder past the agent ends its own session's meter already holds, so nothing counts twice. The
 // sessions' own per-turn usage (session usage, role orchestrator) rides along for `forge stats --csv` only: the meter
 // already counts it, so no total or budget ever adds it. The repo budget (lib/engine/metrics/repo-budget.ts) and
@@ -173,7 +173,7 @@ const meterRole = (scope: string): string =>
 /** A shared session's ledger title, or null for a job's meter. */
 function sessionTitle(scope: string): string | null {
   if (scope === INBOX_SCOPE) return 'Inbox session';
-  if (scope === OFFICE_SCOPE) return 'Office session';
+  if (scope === OFFICE_SCOPE) return 'Office runs';
   if (scope === GATES_SCOPE) return 'Foreman gates';
   const chat = chatIdOf(scope);
   if (chat !== null) return `Chat ${chat}`;

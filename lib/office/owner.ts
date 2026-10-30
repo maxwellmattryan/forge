@@ -1,10 +1,10 @@
-// The refusals that keep the inbox and office daemon sessions from driving a job: the inbox only routes and
-// the office does not drive jobs. Who drives a job is lib/office/driver.ts.
+// The refusals that keep the inbox session and the office runs' children (scope `_office`) from driving a job:
+// the inbox only routes and the office does not drive jobs. Who drives a job is lib/office/driver.ts.
 import { INBOX_SCOPE, OFFICE_SCOPE, SCOPE_ENV, daemonScope } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
 import { oneLineTitle } from '#core/text.ts';
 
-export const OFFICE_REFUSAL = 'the office session does not drive jobs';
+export const OFFICE_REFUSAL = 'the office does not drive jobs';
 
 /**
  * The inbox session only routes and the office drives nothing: starting a job's worktree or agents there
@@ -17,7 +17,7 @@ export function refuseInboxDrive(id: string, env: NodeJS.ProcessEnv = process.en
   refuseInOffice(`hand ${id} back with \`forge requests add resume --job ${id}\``, env);
 }
 
-/** The inbox or office daemon session runs this: the scopes refuseInboxDrive refuses. */
+/** The inbox session or an office run's child runs this: the scopes refuseInboxDrive refuses. */
 export function inInboxOrOffice(env: NodeJS.ProcessEnv = process.env): boolean {
   const scope = daemonScope(env);
   return 'daemon' in scope && scope.daemon === true && (scope.scope === INBOX_SCOPE || scope.scope === OFFICE_SCOPE);
@@ -31,15 +31,15 @@ export function refuseInboxOrOffice(hint: string, env: NodeJS.ProcessEnv = proce
 }
 
 /**
- * A command only the office session or a person's own terminal runs (`forge mandate draft prepare|record`,
+ * A command only an office run (scope `_office`) or a person's own terminal runs (`forge mandate draft prepare|record`,
  * `forge office survey|board|start|resume|note`): every other daemon scope, and a missing or invalid one,
- * is refused (exit 1) before anything is read. `daemon` says whether the office session ran it.
+ * is refused (exit 1) before anything is read. `daemon` says whether an office run ran it.
  */
 export function refuseOutsideOffice(command: string, env: NodeJS.ProcessEnv = process.env): { daemon: boolean } {
   const s = daemonScope(env);
   if ('problem' in s || (s.daemon && s.scope !== OFFICE_SCOPE)) {
     const scope = 'problem' in s ? oneLineTitle(env[SCOPE_ENV] ?? '').slice(0, 60) || 'unscoped' : s.scope;
-    throw new ForgeError(`forge ${command} runs in the office session or a person's own terminal, not the ${scope} session`, 1);
+    throw new ForgeError(`forge ${command} runs in an office run or a person's own terminal, not the ${scope} session`, 1);
   }
   return { daemon: s.daemon };
 }
@@ -54,7 +54,7 @@ export function refuseBrokenScope(env: NodeJS.ProcessEnv = process.env): void {
 }
 
 /**
- * Refuses in the office session: it claims no job and merges nothing, whatever a request or PR text says.
+ * Refuses in an office run (scope `_office`): it claims no job and merges nothing, whatever a request or PR text says.
  * A daemon session whose scope is missing or invalid is refused too: it can't be told apart from it, so it
  * fails closed.
  */

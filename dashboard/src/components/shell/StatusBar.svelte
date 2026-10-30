@@ -94,7 +94,7 @@
   const workersTone = $derived(bar.daemon.off ? 'muted' : holdsOut && bar.daemon.pill.tone !== 'bad' ? 'warn' : bar.daemon.pill.tone);
   // The inbox session's pill tones the Inbox glyph only while the daemon runs.
   const inboxTone = $derived(bar.inbox.off ? 'muted' : bar.inbox.pill.tone);
-  // The Foreman's pill (the office session's) tones its glyph only while the daemon runs.
+  // The Foreman's pill (its office and gate runs') tones its glyph only while the daemon runs.
   const foremanTone = $derived(bar.foreman.on && bar.foreman.daemon ? bar.foreman.pill.tone : 'muted');
   const connWord = $derived(
     conn.state === 'connecting' ? $t('statusbar.conn.connecting') : conn.state === 'offline' ? $t('statusbar.conn.offline') : conn.state === 'outdated' ? $t('statusbar.conn.outdated') : $t('statusbar.conn.live'),
@@ -107,12 +107,7 @@
   // "Foreman off", and the bell's is only its name, "Needs you" (its popover's title): its counts are already in the
   // sr-only text and the badge. The Foreman's, Workers' and Inbox's state words are never visible, so their titles always carry them.
   const titles = $derived({
-    foreman: !bar.foreman.on
-      ? $t('statusbar.foreman.offTitle')
-      : [
-          bar.foreman.daemon ? `${$t('statusbar.foreman.name')} · ${bar.foreman.pill.label}` : $t('statusbar.foreman.daemonOff'),
-          ...(bar.foreman.prompts ? [$t('statusbar.foreman.prompts', { count: bar.foreman.prompts })] : []),
-        ].join(' · '),
+    foreman: !bar.foreman.on ? $t('statusbar.foreman.offTitle') : bar.foreman.daemon ? `${$t('statusbar.foreman.name')} · ${bar.foreman.pill.label}` : $t('statusbar.foreman.daemonOff'),
     workers: [
       bar.daemon.off ? $t('statusbar.workers.daemonOff') : `${$t('statusbar.workers.name')} · ${bar.daemon.pill.label}`,
       $t('daemon.live', { live: bar.daemon.off ? 0 : bar.daemon.live, cap: bar.daemon.cap }),
@@ -277,7 +272,6 @@
           {#if bar.foreman.on}
             <span class="max-md:sr-only {left >= 6 ? 'sr-only' : ''}">{$t('statusbar.foreman.name')}</span>
             <span class="sr-only">{', '}{bar.foreman.daemon ? bar.foreman.pill.label : $t('daemon.off')}</span>
-            {#if bar.foreman.prompts}<span class="num text-warn"><span aria-hidden="true">{bar.foreman.prompts}</span><span class="sr-only">{', '}{$t('statusbar.foreman.prompts', { count: bar.foreman.prompts })}</span></span>{/if}
           {:else}
             <span class="max-md:sr-only {left >= 6 ? 'sr-only' : ''} text-muted">{$t('statusbar.foreman.off')}</span>
           {/if}

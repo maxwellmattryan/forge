@@ -360,7 +360,7 @@ export function attachActivityLog(server: Pick<RunningServer, 'onProject'>, opts
     // state now, so a session already running still prints its spawned line.
     try {
       const s = pool.state?.();
-      if (s) for (const state of [s.inbox, s.office, ...Object.values(s.jobs ?? {})]) if (state?.scope) track(named({ kind: 'state', scope: state.scope, state }));
+      if (s) for (const state of [s.inbox, ...Object.values(s.jobs ?? {})]) if (state?.scope) track(named({ kind: 'state', scope: state.scope, state }));
     } catch {
       // A pool without state only misses the baseline.
     }

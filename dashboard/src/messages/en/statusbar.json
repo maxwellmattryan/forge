@@ -55,14 +55,10 @@
       "title": "Foreman",
       "off": "Foreman off",
       "daemonOff": "Foreman · daemon off",
-      "prompts": {
-        "one": "{count} prompt",
-        "other": "{count} prompts"
-      },
-      "about": "Supervises the pool: forge dash decides each parked gate in a gate run, one assistant per gate (and one senior pass when foreman.escalations is foreman), and hands the job back or shelves it.",
+      "about": "Supervises the pool: forge dash decides each parked gate in a gate run, one assistant per gate (and one senior pass when foreman.escalations is foreman), and hands the job back or shelves it; it runs each mandate's draft and direct requests as office runs.",
       "tag": "Foreman",
       "officeLog": "Foreman",
-      "officeError": "Office session: {error}",
+      "officeError": "Office runs: {error}",
       "gates": {
         "title": "Gate runs",
         "running": "{live} of {parallel} running",

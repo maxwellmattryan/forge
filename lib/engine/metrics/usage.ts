@@ -3,7 +3,8 @@
 // stream's opening snapshot.
 import fs from 'node:fs';
 import path from 'node:path';
-import { agentTranscriptById, claudeProjectsDir, openTranscript } from '#integrations/claude/transcripts.ts';
+import { readRegular } from '#core/os/fs.ts';
+import { agentTranscriptById, claudeProjectsDir, openTranscript, transcriptProjectDirs } from '#integrations/claude/transcripts.ts';
 import type { TranscriptHit } from '#integrations/claude/transcripts.ts';
 import { CHARS_PER_TOKEN, composeContext } from './composition.ts';
 import type { AgentUsage, ContextComposition, Job } from '#core/types.ts';
@@ -44,6 +45,26 @@ export function importClaudeCodeTranscript(
   const file = (hit ? readConfined(hit, projects) : null) ?? readScanned(findTranscript(projects, `agent-${agentId}.jsonl`));
   if (!file) return null;
   return summarise(file.text, file.path, opts.since, opts.promptChars ?? 0);
+}
+
+/** The largest headless session transcript importSessionTranscript reads (readRegular allocates it once, for a file it found). */
+const SESSION_TRANSCRIPT_MAX = 32 * 1024 * 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A headless child's own transcript, `<projects>/<root slug>/<sessionId>.jsonl` (an office run's drafter, whose
+ * session id Forge chose): read as a regular file with no link followed, from this repo's project dirs only.
+ * Null unless `sessionId` is a UUID, or when no such file is found.
+ */
+export function importSessionTranscript(root: string, sessionId: string, opts: { projectsDir?: string } = {}): TranscriptUsage | null {
+  if (!UUID.test(sessionId)) return null;
+  const projects = opts.projectsDir ?? claudeProjectsDir();
+  for (const dir of transcriptProjectDirs(root, null, projects)) {
+    const file = path.join(dir, `${sessionId}.jsonl`);
+    const bytes = readRegular(file, SESSION_TRANSCRIPT_MAX);
+    if (typeof bytes !== 'string') return summarise(bytes.toString('utf8'), file, null, 0);
+  }
+  return null;
 }
 
 /** A located transcript's path and text, read through openTranscript's confined descriptor. */

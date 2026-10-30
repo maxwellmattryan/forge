@@ -17,6 +17,7 @@ import { createPool } from '#office/pool.ts';
 import type { PoolOptions } from '#office/modes.ts';
 import { createMachineSlots } from '#office/slots.ts';
 import { CHAT_PROMPT } from '#office/session/launch.ts';
+import { OFFICE_NO_SESSION } from '#office/foreman/runs/runner.ts';
 
 // The Office pass child's stand-in for tests that don't look at the pass: the real one is a `forge office pass`
 // process, and these tests spawn nothing real.
@@ -32,7 +33,7 @@ function poolFor(t: any, repo: { dir: string; cleanup: () => void }, opts: PoolO
   return p;
 }
 
-test('a draft request turns the office session, never the inbox', async (t) => {
+test('a draft request becomes an office run, never a session turn', async (t) => {
   for (const foreman of [true, false]) {
     const repo = tempRepo();
     const root = repo.dir;
@@ -44,16 +45,25 @@ test('a draft request turns the office session, never the inbox', async (t) => {
     const pool = poolFor(t, repo, { claude: fake.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
     pool.start('boot');
     const of = (scope: string) => fake.children.filter((c) => c.scope === scope);
+    const req = () => listRequests(root).find((x) => x.id === r.id)!;
     if (foreman) {
-      await waitFor(() => of('_office')[0]?.turns === 1, { what: 'the office turn' });
-      assert.equal(of('_office').length, 1);
+      // No mandate g1: prepare reports it stale, so the run acks with no model child.
+      await waitFor(() => req().status === 'done', { what: 'the office run', timeoutMs: 30_000 });
+      assert.match(req().session ?? '', /^office-run:/);
+      assert.match(req().result ?? '', /^stale: /);
+      assert.equal(pool.state().office.runs[0]?.outcome, 'stale');
     } else {
       pool.poke();
-      assert.deepEqual(of('_office'), [], 'no office session while the foreman is off');
-      assert.equal(listRequests(root).find((x) => x.id === r.id)?.status, 'pending');
+      assert.equal(req().status, 'pending', 'it waits while the foreman is off');
     }
-    assert.ok(of('_inbox').every((c) => c.turns === 0), 'the inbox gets no turn for it');
-    assert.deepEqual(fake.children.filter((c) => c.scope !== '_office' && c.scope !== '_inbox'), [], 'no job session');
+    assert.equal(of('_office').length, 0, 'no office session');
+    assert.equal(pool.facts('_office'), null);
+    assert.deepEqual(fake.children.map((c) => c.scope), [], 'no inbox, office or job session');
+    // No session serves `_office`: a start or a mode is refused, and a stop does nothing.
+    assert.deepEqual(pool.startSession('_office'), { error: OFFICE_NO_SESSION });
+    assert.deepEqual(pool.setPermissionMode('_office', 'auto', { login: null, source: 'dashboard' }), { error: OFFICE_NO_SESSION });
+    assert.deepEqual((await pool.stopSession('_office')).office, pool.state().office);
+    assert.equal(of('_office').length, 0);
     await pool.close();
   }
 });
@@ -132,9 +142,9 @@ test('chat text reaches only its chat session', async (t) => {
   const pool = poolFor(t, repo, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   pool.start('boot');
   // The inbox spawns no session at start: the intake runner answers its requests.
-  const others = ['_office', job];
-  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the office and job sessions run');
-  assert.ok(!claude.children.some((c) => c.scope === '_inbox'), 'no inbox session');
+  const others = [job];
+  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the job session runs');
+  assert.ok(!claude.children.some((c) => c.scope === '_inbox' || c.scope === '_office'), 'no inbox or office session');
 
   const chat = '_chat-0123456789ab';
   assert.deepEqual(pool.sendChat(chat, 'hello, Foreman'), { error: null });
@@ -179,16 +189,17 @@ test('chat sessions count against neither daemon.maxConcurrent nor the machine c
   assert.deepEqual({ live: pool.state().live, machine: pool.state().machine?.live, jobs: Object.keys(pool.state().jobs) }, { live: 1, machine: 1, jobs: [job] });
 });
 
-test('the Office pass runs at start and on a mandate change, and its direct request turns the office', async (t) => {
+test('the Office pass runs at start and on a mandate change, and its direct request becomes an office run', async (t) => {
   for (const enabled of [true, false]) {
     const { repo, root, config } = daemonRepo({ foreman: { enabled, model: 'opus', effort: 'high' } });
     const job = createJob(root, config, { title: 'work' }).id;
     enqueue(root, config, { type: 'resume', job, from: 'dashboard' });
     let calls = 0;
+    let direct: string | null = null;
     // The pass child's stand-in: the first finds director work.
     const runPass = async (r: string) => {
       calls++;
-      if (calls === 1) enqueue(r, config, { type: 'direct', job: null, args: {}, from: 'forge' });
+      if (calls === 1) direct = enqueue(r, config, { type: 'direct', job: null, args: {}, from: 'forge' }).id;
       return null;
     };
     const claude = fakeClaude();
@@ -198,24 +209,25 @@ test('the Office pass runs at start and on a mandate change, and its direct requ
     if (!enabled) {
       pool.poke();
       assert.equal(calls, 0, 'no pass while the foreman is off');
-      assert.deepEqual(of('_office'), [], 'the office never spawns');
+      assert.equal(of('_office').length, 0, 'no office run');
       await pool.close();
       continue;
     }
     assert.equal(calls, 1, 'one pass at start');
-    await waitFor(() => of('_office')[0]?.turns === 1, { what: 'the office turn' });
-    assert.equal(of('_office').length, 1);
-    const argv = of('_office')[0].argv;
-    const after = (w: string) => argv.flatMap((x, i) => (x === w ? [argv[i + 1]] : []));
-    assert.deepEqual([after('--model'), after('--effort')], [['opus'], ['high']]);
+    // No mandate has work: the run's survey finds nothing to direct, with no model child and no session.
+    const req = () => listRequests(root).find((x) => x.id === direct)!;
+    await waitFor(() => req()?.status === 'done', { what: 'the office run', timeoutMs: 30_000 });
+    assert.deepEqual([req().result, pool.state().office.runs[0]?.outcome], ['nothing to direct', 'directed']);
+    assert.match(req().session ?? '', /^office-run:/);
+    assert.equal(of('_office').length, 0);
     await waitFor(() => of(job).length === 1, { what: 'the job session' });
-    for (const c of claude.children.filter((x) => x.scope !== '_office')) assert.ok(!c.argv.includes('--model'), `${c.scope}: no --model`);
+    for (const c of claude.children) assert.ok(!c.argv.includes('--model'), `${c.scope}: no --model`);
     const dir = path.join(root, '.forge', 'runtime', 'mandates');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'm2.md'), '---\n---\n');
     pool.poke();
     await waitFor(() => calls === 2, { what: 'a pass after the mandate change' });
-    assert.equal(of('_office')[0].turns, 1, 'the second pass queued no direct request');
+    assert.equal(listRequests(root).filter((x) => x.type === 'direct').length, 1, 'the second pass queued no direct request');
     await pool.close();
   }
 });

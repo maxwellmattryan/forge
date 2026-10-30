@@ -60,9 +60,9 @@ test('a pool off until a human approves its files asks for that, and is no error
   assert.equal(poolModel(off, opts)!.approval, false);
 });
 
-test('the office in the pool model: no session but its own', () => {
+test('the office in the pool model: office runs, no session', () => {
   const prompt = { id: 'p1', tool: 'Bash', input: '{}', description: null, agentId: null, blockedPath: null, sessionRules: [], sessionDirs: [], at: '2026-10-25T00:00:00.000Z' };
-  const office = { scope: '_office', status: 'busy', running: true, wanted: true, permissions: [prompt] } as any;
+  const office = { enabled: true, live: 1, held: null, runs: [] } as any;
   const pool = {
     enabled: true,
     wanted: true,
@@ -78,27 +78,28 @@ test('the office in the pool model: no session but its own', () => {
     jobPermissionMode: 'auto',
     permissionModes: {},
   } as any;
-  assert.deepEqual(pendingPrompts(pool).map((p) => [p.scope, p.prompt.id]), [['_office', 'p1']]);
+  // No office run asks anyone: even a stray prompt list on the office state is no session's.
+  assert.deepEqual(pendingPrompts({ ...pool, office: { ...office, scope: '_office', permissions: [prompt] } }), []);
   // A session the pool doesn't list (a chat's): its own prompts, with the scope given, oldest first, skipping one with no id.
   const chat = { status: 'busy', permissions: [{ ...prompt, id: 'p3', at: '2026-10-25T00:00:02.000Z' }, { ...prompt, id: '' }, { ...prompt, id: 'p2', at: '2026-10-25T00:00:01.000Z' }, 'junk'] } as any;
   assert.deepEqual(sessionPrompts(chat, '_chat-0123456789ab').map((p) => [p.scope, p.prompt.id]), [['_chat-0123456789ab', 'p2'], ['_chat-0123456789ab', 'p3']]);
   assert.deepEqual(sessionPrompts(chat, '_chat-0123456789ab')[0]?.prompt, { ...prompt, id: 'p2', at: '2026-10-25T00:00:01.000Z' });
   for (const none of [null, undefined, { status: 'idle' }, { permissions: 'x' }] as any[]) assert.deepEqual(sessionPrompts(none, '_chat-0123456789ab'), [], JSON.stringify(none));
-  assert.equal(scopeSession(pool, '_office'), office);
+  assert.equal(scopeSession(pool, '_office'), null, 'no session serves the office');
   assert.equal(scopeSession(pool, '_assistant-1'), null, 'a legacy assistant scope names no session');
-  assert.equal(sessionMode(pool, '_office', office).chosen, 'default', "daemon.command's mode, not the job default");
-  // With a launch mode the inbox and office start in it, unless a human chose another; a job keeps the job default.
+  assert.equal(sessionMode(pool, '_inbox', pool.inbox).chosen, 'default', "daemon.command's mode, not the job default");
+  // With a launch mode the inbox starts in it, unless a human chose another; a job keeps the job default.
   const launched = { ...pool, permissionMode: 'default', jobPermissionMode: 'dontAsk', launchPermissionMode: 'auto' };
-  assert.equal(sessionMode(launched, '_office', office).chosen, 'auto');
   assert.equal(sessionMode(launched, '_inbox', pool.inbox).chosen, 'auto');
   assert.equal(sessionMode({ ...launched, permissionModes: { _inbox: 'default' } }, '_inbox', pool.inbox).chosen, 'default', "the session's own choice wins");
   assert.equal(sessionMode(launched, 'j-1', null).chosen, jobFallbackMode(launched), 'a job keeps the job default');
   assert.equal(sessionMode(launched, 'j-1', null).chosen, 'dontAsk');
-  assert.deepEqual(activeSessions(pool).ids, ['_office']);
-  // The Foreman keeps the office's own pill: a gate run is no session.
+  assert.deepEqual(activeSessions(pool).ids, [], 'an office run is no session');
+  assert.equal(poolModel(pool, { pending: false })?.pill.label, 'standby', 'nor does it make the Workers pill busy');
+  // The Foreman's pill is busy while an office run is live.
   const foreman = barModel(pool, { pending: false }).foreman;
   assert.ok(foreman.on);
-  assert.deepEqual(foreman.pill, sessionPill(office));
+  assert.deepEqual([foreman.pill.label, foreman.active], ['busy', true]);
 });
 
 test('timedOutPrompts lists denied prompts newest first and tolerates an older server', () => {

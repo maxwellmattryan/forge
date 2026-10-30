@@ -1,5 +1,5 @@
 // The permission modes `forge dash`'s pool holds for its sessions: a human's choice per scope, the run's
-// launch mode (`forge dash --permission-mode`) that the job, inbox and office sessions start in, and the
+// launch mode (`forge dash --permission-mode`) that the job and inbox sessions start in, and the
 // default for job sessions, which starts at the launch mode and only the popover moves. A chat launches in
 // `default` (it asks) unless its owner chose otherwise, whatever daemon.command or the launch mode say. In
 // memory on purpose: a session can write files in the repo, runtime records included, so a mode read back
@@ -13,7 +13,7 @@ import type { DaemonPermissionMode, DaemonPoolState } from '#core/types.ts';
 
 /**
  * createPool's options. `launchPermissionMode` is `forge dash --permission-mode`, the human's own command line:
- * the run's launch mode, which every job, inbox and office session starts in unless a human chose another for it.
+ * the run's launch mode, which every job and inbox session starts in unless a human chose another for it.
  * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool. `runPass`
  * stands in for the Office pass child (./inbox/children.ts runPassChild), as `runSync` does for sync's; its signal
  * aborts when the pool closes, and close() waits for its promise. `runForge` stands in for each intake call's
