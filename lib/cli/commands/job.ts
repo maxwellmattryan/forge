@@ -1,5 +1,5 @@
 // `forge job …`: every write to a job's state goes through here.
-import { OFFICE_REFUSAL } from '#office/owner.ts';
+import { OFFICE_REFUSAL } from '#office/session/permissions/owner.ts';
 import { OFFICE_JOB_COMMANDS } from '#office/foreman/policy.ts';
 import { inOffice } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';

@@ -17,12 +17,16 @@ function scratch(t: any) {
   const job = path.join(jobs, 'j1');
   const wtRoot = path.join(base, 'repo.worktrees');
   const wt = path.join(wtRoot, 'j1');
-  for (const d of [path.join(job, '.lock'), path.join(root, '.forge', 'notes'), path.join(wt, 'a')]) fs.mkdirSync(d, { recursive: true });
+  // The intake runner's triage child: its only root is the triage dir, a folder of per-batch folders.
+  const triage = path.join(root, '.forge', 'runtime', 'triage');
+  const batch = path.join(triage, '20261030T120000Z-abcd');
+  for (const d of [path.join(job, '.lock'), path.join(root, '.forge', 'notes'), path.join(wt, 'a'), batch, path.join(root, '.forge', 'runtime', 'meter')]) fs.mkdirSync(d, { recursive: true });
   fs.writeFileSync(path.join(job, 'job.json'), '{}\n');
   fs.writeFileSync(path.join(job, 'events.jsonl'), '');
   fs.writeFileSync(path.join(root, '.forge', 'notes', 'learnings.md'), 'x\n');
   const env = { PATH: process.env.PATH, FORGE_DAEMON: '1', FORGE_DAEMON_WRITE_ROOTS: JSON.stringify({ jobs, worktrees: [wtRoot] }) };
-  return { base, root, jobs, job, wt, env };
+  const triageEnv = { ...env, FORGE_DAEMON_WRITE_ROOTS: JSON.stringify({ jobs: triage, worktrees: [] }) };
+  return { base, root, jobs, job, wt, env, triage, batch, triageEnv };
 }
 
 function guard(event: unknown, env: Record<string, string | undefined>) {
@@ -38,6 +42,8 @@ interface Row {
   path: (s: S) => string;
   cwd?: (s: S) => string;
   link?: (s: S) => [target: string, at: string];
+  /** The triage child's roots instead of a job session's. */
+  triage?: boolean;
 }
 
 const write = (name: string, p: (s: S) => string, extra: Partial<Row> = {}): Row => ({ name, path: p, ...extra });
@@ -65,6 +71,11 @@ const REFUSED: Row[] = [
   write('a worktree symlink to .forge/notes', (s) => path.join(s.wt, 'notes', 'learnings.md'), { link: (s) => [path.join(s.root, '.forge', 'notes'), path.join(s.wt, 'notes')] }),
   write('a job folder symlink to job.json', (s) => path.join(s.job, 'alias.json'), { link: (s) => [path.join(s.job, 'job.json'), path.join(s.job, 'alias.json')] }),
   write('a dangling worktree symlink pointing outside', (s) => path.join(s.wt, 'dangling'), { link: (s) => [path.join(s.base, 'gone', 'x'), path.join(s.wt, 'dangling')] }),
+  write('triage: a file at the top of the triage dir', (s) => path.join(s.triage, 'stray.json'), { triage: true }),
+  write('triage: config.yml', (s) => path.join(s.root, '.forge', 'config.yml'), { triage: true }),
+  write("triage: the inbox's meter", (s) => path.join(s.root, '.forge', 'runtime', 'meter', '_inbox.jsonl'), { triage: true }),
+  write('triage: a .. out of the batch', (s) => `${s.batch}/../../meter/x`, { triage: true }),
+  write('triage: a job folder', (s) => path.join(s.job, 'review', 'x.md'), { triage: true }),
 ];
 
 const ALLOWED: Row[] = [
@@ -73,6 +84,7 @@ const ALLOWED: Row[] = [
   write('a notebook in the worktree', (s) => path.join(s.wt, 'n.ipynb'), { tool: 'NotebookEdit' }),
   write('git files that are not .git', (s) => path.join(s.wt, '.github', 'workflows', '.gitignore')),
   write('a review file in the job folder', (s) => path.join(s.job, 'review', 'round-1', 'code.md')),
+  write("triage: the batch's verdicts", (s) => path.join(s.batch, 'verdicts.json'), { triage: true }),
 ];
 
 function eventOf(row: Row, s: S) {
@@ -101,7 +113,7 @@ test('the write guard confines a daemon session\'s writes', async (t) => {
       await t.test(row.name, (st) => {
         const s = scratch(st);
         if (!linked(st, row, s)) return;
-        const r = guard(eventOf(row, s), s.env);
+        const r = guard(eventOf(row, s), row.triage ? s.triageEnv : s.env);
         assert.equal(r.status, status, `${row.name}: ${r.stderr}`);
         if (status === 2) assert.ok(r.stderr.includes(JSON.stringify(row.path(s))), `${row.name}: stderr names the path: ${r.stderr}`);
         else assert.equal(r.stderr, '', row.name);

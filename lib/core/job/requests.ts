@@ -16,7 +16,7 @@ import { CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, MANDATE_ID_SOURCE, OFFICE_
 export { CHAT_SCOPE_PREFIX, GATES_SCOPE, INBOX_SCOPE, JOBS_SCOPE, MAX_GATE_RUNS, OFFICE_SCOPE, REQUEST_TYPES } from '#api/constants.ts';
 
 /** Request types that act on one job, so they need one and route to that job's daemon session. */
-const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
+export const JOB_REQUEST_TYPES = ['approve', 'revise-spec', 'rework', 'answer', 'cancel', 'resume'] as const;
 
 /** Carries a daemon session's scope into its environment; never stdin or argv. */
 export const SCOPE_ENV = 'FORGE_DAEMON_SCOPE';

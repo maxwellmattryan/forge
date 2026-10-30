@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { refuseInboxDrive } from '#office/owner.ts';
+import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { absoluteDenyRules, confineDigest, spawnConfinement } from '#office/session/confine.ts';
 import { loadStepInput, step } from '#engine/pipeline/step.ts';
 import { jobWorktreeProblem } from '#engine/workspace/regenerate.ts';

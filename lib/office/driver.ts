@@ -23,10 +23,13 @@ export function recordIds(info: any): string[] {
   return [...new Set(ids)];
 }
 
-/** Every id of the inbox session's record. */
-export function inboxSessionIds(root: string): string[] {
-  const rec = sessionRecords(root).find((r) => r.scope === INBOX_SCOPE);
-  return rec ? recordIds(readInfo(rec.info)) : [];
+/**
+ * The intake runner's claim id (lib/office/inbox/runner.ts) in the inbox's record, or null when it is not a uuid.
+ * Never one of recordIds: the inbox session's own exit must not let go of what a live intake run holds.
+ */
+export function intakeIdOf(info: any): string | null {
+  const id = info?.intakeSessionId;
+  return typeof id === 'string' && UUID.test(id) ? id : null;
 }
 
 /**
@@ -39,17 +42,27 @@ export function driverIdOf(info: any): string | null {
   return typeof id === 'string' && UUID.test(id) ? id : null;
 }
 
+/** Every id of the inbox session's record, and the intake runner's claim id. */
+export function inboxSessionIds(root: string): string[] {
+  const rec = sessionRecords(root).find((r) => r.scope === INBOX_SCOPE);
+  if (!rec) return [];
+  const info = readInfo(rec.info);
+  const intake = intakeIdOf(info);
+  return [...new Set([...recordIds(info), ...(intake ? [intake] : [])])];
+}
+
 /**
- * Every id of every session record, and every code driver's id: the drivers `forge dash` ran, as opposed to interactive
- * ones, so a pool boot's release also expires a code turn's lease that a dead dash left.
+ * Every id of every session record, the intake runner's, and every code driver's id: the sessions and drivers `forge dash`
+ * ran, as opposed to interactive ones, so a pool boot's release also expires a code turn's lease that a dead dash left.
  */
 export function daemonSessionIds(root: string): string[] {
   return [
     ...new Set(
       sessionRecords(root).flatMap((r) => {
         const info = readInfo(r.info);
+        const intake = r.scope === INBOX_SCOPE ? intakeIdOf(info) : null;
         const driver = driverIdOf(info);
-        return driver ? [...recordIds(info), driver] : recordIds(info);
+        return [...recordIds(info), ...(intake ? [intake] : []), ...(driver ? [driver] : [])];
       }),
     ),
   ];

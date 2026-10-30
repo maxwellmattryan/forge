@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { enforceBudget } from '#engine/metrics/budget.ts';
-import { refuseInboxDrive } from '#office/owner.ts';
+import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, importCursor, jobDir, loadJob, recordAgent, renewLease, resolveAgentOutput, type Fence } from '#core/job/store.ts';
 import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';

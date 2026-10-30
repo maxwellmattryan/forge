@@ -1,7 +1,7 @@
 // `forge job advance`: step's executor. It runs the deterministic `run` actions `forge job step`
 // returns in-process and hands back only the next action that needs judgement, so a stretch of
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
-import { refuseInboxDrive } from '#office/owner.ts';
+import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease } from '#core/job/store.ts';
 import { progressMark } from '#office/reconcile.ts';

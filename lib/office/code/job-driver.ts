@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { defaults } from '#core/config/keys/defaults.ts';
 import { readInfo, sessionFiles } from '#core/job/session-files.ts';
-import { enqueue, listRequests } from '#core/job/requests.ts';
+import { enqueue, listRequests, sharedScope } from '#core/job/requests.ts';
 import { loadJob } from '#core/job/store.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { driverIdOf, releaseSession } from '../driver.ts';
@@ -31,6 +31,9 @@ interface Running {
   t: Turn;
   done: Promise<void>;
 }
+
+/** The Session a scope runs as: a plain session for the inbox, the office and chats, the code driver for a job. */
+export const createScopeSession = (root: string, scope: string, ctx: SessionContext, o: SessionOptions): Session => (sharedScope(scope) ? createSession(root, scope, ctx, o) : createCodeDriver(root, scope, ctx, o));
 
 export function createCodeDriver(root: string, scope: string, ctx: SessionContext, o: SessionOptions): Session {
   const files = sessionFiles(root, scope);

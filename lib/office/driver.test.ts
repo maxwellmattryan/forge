@@ -1,4 +1,4 @@
-// whoDrives, recordIds and the record readers over them, and judge's answer for the same leases:
+// whoDrives, recordIds and the record readers over them (the intake runner's id included), and judge's answer for the same leases:
 // docs/test-rewrite/modules/office.md. releaseSession is covered through its callers (an exit in
 // lib/office/session/lifecycle.test.ts, a pool boot in test/integration/pool/pool.test.ts).
 import test from 'node:test';
@@ -11,10 +11,12 @@ import { defaults, trustDigest } from '#core/config/load.ts';
 import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import { INBOX_SCOPE } from '#core/job/requests.ts';
 import { createJob, leaseStatus, loadJob } from '#core/job/store.ts';
+import { paths } from '#core/paths.ts';
 import { createCodeDriver } from './code/job-driver.ts';
 import { confineDigest } from './session/confine.ts';
 import { sessionOptions, type SessionContext } from './session/contract.ts';
-import { daemonSessionIds, driverIdOf, inboxSessionIds, recordIds, whoDrives, type Drive } from './driver.ts';
+import { daemonSessionIds, driverIdOf, inboxSessionIds, intakeIdOf, recordIds, whoDrives, type Drive } from './driver.ts';
+import { createPool } from './pool.ts';
 import { judge } from './reconcile.ts';
 import type { Config, Job } from '#core/types.ts';
 
@@ -143,4 +145,31 @@ test("the code driver's id lives in its scope's record, apart from the session's
   assert.equal(driverIdOf(readInfo(f.info)), id, 'after the exit');
   const lease = loadJob(root, job).lease;
   assert.deepEqual([lease.driver, leaseStatus(loadJob(root, job)).status], [id, 'live']);
+});
+
+test('the intake id is an inbox id but not a session record id', async (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  fs.mkdirSync(paths(repo.dir).dir);
+  const f = sessionFiles(repo.dir, INBOX_SCOPE);
+  const info = () => JSON.parse(fs.readFileSync(f.info, 'utf8'));
+  const opts = { claude: fakeClaude().adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0 };
+  await createPool(repo.dir, opts).close();
+  const id = info().intakeSessionId;
+  assert.ok(UUID.test(id), 'a uuid, written when the pool is built');
+  await createPool(repo.dir, opts).close();
+  assert.equal(info().intakeSessionId, id, 'a second pool keeps it');
+
+  const [y, s] = [crypto.randomUUID(), crypto.randomUUID()];
+  fs.writeFileSync(f.info, JSON.stringify({ ...info(), sessionId: y, spawnSessionId: s }));
+  assert.deepEqual(inboxSessionIds(repo.dir), [y, s, id]);
+  assert.ok(daemonSessionIds(repo.dir).includes(id));
+  assert.deepEqual(recordIds(info()), [y, s], "the session's own release never lets go of the intake run's claims");
+  assert.equal(intakeIdOf({ intakeSessionId: '--force' }), null);
+
+  // One that is not a uuid is no id: a new pool replaces it.
+  fs.writeFileSync(f.info, JSON.stringify({ sessionId: y, intakeSessionId: '--resume' }));
+  assert.deepEqual(inboxSessionIds(repo.dir), [y]);
+  await createPool(repo.dir, opts).close();
+  assert.ok(UUID.test(info().intakeSessionId) && info().sessionId === y, 'replaced, the rest of the record kept');
 });

@@ -319,6 +319,8 @@ const ABSOLUTE_RULE = /^Edit\(\/\/[^,\r\n]+\)$/;
  * claude reads `--tools` and `--mcp-config` variadically, so a flag always follows each.
  * `fork` puts `--fork-session` straight after `--resume <id>` (a context session's fork, lib/engine/workspace/context-session.ts),
  * and throws without `session.resume`: a fork of nothing would start a fresh conversation under a resumed one's name.
+ * `persist: false` puts `--no-session-persistence` after the session id words (and the fork), for a one-shot child
+ * whose conversation nothing resumes (the intake runner's triage, lib/office/inbox/triage.ts).
  */
 export function roleArgv(vars: {
   executable: string;
@@ -335,6 +337,7 @@ export function roleArgv(vars: {
   appendSystemPromptFile?: string | null;
   mcpConfig?: string | null;
   fork?: boolean;
+  persist?: boolean;
 }): string[] {
   if (vars.fork && vars.session?.resume !== true) throw new ForgeError("a role child's --fork-session needs --resume: fork only a session it resumes");
   if (typeof vars.agent !== 'string' || !ROLE_AGENT.test(vars.agent)) throw new ForgeError(`a role child's agent must match ${ROLE_AGENT.source} (got ${JSON.stringify(String(vars.agent).slice(0, 80))})`);
@@ -380,6 +383,7 @@ export function roleArgv(vars: {
     vars.session.resume ? '--resume' : '--session-id',
     vars.session.id,
     ...(vars.fork ? ['--fork-session'] : []),
+    ...(vars.persist === false ? ['--no-session-persistence'] : []),
     '--disallowedTools',
     [...vars.deny, ...(mcp !== null ? BROWSER_DENIED : [])].join(','),
     ...PROMPT_TOOL,

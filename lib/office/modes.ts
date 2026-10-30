@@ -8,16 +8,23 @@ import { isChatScope, sharedScope as shared } from '#core/job/requests.ts';
 import { PERMISSION_MODES, commandPermissionMode } from '#integrations/claude/argv.ts';
 import type { DaemonOptions } from './session/contract.ts';
 import type { MachineSlots } from './slots.ts';
+import type { ForgeCaller } from './inbox/children.ts';
 import type { DaemonPermissionMode, DaemonPoolState } from '#core/types.ts';
 
 /**
  * createPool's options. `launchPermissionMode` is `forge dash --permission-mode`, the human's own command line:
  * the run's launch mode, which every job, inbox and office session starts in unless a human chose another for it.
  * `slots` is the machine dashboard's slot gate (./slots.ts), shared by every project's pool. `runPass`
- * stands in for the Office pass child (./code/children.ts runPassChild), as `runSync` does for sync's; its signal
- * aborts when the pool closes, and close() waits for its promise.
+ * stands in for the Office pass child (./inbox/children.ts runPassChild), as `runSync` does for sync's; its signal
+ * aborts when the pool closes, and close() waits for its promise. `runForge` stands in for each intake call's
+ * `bin/forge` child (./inbox/children.ts runForgeCall).
  */
-export type PoolOptions = DaemonOptions & { launchPermissionMode?: DaemonPermissionMode | null; slots?: MachineSlots; runPass?: (root: string, signal: AbortSignal) => Promise<string | null> };
+export type PoolOptions = DaemonOptions & {
+  launchPermissionMode?: DaemonPermissionMode | null;
+  slots?: MachineSlots;
+  runPass?: (root: string, signal: AbortSignal) => Promise<string | null>;
+  runForge?: ForgeCaller;
+};
 
 export interface ModeBook {
   /** Re-reads daemon.command's mode, the one a scope runs in when nobody chose another and the run has no launch mode. */
