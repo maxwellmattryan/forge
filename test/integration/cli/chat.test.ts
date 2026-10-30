@@ -75,6 +75,14 @@ test('a chat records decisions as source chat and is refused reserved gates', as
       assert.deepEqual(jobBytes(b.dir, id), snap, `${action}: nothing written`);
     }
 
+    // A note given as the words after the action is held to the reserved patterns like --note.
+    const words = parkedAt(b.dir, 'spec-approval', { title: 'a plain spec with words' }).id;
+    const wordsSnap = jobBytes(b.dir, words);
+    const spoken = await forgeAsync(b.dir, ['job', 'human', words, 'approve-spec', 'rotate', 'the', 'deploy', 'credentials'], chatEnv(b.dir));
+    assert.equal(spoken.status, 1, spoken.stderr);
+    assert.match(errorOf(spoken), /^a chat may not decide spec-approval for .*: .*credentials.*\. The owner decides it/);
+    assert.deepEqual(jobBytes(b.dir, words), wordsSnap, 'words: nothing written');
+
     // Already refused in any daemon session, a chat's included.
     const free = parkedAt(b.dir, 'spec-approval', { title: 'a plain spec' }).id;
     for (const args of [
