@@ -1,11 +1,13 @@
 // `forge job round|verdicts|gate|decision|score`: review rounds, the reviewers' verdicts, the gate reasons, the approver's
-// decision, and the post-merge score.
+// decision (or Forge's own APPROVE on a clean pass), and the post-merge score.
 import path from 'node:path';
 import { enforceBudget } from '#engine/metrics/budget.ts';
 import { recordGate, summaryEscalates } from '#engine/pipeline/moves/gate-reasons.ts';
 import { ensureReviewDir, jobDir, loadJob, logEvent, parseDecision, readEvents, roundVerdicts, setJob, updateJob } from '#core/job/store.ts';
-import { AGENT_TEXT_MAX, readRegularText } from '#core/os/fs.ts';
 import { exists } from '#core/paths.ts';
+import { AGENT_TEXT_MAX, readRegularText, writeTextAtomic } from '#core/os/fs.ts';
+import { loadStepInput } from '#engine/pipeline/step/input.ts';
+import { cleanDecidedSince, cleanPass, renderCleanDecision, renderCleanPr } from '#engine/pipeline/moves/clean-pass.ts';
 import { isMap } from '#core/shape.ts';
 import { memberRepos, trustedMemberWorktree } from '#engine/project/job-repos.ts';
 import { isLens, lensRepoAllowed, reviewedRepoNames } from '#core/job/lens.ts';
@@ -13,10 +15,10 @@ import { recordScore } from '#engine/evals/scoring.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { pullPrHead } from '#engine/pr/branch.ts';
 import { FULL_SHA, lastDecision } from '#engine/pr/eligible.ts';
-import { after, orNull } from '#engine/pipeline/step/facts.ts';
+import { after, afterIdx, computeFacts, lastIdx, orNull } from '#engine/pipeline/step/facts.ts';
 import { gateSince } from '#engine/pipeline/moves/escalation.ts';
 import { ForgeError } from '#core/errors.ts';
-import type { Config } from '#core/types.ts';
+import type { Config, Job, JobEvent } from '#core/types.ts';
 import { list, req, requireJob, usageError } from '../args.ts';
 import { JOB } from './help.ts';
 
@@ -94,35 +96,93 @@ export function verdicts(root: string, config: Config, rest: string[], flags: Re
   return { ...v, sha, ...heads };
 }
 
+/** What `forge job decision` prints: the record, whether this call logged it, and the marks a gate reason or a clean pass left on it. */
+type DecisionRecord = {
+  decision: string | null;
+  reason: string | null;
+  autoMerge: boolean;
+  head: string | null;
+  heads?: Record<string, string | null>;
+  gated?: boolean;
+  clean?: boolean;
+  recorded: boolean;
+};
+
 /**
  * Records the approver's decision bound to the commits it saw: the worktree HEAD and each PR
  * member's. Once per approver run: a decision.md edited after the record changes nothing until the
  * approver runs again.
  */
-export function decision(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+export function decision(root: string, config: Config, rest: string[], flags: Record<string, any>): DecisionRecord {
   const id = rest[0];
   const job = requireJob(root, id);
+  if (flags.clean !== undefined) {
+    if (flags.clean !== true) throw new ForgeError('--clean takes no value', 'usage');
+    return cleanDecision(root, config, job);
+  }
   const jobId = job.id;
   const events = readEvents(root, jobId);
   const last = events.findLast((e) => e.type === 'decision');
-  if (last && after(last.ts, job.agents.approver?.endedAt)) {
-    const r = lastDecision(events)!;
-    return { decision: r.decision, reason: typeof last.reason === 'string' ? last.reason : null, autoMerge: r.autoMerge, head: r.head, ...(isMap(last.heads) ? { heads: r.heads } : {}), ...(last.gated === true ? { gated: true } : {}), recorded: false };
-  }
+  if (last && after(last.ts, job.agents.approver?.endedAt)) return recordedDecision(events);
   const d = parseDecision(root, jobId);
+  // A gate reason of this round holds the merge for a person whatever decision.md says: never auto-merge eligible.
+  const gated = Boolean(gateSince(events, orNull(events.findLastIndex((e) => e.type === 'round')))?.reasons.length);
+  const record = { decision: d.decision, reason: d.reason, autoMerge: d.autoMerge && !gated, ...decidedHeads(root, config, job), ...(gated ? { gated: true } : {}) };
+  if (!d.decision) return { ...record, recorded: false };
+  setJob(root, jobId, { fields: { decision: d.decision } });
+  logEvent(root, jobId, 'decision', record);
+  return { ...record, recorded: true };
+}
+
+/** The last `decision` event as `forge job decision` printed it, with `recorded: false`. */
+function recordedDecision(events: JobEvent[]): DecisionRecord {
+  const last = events.findLast((e) => e.type === 'decision')!;
+  const r = lastDecision(events)!;
+  return {
+    decision: r.decision,
+    reason: typeof last.reason === 'string' ? last.reason : null,
+    autoMerge: r.autoMerge,
+    head: r.head,
+    ...(isMap(last.heads) ? { heads: r.heads } : {}),
+    ...(last.gated === true ? { gated: true } : {}),
+    ...(last.clean === true ? { clean: true } : {}),
+    recorded: false,
+  };
+}
+
+/** The commits a decision covers: the job worktree's HEAD, and each PR member's (`heads`) when the job has members. */
+function decidedHeads(root: string, config: Config, job: Job): { head: string | null; heads?: Record<string, string | null> } {
   const headOf = (wt: string | null | undefined): string | null => {
     if (!wt || !exists(wt)) return null;
     const out = git(wt, ['rev-parse', '--verify', 'HEAD^{commit}'], { env: historyEnv(), allowFail: true }).stdout.trim();
     return FULL_SHA.test(out) ? out : null;
   };
   const members = memberRepos(job).filter((m) => !m.verifyOnly);
-  const heads = members.length ? { heads: Object.fromEntries(members.map((m) => [m.repo, headOf(trustedMemberWorktree(root, config, job, m.repo))])) } : {};
-  // A gate reason of this round holds the merge for a person whatever decision.md says: never auto-merge eligible.
-  const gated = Boolean(gateSince(events, orNull(events.findLastIndex((e) => e.type === 'round')))?.reasons.length);
-  const record = { decision: d.decision, reason: d.reason, autoMerge: d.autoMerge && !gated, head: headOf(job.worktree), ...heads, ...(gated ? { gated: true } : {}) };
-  if (!d.decision) return { ...record, recorded: false };
-  setJob(root, jobId, { fields: { decision: d.decision } });
-  logEvent(root, jobId, 'decision', record);
+  return { head: headOf(job.worktree), ...(members.length ? { heads: Object.fromEntries(members.map((m) => [m.repo, headOf(trustedMemberWorktree(root, config, job, m.repo))])) } : {}) };
+}
+
+/**
+ * `--clean`: Forge's own APPROVE on a clean pass (approver.skipWhenClean, step rule DC13). Re-checks the clean pass on a
+ * fresh read, so a session running it by hand on any other job is refused with nothing written; once per review.
+ */
+function cleanDecision(root: string, config: Config, job: Job): DecisionRecord {
+  const x = loadStepInput(root, config, job.id);
+  const f = computeFacts(x);
+  if (cleanDecidedSince(x, f)) return recordedDecision(x.events);
+  const refuse = (why: string) => new ForgeError(`job ${job.id} is not a clean pass: ${why}`);
+  // Any other decision since the review stands: an approver's ESCALATE is never overwritten.
+  if (afterIdx(lastIdx(x, (e) => e.type === 'decision'), f.reviewedAt)) throw refuse('a decision since the review');
+  const c = cleanPass(x, f);
+  if ('why' in c) throw refuse(c.why);
+  const dir = jobDir(root, job.id);
+  const read = (name: string) => readRegularText(path.join(dir, name), AGENT_TEXT_MAX) ?? '';
+  const prText = renderCleanPr({ specText: read('spec.md'), buildText: read('build.md'), jobTitle: job.title, lenses: c.lenses });
+  // Atomic writes in the job dir's real path: a link planted at either name is replaced, never followed.
+  writeTextAtomic(path.join(dir, 'decision.md'), renderCleanDecision(c.lenses, job.round), { root: dir });
+  writeTextAtomic(path.join(dir, 'pr.md'), prText, { root: dir });
+  const record = { decision: 'APPROVE', reason: null, autoMerge: false, ...decidedHeads(root, config, job), clean: true };
+  setJob(root, job.id, { fields: { decision: 'APPROVE' } });
+  logEvent(root, job.id, 'decision', record);
   return { ...record, recorded: true };
 }
 

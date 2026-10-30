@@ -156,6 +156,19 @@ export const REVIEWED_HEAD_NOTE = 'a commit after review: the new head goes back
 
 export const splitMode = (x: StepInput) => x.job.splitMode ?? x.config.pipeline.split;
 
+/** Request bodies above this, or with this many list or heading lines, get the split check under `pipeline.plan: auto`. */
+export const PLAN_AUTO_CHARS = 600;
+export const PLAN_AUTO_LINES = 3;
+
+/**
+ * The spec-writer answers the planner's question first (one job or a split): under `pipeline.plan: auto`, a split
+ * mode other than never, a request over the planner threshold, in stage spec, and before any planner ran.
+ */
+export function splitCheck(x: StepInput): boolean {
+  if (x.config.pipeline.plan !== 'auto' || splitMode(x) === 'never' || x.job.stage !== 'spec' || agent(x, 'planner')) return false;
+  return x.request.length > PLAN_AUTO_CHARS || x.request.listLines >= PLAN_AUTO_LINES;
+}
+
 /** A parked job still holding something to stop: a running environment record or a background process. */
 export const parkedRunning = (x: StepInput): boolean => x.environment === 'running' || x.runtime.length > 0;
 export const runningRoles = (x: StepInput) => Object.keys(x.job.agents).filter((r) => x.job.agents[r].status === 'running').sort();

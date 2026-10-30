@@ -88,6 +88,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // into approval-notes.md (the job waited on spec-approval and the session may add a builder hint for it). Only a marked
   // note is rendered; an event without the mark, which an older Forge also writes, never reaches the builder.
   { id: 'approval-note-mark', up: (e) => e },
+  // v25 adds `clean: true` to a `decision` Forge recorded on a clean pass (`forge job decision --clean`, no approver ran);
+  // an older Forge ignores the field and reads an APPROVE that is never auto-merge eligible.
+  { id: 'clean-decision', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

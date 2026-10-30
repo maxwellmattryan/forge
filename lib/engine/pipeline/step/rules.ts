@@ -25,6 +25,8 @@ export const RULES = [
   'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8',
   'P1', 'P2', 'P2b', 'P3', 'P4', 'P5',
   'SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6', 'SP7',
+  // The spec-writer's split check proposed a split: on to the planner.
+  'SP8',
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B6b', 'B7', 'B8',
   'V1', 'V2', 'V2b', 'V3', 'V3b',
@@ -36,6 +38,8 @@ export const RULES = [
   'DC12',
   // The recall eval before the approver when the diff changes reviewer prompts.
   'RC1',
+  // A clean pass (approver.skipWhenClean): Forge records the APPROVE without the approver.
+  'DC13',
   'IG1', 'IG2', 'IG2b', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG7b', 'IG8', 'IG9', 'IG10', 'IG10b', 'IG10c', 'IG11', 'IG12', 'IG13',
   'PR1', 'PR2', 'PR2b', 'PR3', 'PR4', 'PR5', 'PR6', 'PR7', 'PR8', 'PR9', 'PR9b', 'PR9c', 'PR10', 'PR11', 'PR12',
   // The held push (PR13), the merge gates on the open PR (PR15: the one escalation park, PR17: the recall eval), what

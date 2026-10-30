@@ -340,7 +340,14 @@ export const JOB: HelpGroup = {
         'compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that said ESCALATE when forge job verdicts recorded it, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}',
       exits: [NO_JOB],
     },
-    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
+    {
+      command: 'job decision',
+      args: '<id> [--clean]',
+      summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing",
+      flags: [['--clean', "on a clean pass (approver.skipWhenClean), write decision.md and pr.md and record Forge's own APPROVE (clean: true, never auto-merge eligible) without the approver; once per review"]],
+      exits: [[1, 'no such job, or with --clean a job that is not a clean pass (`job <id> is not a clean pass: <check>`; nothing written)']],
+      docs: ['Clean pass', 'docs/CONFIG.md#clean-pass'],
+    },
     {
       command: 'job score',
       args: 'record <id>',

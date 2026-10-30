@@ -211,3 +211,16 @@ test('validates pipeline.resumeRework', () => {
   const f = FIELDS.find((x) => x.key === 'pipeline.resumeRework');
   assert.ok(f && f.type === 'boolean' && f.editable && f.default === true);
 });
+
+test('validates approver.skipWhenClean', () => {
+  const problems = (v: unknown) => {
+    const c: any = defaults();
+    c.approver.skipWhenClean = v;
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith('approver.skipWhenClean'));
+  };
+  assert.equal(defaults().approver.skipWhenClean, false);
+  for (const ok of [true, false]) assert.deepEqual(problems(ok), [], String(ok));
+  for (const bad of ['true', 1, null, {}]) assert.deepEqual(problems(bad), [`approver.skipWhenClean must be true or false (got ${JSON.stringify(bad)})`], String(bad));
+  const f = FIELDS.find((x) => x.key === 'approver.skipWhenClean');
+  assert.ok(f && f.type === 'boolean' && !f.editable && f.lockedReason && f.default === false);
+});

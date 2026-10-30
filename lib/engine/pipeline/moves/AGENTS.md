@@ -1,6 +1,6 @@
 # lib/engine/pipeline/moves/
 
-How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, and dependency waits, and the notes a spec approval carries to the builder.
+How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, dependency waits, the notes a spec approval carries to the builder, and the clean pass that moves a job past decide without the approver.
 
 - A stage, state or `waitingOn` change that needs effects (environment, the Foreman's gate request, the tracker mirror) goes through `moveJob` (`apply.ts`); `mirrorJob` runs the mirror alone. Notifications follow every transition through setJob's hook list (`lib/core/job/transitions.ts`), whoever writes.
 - Only tests call `useMoveEffects`; production always runs `realMoveEffects`.
@@ -14,6 +14,7 @@ How a job moves between stages and states: the one move with its effects, the Fo
 |---|---|
 | `apply.ts` | The one move: a locked write of a job's stage, state or waitingOn, then its effects in a fixed order (environment, the Foreman's gate request, the tracker mirror), so every caller gets the same follow-up whoever moves the job. |
 | `approval-notes.ts` | Approval notes: a person's spec-approval notes and `forge job note --for builder` hints, rendered from the job's events into approval-notes.md, which the builder brief lists. |
+| `clean-pass.ts` | The clean pass: when every lens passed and nothing can escalate, Forge records the APPROVE and renders decision.md and pr.md itself instead of running the approver (approver.skipWhenClean, rule DC13, `forge job decision --clean`). |
 | `deps.ts` | Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked branches and retargeting. |
 | `effects.ts` | A move's effects behind one seam: the environment a finished job leaves, the Foreman's gate request and the tracker mirror. |
 | `escalation.ts` | Escalation reasons as data: the one park reason that lists them (`escalation: <rules>`), its parser (today's form and the reasons the merge gates wrote before they collapsed), the `gate` events `forge job gate` logs, and the brief lines that carry them. |

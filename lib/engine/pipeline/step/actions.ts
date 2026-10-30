@@ -10,7 +10,7 @@ import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import type { JobEvent, WaitingOn } from '#core/types.ts';
 import type { StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, reworkResume, runningRoles, splitMode } from './facts.ts';
+import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, reworkResume, runningRoles, splitCheck, splitMode } from './facts.ts';
 import type { ResumeSkip } from './facts.ts';
 import { reworkReviewFiles } from './panel.ts';
 import type { RuleId } from './rules.ts';
@@ -109,7 +109,11 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
   const conflictFiles = Array.isArray(conflicts?.conflicts) ? (conflicts.conflicts as unknown[]).map(String) : [];
   const regenerated = Array.isArray(conflicts?.regenerated) ? (conflicts.regenerated as unknown[]).map(String) : [];
   if (base === 'planner') ctx.splitMode = splitMode(x);
-  if (base === 'spec-writer') ctx.foldIn = j.stage === 'design';
+  if (base === 'spec-writer') {
+    ctx.foldIn = j.stage === 'design';
+    ctx.splitCheck = splitCheck(x);
+    if (ctx.splitCheck) ctx.splitMode = splitMode(x);
+  }
   if (base === 'designer') ctx.mode = x.config.pipeline.design === 'mockup' && j.kind !== 'eval' ? 'mockup' : 'reference';
   if (base === 'builder') {
     ctx.rework = builderRework(x);

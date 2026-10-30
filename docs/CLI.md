@@ -1099,11 +1099,17 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
+**`forge job decision <id> [--clean]`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
+
+| Flag | Meaning |
+|---|---|
+| `--clean` | on a clean pass (approver.skipWhenClean), write decision.md and pr.md and record Forge's own APPROVE (clean: true, never auto-merge eligible) without the approver; once per review |
 
 | Exit | When |
 |---|---|
-| 1 | no such job |
+| 1 | no such job, or with --clean a job that is not a clean pass (`job <id> is not a clean pass: <check>`; nothing written) |
+
+See [Clean pass](CONFIG.md#clean-pass).
 
 **`forge job delete <id> [--force]`**: delete a job started by mistake, for good: releases its tracker claim, removes its worktrees, per-job backing services and the branch Forge named for it, rejects its open requests and deletes its job folder and session logs, keeping no archive record. A job with a PR, split children or an active dependent is refused: cancel and archive real work instead
 

@@ -1,10 +1,10 @@
-// Decide: the gate reasons (DC12), then the approver (or, for an eval, the judge and the grade), then
-// on to integrate and pr. What holds the merge (the approver's ESCALATE and the gate reasons, on one
-// escalation park, and a missing recall eval) holds it after the push: the pr table checks them once
-// the PR is open (PR15, PR17).
+// Decide: the gate reasons (DC12), then the approver (Forge's own APPROVE on a clean pass; for an eval, the judge and the
+// grade), then on to integrate and pr. What holds the merge (the approver's ESCALATE and the gate reasons, on one
+// escalation park, and a missing recall eval) holds it after the push: the pr table checks them once the PR is open (PR15, PR17).
 import { autoMerge } from '#core/config/load.ts';
 import { pastTotalCeiling } from '../../moves/foreman-gates.ts';
 import { gateSince } from '../../moves/escalation.ts';
+import { cleanDecidedSince, cleanPass } from '../../moves/clean-pass.ts';
 import type { JobAgent, WaitingOn } from '#core/types.ts';
 import { park, procedure, run, spawn, toStage } from '../actions.ts';
 import { recallEvents, recallRecorded } from '../recall.ts';
@@ -67,7 +67,13 @@ export const DECIDE: Table<DecideCtx> = {
       when: (c) => recallOpen(c) && c.x.recall!.pluginHash !== null && !c.x.recall!.invalidFixtures && recallEvents(c.x, 'start').length < 2,
       then: ({ x }) => procedure(x, 'RC1', 'recall.md', 'the diff changes reviewer prompts: run the recall eval on them before the approver'),
     },
-    { id: 'DC1', when: ({ x, ap, exhausted }) => !exhausted && (!startedIn(ap, x.job.round) || !ended(ap)), then: ({ x }) => spawn(x, 'DC1', 'approver') },
+    // approver.skipWhenClean: every lens passed and the gate check found nothing, so Forge records the APPROVE itself.
+    {
+      id: 'DC13',
+      when: (c) => !c.exhausted && !afterIdx(lastIdx(c.x, (e) => e.type === 'decision'), c.f.reviewedAt) && cleanPass(c.x, c.f).ok,
+      then: ({ x }) => run(x, 'DC13', ['job', 'decision', x.job.id, '--clean'], 'every lens passed and nothing escalates: Forge records the APPROVE'),
+    },
+    { id: 'DC1', when: ({ x, f, ap, exhausted }) => !exhausted && (!startedIn(ap, x.job.round) || !ended(ap)) && !cleanDecidedSince(x, f), then: ({ x }) => spawn(x, 'DC1', 'approver') },
     missingOutputRows<DecideCtx>((c) => (c.exhausted ? null : 'approver')),
     {
       id: 'DC2',

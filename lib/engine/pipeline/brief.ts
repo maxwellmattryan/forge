@@ -213,6 +213,8 @@ export interface RoleContext {
   /** The reviewer's or integrator's output when it differs from the role default. */
   output?: string;
   splitMode?: string;
+  /** The spec-writer answers one job or a split first (splitCheck); its `Split check:` line names splitMode. */
+  splitCheck?: boolean;
   foldIn?: boolean;
   mode?: 'mockup' | 'reference';
   /** questions.md has a human answer the agent should read. */
@@ -312,6 +314,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Review panel: ${c.review.panel.map((x) => x.name).join(', ') || 'none'}`,
           c.resources.length ? `Resources: ${c.resources.length} in ${p('config')}` : 'Resources: none configured',
           ...(ctx.foldIn ? ['Fold in the Spec deltas from design.md.'] : []),
+          // Only the two modes: job.splitMode is settable with --field.
+          ...(ctx.splitCheck ? [`Split check: yes · split mode ${ctx.splitMode === 'auto' ? 'auto' : 'ask'}`] : []),
           ...components,
           ...repos,
         ],

@@ -1,11 +1,11 @@
-// Spec: the spec-writer writes spec.md, step records the panel, then the spec gate and the issue link.
+// Spec: the spec-writer writes spec.md (or proposes a split for the planner), step records the panel, then the spec gate and the issue link.
 import { issueLinkStatus } from '#core/job/issue-link.ts';
 import { COMPLEXITIES } from '#core/job/schema.ts';
 import type { JobAgent } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
 import { SAFE_REF } from '#core/text.ts';
 import { park, set, spawn, toStage } from '../actions.ts';
-import { after, agent, ended, human, lastEvent } from '../facts.ts';
+import { after, agent, ended, human, lastEvent, splitCheck } from '../facts.ts';
 import { genericRows } from '../generic.ts';
 import { selectPanel } from '../panel.ts';
 import { inStage } from '../rules.ts';
@@ -58,10 +58,14 @@ export const SPEC: Table<SpecCtx> = {
     { id: 'SP1', when: (c) => c.x.job.kind !== 'retro' && !ended(c.sw), then: ({ x }) => spawn(x, 'SP1', 'spec-writer') },
     {
       id: 'SP2',
-      when: ({ x, sw }) => after(human(x, 'revise-spec')?.ts, sw?.startedAt) || Boolean(sw && after(human(x, 'reject-repos')?.ts, sw.startedAt)),
+      // A planner that ended after the spec-writer started answered its split with a SINGLE: write the full spec.
+      when: ({ x, sw }) =>
+        after(human(x, 'revise-spec')?.ts, sw?.startedAt) || Boolean(sw && after(human(x, 'reject-repos')?.ts, sw.startedAt)) || after(agent(x, 'planner')?.endedAt, sw?.startedAt),
       then: ({ x }) => spawn(x, 'SP2', 'spec-writer'),
     },
     ...genericRows<SpecCtx>((c) => (c.sw ? 'spec-writer' : null)),
+    // The spec-writer's split check found a split: the planner plans it (P1), and P2–P4 go on as after intake.
+    { id: 'SP8', when: ({ x, sw }) => ended(sw) && splitCheck(x) && x.spec.split, then: ({ x }) => toStage(x, 'SP8', 'plan', 'the spec-writer proposes a split: the planner plans it') },
     {
       id: 'SP3',
       when: ({ x, authored }) => !after(lastEvent(x, (e) => e.type === 'fields' && Boolean(e.fields && typeof e.fields === 'object' && 'reviewers' in (e.fields as object)))?.ts, authored),

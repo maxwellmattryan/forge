@@ -132,7 +132,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   pipeline: { doc: 'how a job moves from request to PR' },
   'pipeline.plan': {
-    doc: 'auto | always | never (auto: a planner when the request is over 600 characters or has 3+ list or heading lines)',
+    doc: 'auto | always | never (auto: the spec-writer\'s split check when the request is over 600 characters or has 3+ list or heading lines, and a planner only for a split)',
   },
   'pipeline.split': { doc: 'ask | auto | never (what a SPLIT plan does; see "Split gate" below)' },
   'pipeline.specApproval': { doc: 'always | large | never' },
@@ -180,6 +180,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   approver: { doc: 'what the approver never approves on its own' },
   'approver.alwaysEscalate': { doc: 'plain-language classes the approver must escalate', layout: 'block' },
+  'approver.skipWhenClean': { doc: 'true | false: on a clean pass Forge records the APPROVE and renders pr.md itself, without the approver (see "Clean pass")' },
 
   pr: { doc: 'the pull request each job opens' },
   'pr.enabled': { doc: 'false: no PRs; an approved job finishes on its branch' },

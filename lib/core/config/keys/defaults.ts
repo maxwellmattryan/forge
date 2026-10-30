@@ -180,6 +180,8 @@ export function defaults(): Config {
         'public API or protocol breaking changes',
         'anything touching credentials, auth or permissions',
       ],
+      // Off: a clean pass gives up the approver's judgement-only checks, so a person turns it on (docs/CONFIG.md "Clean pass").
+      skipWhenClean: false,
     },
     pr: {
       enabled: true,

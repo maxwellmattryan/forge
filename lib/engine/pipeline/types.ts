@@ -101,7 +101,8 @@ export interface StepInput {
   request: { length: number; listLines: number };
   plan: { verdict: 'SINGLE' | 'SPLIT' | null; jobs: number; recommendSplit: boolean };
   /** spec.md's header lines and Approach paths; suggested names and services are raw, step filters them. `uiAcs`: specUiAcs, the builder's `UI proof:` line. */
-  spec: { size: string | null; complexity: string | null; needsDesign: boolean; components: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[] };
+  /** `split`: the header's `Split: yes`, the spec-writer's answer to the split check (SP8 reads it only while splitCheck holds). */
+  spec: { size: string | null; complexity: string | null; needsDesign: boolean; components: string[]; suggested: string[]; approachPaths: string[]; uiAcs: string[]; split: boolean };
   /** design.md's `## Spec deltas` section is non-empty and not None. */
   designDeltas: boolean;
   /** decision.md's first line. Its Auto-merge eligible line is not here: only the recorded decision event counts (lib/engine/pr/eligible.ts). */
@@ -117,6 +118,11 @@ export interface StepInput {
    * has no recorded review.
    */
   reviewCurrent: boolean | null;
+  /**
+   * The `outcome` the CLI logged on the round's last `verdicts` event, when the whole panel's review ended; null when
+   * the round has none. The clean pass reads it beside the lens verdicts, which a later edit of `job.reviewers` can narrow.
+   */
+  panelOutcome: string | null;
   /**
    * Earlier round (as a string) → the validated sha its review saw (reviewedSha in
    * lib/engine/pipeline/scope.ts), for a round 2+ reviewer brief's `Changed since:` line. Only at stage

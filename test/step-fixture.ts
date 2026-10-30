@@ -41,6 +41,8 @@ export interface FixtureOpts {
   decisionCurrent?: StepInput['decisionCurrent'];
   /** loadStepInput's reviewCurrent: every job repo's HEAD follows the head the round's review was given; true by default. */
   reviewCurrent?: StepInput['reviewCurrent'];
+  /** loadStepInput's panelOutcome: the outcome the round's `verdicts` event logged; PASS by default. */
+  panelOutcome?: StepInput['panelOutcome'];
   /** loadStepInput's reviewedShas; {} by default. */
   reviewedShas?: StepInput['reviewedShas'];
   verdicts?: Partial<StepInput['verdicts']>;
@@ -75,7 +77,7 @@ export interface FixtureOpts {
   checklists?: StepInput['checklists'];
   /** loadStepInput's verifierQuestions; null by default, as at any stage but build. */
   verifierQuestions?: StepInput['verifierQuestions'];
-  /** loadStepInput's instructionsChanged; [] (nothing changed) by default. */
+  /** loadStepInput's instructionsChanged; [] (nothing changed) by default, and null (git failed) when given. */
   instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
   budgetExceeded?: StepInput['budgetExceeded'];
@@ -143,17 +145,18 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     memberWorktreesMissing: o.memberWorktreesMissing ?? false,
     request: { length: 40, listLines: 0, ...o.request },
     plan: { verdict: null, jobs: 0, recommendSplit: false, ...o.plan },
-    spec: { size: null, complexity: null, needsDesign: false, components: [], suggested: [], approachPaths: [], uiAcs: [], ...o.spec },
+    spec: { size: null, complexity: null, needsDesign: false, components: [], suggested: [], approachPaths: [], uiAcs: [], split: false, ...o.spec },
     designDeltas: o.designDeltas ?? false,
     decision: { decision: null, ...o.decision },
     decisionCurrent: o.decisionCurrent ?? true,
     reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
+    panelOutcome: o.panelOutcome === undefined ? 'PASS' : o.panelOutcome,
     reviewedShas: o.reviewedShas ?? {},
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
     verifierQuestions: o.verifierQuestions ?? null,
-    instructionsChanged: o.instructionsChanged ?? [],
+    instructionsChanged: o.instructionsChanged === undefined ? [] : o.instructionsChanged,
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
     events: [...events, ...gate],

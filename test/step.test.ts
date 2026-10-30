@@ -290,7 +290,12 @@ test('loadStepInput parsers read plan, spec header and design deltas', () => {
   assert.deepEqual(parsePlan('PLAN: SINGLE\n## External\n- Recommend splitting: (a) x (b) y\n'), { verdict: 'SINGLE', jobs: 0, recommendSplit: true });
   assert.deepEqual(parsePlan('# no plan line\n'), { verdict: null, jobs: 0, recommendSplit: false });
   const header = parseSpecHeader('# T\n\nSize: L\nServices: -\nNeeds design: yes\nSuggested reviewers: code, tests, UI , evil;rm\n\n## Goal\nSize: S\n');
-  assert.deepEqual(header, { size: 'L', complexity: null, needsDesign: true, components: [], suggested: ['code', 'tests', 'UI', 'evil;rm'] });
+  assert.deepEqual(header, { size: 'L', complexity: null, needsDesign: true, components: [], suggested: ['code', 'tests', 'UI', 'evil;rm'], split: false });
+  assert.equal(parseSpecHeader('# T\n\nSplit: yes\n\n## Why\n- a\n').split, true);
+  assert.equal(parseSpecHeader('# T\nsplit: Yes, two parts\n').split, true, 'case-insensitive');
+  assert.equal(parseSpecHeader('# T\nSplit: no\n').split, false);
+  assert.equal(parseSpecHeader('# T\nSize: S\n').split, false, 'no line');
+  assert.equal(parseSpecHeader('# T\nSplit: no\n\n## Goal\nSplit: yes\n').split, false, 'header only');
   assert.equal(parseSpecHeader('Size: M\nComplexity: High\n').complexity, 'high', 'stored lowercase');
   assert.equal(parseSpecHeader('Size: M\nComplexity: extreme\n').complexity, 'extreme', 'SP3 decides validity');
   assert.deepEqual(parseSpecHeader('Components: dashboard, cli\n').components, ['dashboard', 'cli']);
