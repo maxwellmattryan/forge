@@ -283,7 +283,7 @@ export function defaults(): Config {
       // With the daemon on, fills each of a job's tokens, usd and minutes limits that config and the
       // job's own overrides leave unset (lib/engine/metrics/budget.ts effectiveLimits); null turns it off.
       jobBudget: { tokens: 600000000, usd: 150 },
-      // Dollars per UTC day the inbox and office sessions may spend, metered from claude's own cost report;
+      // Dollars per UTC day the inbox session and the office (its office and gate runs) may spend, metered from claude's own cost report;
       // above the heaviest day observed here (office $38.66, inbox about $15). null (or a null key): no cap.
       // `chat` caps every chat session of the project together.
       dailyUsd: { inbox: 25, office: 60, chat: 25 },
@@ -305,7 +305,7 @@ export function defaults(): Config {
       decides: OFFICE_GATES.filter((g) => g !== 'repo-proposal' && g !== 'release' && g !== 'milestone-approval'),
       reserved: [...DEFAULT_RESERVED],
       ship: 'propose',
-      // The office session's model and effort when it directs mandates, and the Office pass's pace.
+      // The director call's model and effort when an office run directs mandates, and the Office pass's pace.
       model: 'inherit',
       effort: null,
       cadence: 10,

@@ -316,7 +316,7 @@ test('no run starts at the office cap', async (t) => {
   h.take();
   assert.equal(h.fake.children.length, 1, 'no child at the cap');
   assert.equal(h.runner.state().held?.reason, 'daily-cap');
-  assert.match(h.runner.state().held?.message ?? '', /the office session and its gate runs spent \$1\.05 of the \$1\.00 daily cap/);
+  assert.match(h.runner.state().held?.message ?? '', /the office runs and gate runs spent \$1\.05 of the \$1\.00 daily cap/);
   assert.equal(request(r.dir, b.gid).status, 'pending');
   h.runner.take(loadConfig(r.dir).config, []);
   assert.equal(h.runner.state().held, null, 'no request waits any more: nothing is held');

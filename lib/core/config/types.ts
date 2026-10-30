@@ -310,13 +310,13 @@ export interface Config {
     /** session: a job scope's resume turns run a `claude -p` orchestrator; code: forge dash drives them itself (lib/office/code/job-driver.ts). */
     driver: DaemonDriver;
   };
-  /** The office session's authority: docs/CONFIG.md "Foreman". */
+  /** The Foreman's authority: docs/CONFIG.md "Foreman". */
   foreman: {
     enabled: boolean;
     decides: GateClass[];
     reserved: string[];
     ship: ForemanShip;
-    /** The office session's model and effort when it directs mandates (lib/office/slots.ts), and the Office pass's pace. */
+    /** The director call's model and effort when an office run directs mandates (lib/core/config/models.ts `director`), and the Office pass's pace. */
     model: string;
     effort: Effort | null;
     /** Minutes between the director's passes (1–1440). */

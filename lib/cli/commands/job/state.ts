@@ -73,7 +73,7 @@ export async function set(root: string, config: Config, rest: string[], flags: R
   // id back at this terminal; setJob refuses the move without the grant whoever writes it.
   const grant = reopensShelved(before, flags.state) ? await confirmHuman(root, reopenShelvedOp(jobId)) : undefined;
   // A failed teardown is never rolled back: the result says so and any later teardown path retries.
-  // The inbox and office sessions only stop it, as `forge environment down` is refused there.
+  // The inbox session and the office's children only stop it, as `forge environment down` is refused there.
   const { job, gate, environment } = await moveJob(
     root,
     config,

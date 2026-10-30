@@ -231,6 +231,10 @@ export function scopedTools(allowedTools: readonly string[], writeRoots: readonl
   return [...kept, ...scoped].join(',');
 }
 
+/** The plugin agents a one-shot child of forge dash may start as (`buildArgv`'s `agent`): a gate run's and an office run's. */
+export const CHILD_AGENTS = Object.freeze(['forge:assistant', 'forge:drafter', 'forge:surveyor', 'forge:director'] as const);
+export type ChildAgent = (typeof CHILD_AGENTS)[number];
+
 /**
  * Placeholders expand after splitting, so a plugin path with spaces stays one argument.
  * `{allowedTools}` loses every file tool, bare or scoped; when it had one, an Edit rule per write
@@ -238,9 +242,9 @@ export function scopedTools(allowedTools: readonly string[], writeRoots: readonl
  * Any --max-budget-usd in the template is dropped; `maxBudgetUsd`, when a number, becomes the one
  * claude reads. A `model` (the office session's foreman.model) replaces every --model the template
  * has. `appendSystemPrompt`, when a string, follows as `--append-system-prompt <text>`: only a chat
- * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). `agent`, when set,
- * appends `--agent forge:assistant`, the one agent a gate run (lib/office/foreman/attempt.ts) starts as; it is a
- * fixed value, never config text. `mcpConfig`, when a string, follows as `--mcp-config <json>`: only a job
+ * session's spawn passes it, and only the fixed CHAT_PROMPT (lib/office/session/launch.ts). `agent`, when one of
+ * CHILD_AGENTS, appends `--agent <it>`: a gate run's forge:assistant (lib/office/foreman/attempt.ts), or an office
+ * run's drafter, surveyor or director (lib/office/foreman/runs/child.ts); it is a fixed value, never config text. `mcpConfig`, when a string, follows as `--mcp-config <json>`: only a job
  * session's spawn passes it, and only browserMcpConfig's (lib/integrations/claude/browser.ts); the template
  * itself may never pass the flag (lib/core/config/trust.ts), and BROWSER_DENIED joins the deny list with it.
  * DENY_TOOLS, then `deny`, then those, and PROMPT_TOOL always follow the template, so a flag follows
@@ -259,7 +263,7 @@ export function buildArgv(
     deny?: string[];
     maxBudgetUsd?: number | null;
     appendSystemPrompt?: string | null;
-    agent?: 'forge:assistant' | null;
+    agent?: ChildAgent | null;
     mcpConfig?: string | null;
   },
 ): string[] {
@@ -277,7 +281,9 @@ export function buildArgv(
   argv = withoutBudgetCap(argv);
   if (typeof vars.maxBudgetUsd === 'number' && Number.isFinite(vars.maxBudgetUsd)) argv.push('--max-budget-usd', capArg(vars.maxBudgetUsd));
   if (typeof vars.appendSystemPrompt === 'string') argv.push('--append-system-prompt', vars.appendSystemPrompt);
-  if (vars.agent === 'forge:assistant') argv.push('--agent', 'forge:assistant');
+  // A fixed list, never config or model text: any other value appends nothing.
+  const agent = CHILD_AGENTS.find((a) => a === vars.agent);
+  if (agent) argv.push('--agent', agent);
   const browser = typeof vars.mcpConfig === 'string';
   if (browser) argv.push('--mcp-config', mcpJson(vars.mcpConfig as string));
   return [...argv, '--disallowedTools', [...DENY_TOOLS, ...(vars.deny ?? []), ...(browser ? BROWSER_DENIED : [])].join(','), ...PROMPT_TOOL];

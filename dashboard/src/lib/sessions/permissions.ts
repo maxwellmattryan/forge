@@ -46,11 +46,11 @@ export function readTimedOut(v: unknown): DaemonTimedOutPrompt | null {
 
 const newestDeniedFirst = (a: TimedOutPrompt, b: TimedOutPrompt): number => (a.prompt.deniedAt > b.prompt.deniedAt ? -1 : a.prompt.deniedAt < b.prompt.deniedAt ? 1 : 0);
 
-/** Every session's timed-out prompts (the inbox's, the office's, then each job's), newest denied first. An older server sends no `timedOut`: none. */
+/** Every session's timed-out prompts (the inbox's, then each job's), newest denied first. An older server sends no `timedOut`: none. */
 export function timedOutPrompts(pool: Partial<DaemonPoolState> | null | undefined): TimedOutPrompt[] {
   const p = obj(pool);
   const out: TimedOutPrompt[] = [];
-  for (const s of [obj(p.inbox), obj(p.office), ...Object.values(obj(p.jobs)).map(obj)]) {
+  for (const s of [obj(p.inbox), ...Object.values(obj(p.jobs)).map(obj)]) {
     if (typeof s.scope !== 'string' || !Array.isArray(s.timedOut)) continue;
     for (const raw of s.timedOut) {
       const prompt = readTimedOut(raw);
@@ -73,10 +73,10 @@ function promptsOf(session: unknown, scope: string): PendingPrompt[] {
   return out;
 }
 
-/** Every prompt in the pool (the inbox's, the office's, then each job's), oldest first; only `scope`'s when given. */
+/** Every prompt in the pool (the inbox's, then each job's; no office run asks anyone), oldest first; only `scope`'s when given. */
 export function pendingPrompts(pool: Partial<DaemonPoolState> | null | undefined, scope?: string): PendingPrompt[] {
   const p = obj(pool);
-  const sessions = [obj(p.inbox), obj(p.office), ...Object.values(obj(p.jobs)).map(obj)];
+  const sessions = [obj(p.inbox), ...Object.values(obj(p.jobs)).map(obj)];
   const out: PendingPrompt[] = [];
   for (const s of sessions) {
     if (typeof s.scope !== 'string' || (scope !== undefined && s.scope !== scope)) continue;

@@ -130,7 +130,7 @@ test('office commands run only where they may', async () => {
         const res = await cli(r.dir, args, { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope });
         assert.equal(res.status, 1, `${args.join(' ')} in ${scope}: ${JSON.stringify(res.error)}`);
         // A broken scope (a legacy assistant's or a gate run's too) is refused before the command's own check.
-        if (scope === '_inbox' || scope === job) assert.match(res.error?.message ?? '', new RegExp(`forge office ${args[1]} runs in the office session or a person's own terminal, not the ${scope} session`));
+        if (scope === '_inbox' || scope === job) assert.match(res.error?.message ?? '', new RegExp(`forge office ${args[1]} runs in an office run or a person's own terminal, not the ${scope} session`));
       }
     }
     for (const scope of ['_office', '_inbox', job]) {

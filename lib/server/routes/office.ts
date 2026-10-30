@@ -11,7 +11,7 @@ import { UUID, logBaseOf, readInfo, readLogPage, sessionFiles } from '#core/job/
 import type { PoolState } from '#office/pool.ts';
 import { jobDir } from '#core/job/store.ts';
 import { exists } from '#core/paths.ts';
-import { INBOX_SCOPE, JOBS_SCOPE, OFFICE_SCOPE, chatIdOf, sharedScope, validScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, JOBS_SCOPE, chatIdOf, sharedScope, validScope } from '#core/job/requests.ts';
 import { readChat } from '#office/chat/store.ts';
 import { openConfinedLog } from '#engine/environment/status.ts';
 import { approveTrust } from '#engine/project/trust-approval.ts';
@@ -203,7 +203,7 @@ export function idlePoolState(root: string): PoolState {
     live: 0,
     lastError: null,
     inbox: offSessionState(root, INBOX_SCOPE),
-    office: offSessionState(root, OFFICE_SCOPE),
+    office: { enabled: false, live: 0, held: null, runs: [] },
     foreman: false,
     gates: { enabled: false, parallel: defaults().foreman.assistants.parallel, live: 0, held: null, runs: [] },
     jobs: {},

@@ -303,7 +303,7 @@ test('the office and its gate runs share one daily cap', async (t) => {
   seed(held.root, OFFICE_SCOPE, 0.7);
   assert.equal(held.s.spawn(held.cfg), false);
   assert.equal(held.children.length, 0, 'no child');
-  assert.match(held.s.lastError ?? '', /the office session and its gate runs spent \$1\.10 of the \$1\.00 daily cap \(daemon\.dailyUsd\.office\)/);
+  assert.match(held.s.lastError ?? '', /the office runs and gate runs spent \$1\.10 of the \$1\.00 daily cap \(daemon\.dailyUsd\.office\)/);
   assert.match(officeCapRefusal(held.root, held.cfg, Date.now())?.message ?? '', /daily cap \(daemon\.dailyUsd\.office\)/);
   assert.equal(officeCapLeft(held.root, held.cfg, Date.now()), 0);
 
@@ -332,7 +332,7 @@ test('the office and its gate runs share one daily cap', async (t) => {
   const office = rig(t, OFFICE_SCOPE, caps);
   oversize(office.root, GATES_SCOPE);
   assert.equal(office.s.spawn(office.cfg), false);
-  assert.match(office.s.lastError ?? '', /_gates\.jsonl is over 64 MiB, so the office session's daily cap \(daemon\.dailyUsd\.office\) can't be checked/);
+  assert.match(office.s.lastError ?? '', /_gates\.jsonl is over 64 MiB, so the office's daily cap \(daemon\.dailyUsd\.office\) can't be checked/);
   assert.equal(officeCapLeft(office.root, office.cfg, Date.now()), 0, 'an unreadable meter leaves no budget');
 });
 
@@ -390,7 +390,7 @@ test("a capped session whose meter can't be read stops: the cap check fails clos
   assert.equal(office.s.spawn(office.cfg), false);
   assert.equal(office.children.length, 0, 'no child');
   assert.equal(office.s.wanted, false);
-  assert.equal(office.s.lastError, `meter: ${file} is over 64 MiB, so the office session's daily cap (daemon.dailyUsd.office) can't be checked and it stops; fix or move the file aside, then start it again`);
+  assert.equal(office.s.lastError, `meter: ${file} is over 64 MiB, so the office's daily cap (daemon.dailyUsd.office) can't be checked and it stops; fix or move the file aside, then start it again`);
 
   // A meter path planted mid-session stops it at the next result, with no daily-cap notification.
   const inbox = rig(t, INBOX_SCOPE, { daemon: { dailyUsd: { office: 60, inbox: 25 } } });
@@ -423,7 +423,7 @@ test("a capped session whose meter can't be read stops: the cap check fails clos
   assert.deepEqual(metered(thrown.root, OFFICE_SCOPE), [0.5], 'the record is written first');
   assert.equal(thrown.s.wanted, false);
   assert.deepEqual(thrown.children[0].signals, ['SIGTERM']);
-  assert.equal(thrown.s.lastError, "meter: cap read failed, so the office session's daily cap (daemon.dailyUsd.office) can't be checked and it stops; fix the cause, then start it again");
+  assert.equal(thrown.s.lastError, "meter: cap read failed, so the office's daily cap (daemon.dailyUsd.office) can't be checked and it stops; fix the cause, then start it again");
   assert.deepEqual(thrown.notified, []);
   await waitFor(() => !thrown.s.running, { what: 'the office stopped' });
 });

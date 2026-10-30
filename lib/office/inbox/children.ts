@@ -3,7 +3,8 @@
 // the checkout's config names never runs on their fetches; and the intake runner's calls (runForgeCall), in the
 // `_inbox` scope with the session env, whose JSON and exit code are the request's answer. Each is its own
 // process, killed after 10 minutes and stopped on the pool's signal. docs/architecture/daemon.md "Periodic
-// sync", "Periodic Office pass" and "Intake runner" describe them.
+// sync", "Periodic Office pass" and "Intake runner" describe them. runChildOutput (which keeps stdout) also
+// runs an office run's CLI children (lib/office/foreman/runs/cli.ts), under their own env.
 import { spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { TRUST_ENV } from '#core/config/load.ts';
@@ -55,31 +56,37 @@ interface Exited {
   code: number | null;
   signal: NodeJS.Signals | null;
   error: string | null;
+  /** It ran past its timeout and was killed. */
+  timedOut: boolean;
 }
 
 /**
  * Spawns one child, killed after CHILD_TIMEOUT_MS, and stopped (SIGTERM, then SIGKILL after `stop.graceMs`) once
  * `stop.signal` aborts, at once when it already has. `exited` settles once, when the child closed or failed to start.
  */
-function supervise(file: string, args: string[], o: { cwd: string; env: NodeJS.ProcessEnv; stop?: ChildStop | undefined; stdout: boolean }): { child: ChildProcess; exited: Promise<Exited> } {
+function supervise(file: string, args: string[], o: { cwd: string; env: NodeJS.ProcessEnv; stop?: ChildStop | undefined; stdout: boolean; timeoutMs?: number | undefined }): { child: ChildProcess; exited: Promise<Exited> } {
   const child = spawn(file, args, { cwd: o.cwd, env: o.env, stdio: ['ignore', o.stdout ? 'pipe' : 'ignore', 'pipe'], windowsHide: true });
   const exited = new Promise<Exited>((resolve) => {
     let settled = false;
     let grace: NodeJS.Timeout | null = null;
-    const timer = setTimeout(() => child.kill('SIGKILL'), CHILD_TIMEOUT_MS);
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGKILL');
+    }, o.timeoutMs ?? CHILD_TIMEOUT_MS);
     timer.unref?.();
     // Not spawn's own `signal` option: that sends one signal and never escalates to SIGKILL.
     const onAbort = () => {
       child.kill('SIGTERM');
       grace ??= setTimeout(() => child.kill('SIGKILL'), o.stop!.graceMs);
     };
-    const finish = (r: Exited) => {
+    const finish = (r: Omit<Exited, 'timedOut'>) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (grace) clearTimeout(grace);
       o.stop?.signal.removeEventListener('abort', onAbort);
-      resolve(r);
+      resolve({ ...r, timedOut });
     };
     child.on('error', (e) => finish({ code: null, signal: null, error: e.message }));
     child.on('close', (code, signal) => finish({ code, signal, error: null }));
@@ -109,6 +116,49 @@ export async function runChild(file: string, args: string[], o: { cwd: string; e
   const r = await exited;
   if (r.error !== null) return r.error;
   return r.code === 0 ? null : stderr().trim().split('\n').pop() || `exit ${r.code ?? r.signal}`;
+}
+
+/** The most stdout runChildOutput keeps; a child that prints more is killed and reported as cut. */
+export const STDOUT_MAX = 4 * 1024 * 1024;
+
+/** How a child ended: its code or signal, its stdout, its first 2000 characters of stderr, and a spawn error or a cut stdout. */
+export interface ChildOutput {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+  /** The spawn's error message, or why stdout was cut; null otherwise. */
+  error: string | null;
+  /** It ran past CHILD_TIMEOUT_MS (or `timeoutMs`) and was killed. */
+  timedOut: boolean;
+}
+
+/**
+ * runChild's process, with its stdout kept (at most STDOUT_MAX: a child that prints more is killed) when
+ * `stdout` is true: the office runs' CLI children print one JSON value there.
+ */
+export async function runChildOutput(
+  file: string,
+  args: string[],
+  o: { cwd: string; env: NodeJS.ProcessEnv; stop?: ChildStop | undefined; stdout?: boolean; timeoutMs?: number },
+): Promise<ChildOutput> {
+  const { child, exited } = supervise(file, args, { cwd: o.cwd, env: o.env, stop: o.stop, stdout: o.stdout === true, timeoutMs: o.timeoutMs });
+  const out: Buffer[] = [];
+  let outBytes = 0;
+  let cut: string | null = null;
+  child.stdout?.on('data', (d: Buffer) => {
+    if (cut !== null) return;
+    outBytes += d.length;
+    if (outBytes > STDOUT_MAX) {
+      cut = `stdout passed ${STDOUT_MAX / 1024 / 1024} MiB`;
+      child.kill('SIGKILL');
+      return;
+    }
+    out.push(d);
+  });
+  const stderr = stderrOf(child);
+  const r = await exited;
+  return { code: r.code, signal: r.signal, error: r.error ?? cut, stdout: Buffer.concat(out).toString('utf8'), stderr: stderr(), timedOut: r.timedOut };
 }
 
 /** One intake call's answer: its exit, its stdout as JSON (null when it is not), its error line and its wall time. */

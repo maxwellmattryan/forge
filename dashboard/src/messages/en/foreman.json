@@ -54,8 +54,28 @@
     },
     "office": {
       "title": "Office",
-      "sub": "The mandates you give the Foreman, the gate runs deciding gates and the directives it records, beside the office session.",
-      "session": "Office session",
+      "sub": "The mandates you give the Foreman, the gate runs deciding gates and the directives it records, beside its office runs.",
+      "runs": "Office runs",
+      "runsLive": {
+        "one": "{count} run live",
+        "other": "{count} runs live"
+      },
+      "runsIdle": "No office run live",
+      "runsPausedCap": "Paused: {message}",
+      "runsPausedUntil": "Paused until {clock}",
+      "runsEmpty": "No office runs yet. Each draft or direct request becomes one, run in code by forge dash.",
+      "type": "Type",
+      "typeDraft": "Draft",
+      "typeDirect": "Direct",
+      "runOutcome": {
+        "drafted": "drafted",
+        "directed": "directed",
+        "stale": "stale",
+        "refused": "refused",
+        "requeued": "requeued",
+        "failed": "failed",
+        "running": "running"
+      },
       "offMandates": "Mandates stay listable and editable while it is off.",
       "mandates": "Mandates",
       "new": "New mandate",

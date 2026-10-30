@@ -24,7 +24,7 @@ test('every agent has a tools allowlist', () => {
     // Readers of builder-written diffs write one file and edit nothing.
     if (['reviewer', 'judge'].includes(role)) for (const t of ['Edit', 'MultiEdit', 'NotebookEdit']) assert.ok(!tools.includes(t), `${role}: no ${t}`);
     // Readers of tracker text, transcripts or hunks reach no shell.
-    if (['assistant', 'drafter', 'triage', 'digest', 'verifier', 'surveyor'].includes(role)) assert.ok(!tools.includes('Bash'), `${role}: no Bash`);
+    if (['assistant', 'drafter', 'triage', 'digest', 'verifier', 'surveyor', 'director'].includes(role)) assert.ok(!tools.includes('Bash'), `${role}: no Bash`);
     for (const t of ['Agent', 'WebFetch', 'WebSearch']) assert.ok(!tools.includes(t), `${role}: no ${t}`);
     assert.equal(tools.includes(BROWSER), ['builder', 'designer', 'reviewer'].includes(role), `${role}: the browser only for the roles that prove UI`);
     assert.deepEqual(tools.filter((t) => t.startsWith('mcp__') && t !== BROWSER), [], `${role}: no other MCP tool`);
@@ -42,6 +42,21 @@ test('drafter agent has no Bash or web tools', () => {
   const front = fs.readFileSync(path.join(ROOT, 'agents', 'drafter.md'), 'utf8').match(/^---\n([\s\S]*?)\n---\n/)![1];
   assert.match(front, /^tools: Read, Grep, Glob, Write$/m);
   assert.match(front, /^disallowedTools: Bash, Edit, NotebookEdit, WebFetch, WebSearch$/m);
+});
+
+test("director agent reads only, on the Foreman's model and effort", () => {
+  // The director call reads tracker titles, mandate guidance and surveyor lines: its one output is the DIRECT: line.
+  const front = fs.readFileSync(path.join(ROOT, 'agents', 'director.md'), 'utf8').match(/^---\n([\s\S]*?)\n---\n/)![1];
+  assert.match(front, /^tools: Read$/m);
+  assert.match(front, /^disallowedTools: Bash, Edit, Write, NotebookEdit, Grep, Glob, WebFetch, WebSearch$/m);
+  const repo = tempRepo();
+  try {
+    const cfg = defaults();
+    cfg.foreman.model = 'sonnet';
+    assert.equal(roster(repo.dir, cfg).agents.find((a) => a.role === 'director')?.model, 'sonnet', 'the roster agrees with the spawn');
+  } finally {
+    repo.cleanup();
+  }
 });
 
 test('reviewer agent has no Edit', () => {

@@ -6,8 +6,8 @@
      instead (an agent's, or an interactive owner's): read-only, with no status, Start/Stop, mode or effort controls.
      With `controls` false (the job drawer, whose header holds them) it leaves out SessionControls.
      With `fill` (the drawer's Log tab, the Foreman popover), it takes its container's remaining height and its log pane is the one scroller,
-     instead of capping the pane's height. Every daemon-scoped header also states its model (from the newest init line), and
-     the office's its effort, both read-only: the daemon passes no --model, and the office's effort follows runtime.effort.
+     instead of capping the pane's height. Every daemon-scoped header also states its model (from the newest init line),
+     read-only: the daemon passes no --model.
      It is a station terminal (style.css `station`): the bezel holds the nameplate (pilot lamp, then the facts) and the
      controls, and the screen is the log pane, always drawn. Heat is activity (src/lib/logs/station.ts): the bezel warms while
      live lines stream, a call that arrives live strikes its gutter, the screen clocks in the
@@ -24,12 +24,10 @@
   import { mdView } from '../../lib/text/md-view.svelte.ts';
   import { clock, usd } from '../../lib/core/util.ts';
   import { projectApi } from '../../lib/core/project.ts';
-  import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope } from '../../lib/core/types.ts';
+  import { INBOX_SCOPE, sharedScope } from '../../lib/core/types.ts';
   import type { DaemonSessionState } from '../../lib/core/types.ts';
   import { atBottom, buildSessionView, filtersActive, latestInitModel, readFilters } from '../../lib/logs/session-log.ts';
   import { modelLabel } from '../../lib/shell/statusbar.ts';
-  import { EFFORTS } from '../../lib/core/types.ts';
-  import type { Effort } from '../../lib/core/types.ts';
   import type { Filters } from '../../lib/logs/session-log.ts';
   import type { Entry } from '../../lib/logs/session-parse.ts';
   import { createSessionLog } from '../../lib/logs/daemon-log.ts';
@@ -127,8 +125,6 @@
   let error = $state<string | null>(null);
   const view = $derived(buildSessionView(entries, filters, { partial: more }));
   let follow = $state(true);
-  const effortName = $derived<Record<Effort, string>>({ low: $t('effort.levels.low'), medium: $t('effort.levels.medium'), high: $t('effort.levels.high'), xhigh: $t('effort.levels.xhigh'), max: $t('effort.levels.max') });
-  const level = (v: unknown): Effort | null => EFFORTS.find((e) => e === v) ?? null;
   // The nameplate's facts. The job id on job-scoped terminals; the model on every daemon-scoped one, from session output
   // (the init line), shown as text.
   const jobId = $derived(sharedScope(scope) ? null : (transcript?.job ?? scope));
@@ -136,12 +132,6 @@
     if (transcript) return '';
     const raw = latestInitModel(entries);
     return raw === null ? $t('session.modelUnknown') : (modelLabel(raw).label ?? raw);
-  });
-  const officeEffort = $derived.by(() => {
-    const spawned = level(session?.effort);
-    if (spawned !== null) return effortName[spawned];
-    const fallback = level(S.data?.config?.effort);
-    return fallback === null ? $t('effort.claude') : $t('effort.inherit', { level: effortName[fallback] });
   });
   let pane = $state<HTMLDivElement>();
 
@@ -216,7 +206,6 @@
           <span class="text-fg {compact ? 'shrink-0 whitespace-nowrap' : ''}">{$t('session.turns', { count: view.totals.turns })}</span>
           {#if view.totals.results}<span class="text-fg {compact ? 'shrink-0 whitespace-nowrap' : ''}" title={$t('session.costTitle')}>{$t('session.cost', { cost: usd(view.totals.costUsd) })}</span>{/if}
           <span class="min-w-0 text-fg {compact ? 'truncate' : 'break-all'}" title={model}>{$t('session.model', { model })}</span>
-          {#if scope === OFFICE_SCOPE}<span class="text-fg" title={$t('session.effortHint')}>{$t('session.effort', { effort: officeEffort })}</span>{/if}
         {/if}
       </div>
     {/key}
@@ -256,7 +245,7 @@
     {#if !entries.length}
       {#if error === null}
         {@const enabled = S.data?.daemons?.enabled === true}
-        <p class="pt-2 font-sans text-sm text-muted">{#if loading}{$t('session.loading')}{:else if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else if scope === OFFICE_SCOPE}{$t('session.emptyOffice')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</p>
+        <p class="pt-2 font-sans text-sm text-muted">{#if loading}{$t('session.loading')}{:else if transcript}{$t('session.transcriptEmpty')}{:else if scope === INBOX_SCOPE}{enabled ? $t('session.emptyInboxEnabled') : $t('session.emptyInbox')}{:else}{enabled ? $t('session.emptyEnabled') : $t('session.empty')}{/if}</p>
       {/if}
     {:else if !view.turns.length}<p class="pt-2 text-muted">{$t('session.noMatch')}</p>{/if}
     {#each view.turns as g (g.offset)}

@@ -165,10 +165,10 @@ export const JOB: HelpGroup = {
         "log a note event. With --for builder it is a person's hint for the job's builder instead: logs a builder-note event, rewrites approval-notes.md (which the builder brief lists) and returns approvalNotes { path, written, error? }",
       flags: [
         ...BODY,
-        ['--for builder', "a hint for the job's builder; refused in the office session and in another job's session"],
+        ['--for builder', "a hint for the job's builder; refused in the office (scope _office) and in another job's session"],
       ],
       exits: [
-        [1, 'no such job, or --for builder in the office session or in a job session for another job'],
+        [1, 'no such job, or --for builder in the office (scope _office) or in a job session for another job'],
         [2, 'usage: --for other than builder, or --for builder with no text'],
       ],
     },
@@ -187,7 +187,7 @@ export const JOB: HelpGroup = {
       exits: [
         [
           1,
-          "no such job, a --link that cannot be made, --actor foreman (refused in every scope), any call from the office session, a gate foreman.reserved or a security review that didn't pass keeps with a person when a chat session decides it (`a chat may not decide <gate> for <job>: …`), approve-release without --actor foreman, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a failing clone check, or from any daemon session",
+          "no such job, a --link that cannot be made, --actor foreman (refused in every scope), any call from the office (scope _office), a gate foreman.reserved or a security review that didn't pass keeps with a person when a chat session decides it (`a chat may not decide <gate> for <job>: …`), approve-release without --actor foreman, or approve-repos or reject-repos with nothing pending, no --repo, a repo that is not pending, a failing clone check, or from any daemon session",
         ],
         [3, 'the tracker claim was lost to another job'],
         [5, 'gh failed (GitHub tracker)'],
@@ -221,7 +221,7 @@ export const JOB: HelpGroup = {
         ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
-        [1, 'no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running'],
+        [1, 'no such job, an --output outside the job dir, the inbox session or the office (scope _office) starting an agent, or attach on a role that is not running'],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
     },

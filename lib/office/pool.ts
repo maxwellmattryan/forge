@@ -1,8 +1,9 @@
 // The session pool `forge dash` supervises when `daemon.enabled`: the intake runner (lib/office/inbox/runner.ts) that answers job-less requests in code
-// (an inbox session spawns only for a type it doesn't handle), one office session for draft and direct requests, the gate runner (lib/office/foreman/run.ts)
-// that decides gate requests in code when `foreman.enabled`, up to `daemon.maxConcurrent` job sessions, each spawned on demand for its job, and a session per
-// chat (sendChat). Sessions fail, hold and stop on their own (lib/office/session/lifecycle.ts); the pool owns what is repo-wide: the trust snapshot, routing,
-// the cap, the stops config changes force, and the periodic sync and Office pass children. docs/architecture/daemon.md describes the rules.
+// (an inbox session spawns only for a type it doesn't handle), the office runner (lib/office/foreman/runs/) that runs draft and direct requests in code and
+// the gate runner (lib/office/foreman/run.ts) that decides gate requests in code when `foreman.enabled`, up to `daemon.maxConcurrent` job sessions, each
+// spawned on demand for its job, and a session per chat (sendChat). No session serves `_office`. Sessions fail, hold and stop on their own
+// (lib/office/session/lifecycle.ts); the pool owns what is repo-wide: the trust snapshot, routing, the cap, the stops config changes force, and the
+// periodic sync and Office pass children. docs/architecture/daemon.md describes the rules.
 import fs from 'node:fs';
 import { trustDigest } from '#core/config/load.ts';
 import { confineDigest } from './session/confine.ts';
@@ -17,6 +18,7 @@ import { PERMISSION_MODES } from '#integrations/claude/argv.ts';
 import { createModeBook, type PoolOptions } from './modes.ts';
 import { sessionBrowser, sessionEffort, sessionKind, sessionModel, startWork, type SlotMember } from './slots.ts';
 import { createGateRunner } from './foreman/run.ts';
+import { OFFICE_NO_SESSION, createOfficeRunner } from './foreman/runs/runner.ts';
 import { createIntakeRunner, ensureIntakeSessionId, type IntakeRunner } from './inbox/runner.ts';
 import { daemonSessionIds, releaseSession } from './driver.ts';
 import { loadJob, logHumanEvent } from '#core/job/store.ts';
@@ -83,9 +85,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     if (shared(scope)) return;
     try {
       logHumanEvent(root, scope, type, data, actor);
-    } catch {
-      // The job vanished since the request was validated; the daemon log line still records it.
-    }
+    } catch {} // The job vanished since the request was validated; the daemon log line still records it.
   }
 
   let enabled = false;
@@ -152,11 +152,12 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     model: (scope, c) => sessionModel(scope, c),
     browser: (scope) => sessionBrowser(root, scope),
   };
-  /** Decides gate requests in code, one forge:assistant child per run; its runs count against no cap and end with a poke. */
+  // The gate and office runners decide gate requests and run draft and direct ones in code; their runs count against no cap and end with a poke.
   const gates = createGateRunner(root, { ctx, o });
-  /** The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued turns the office at once. */
+  const officeRuns = createOfficeRunner(root, { ctx, o });
+  // The Office pass (lib/office/mandates/cadence.ts): its child ends with a tick, so the direct request it queued becomes an office run at once.
   // runPass gets the scheduler's signal, which its abort() and close() abort; a pass that ends after close() logs nothing.
-  const passes = createPassScheduler(root, { run: runPass, done: () => tick(), log: (message) => office.logEvent('error', { message }) });
+  const passes = createPassScheduler(root, { run: runPass, done: () => tick(), log: (message) => officeRuns.log('error', { message }) });
 
   function session(scope: string): Session {
     let s = sessions.get(scope);
@@ -172,8 +173,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   /** Answers the inbox's requests in code (lib/office/inbox/runner.ts), one at a time; each run ends with a poke. */
   const intake: IntakeRunner = createIntakeRunner(root, { ctx, o, runForge: opts.runForge ?? ((args, x) => runForgeCall(root, args, x)), inbox, id: intakeId, changed: () => emit({ kind: 'state', scope: INBOX_SCOPE, state: inbox.state() }) });
   overlay = intake.state;
-  const office = session(OFFICE_SCOPE);
-  // Shared sessions (inbox, office, chats) are never job sessions: never counted against a cap, never pruned.
+  // Shared sessions (inbox, chats) are never job sessions: never counted against a cap, never pruned.
   const jobSessions = () => [...sessions.values()].filter((s) => !shared(s.scope));
   /** The oldest request the machine cap held at the last tick, below this pool's own cap (lib/office/slots.ts). */
   let heldOldest: string | null = null;
@@ -195,6 +195,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     maxConcurrent = Number.isInteger(m) && m >= 1 && m <= 16 ? m : 1;
     modes.setCommand(c.daemon?.command);
     gates.configure(c);
+    officeRuns.configure(c);
     return c;
   }
   try {
@@ -212,9 +213,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       s.setWaiting(false);
     }
     for (const s of sessions.values()) void s.kill('stop', false, reason);
-    // Live gate and intake runs are killed too, their claims given back uncounted.
-    void gates.stop();
-    void intake.stop();
+    // Live gate, intake and office runs are killed too, their claims given back uncounted.
+    void Promise.all([gates.stop(), intake.stop(), officeRuns.stop()]);
     if (announce)
       try {
         o.notify(root, ['daemon-stopped'], { job: null, reason: 'trust' });
@@ -260,8 +260,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   }
   async function reconcileOnce(only?: string): Promise<void> {
     try {
-      // Inbox and office sessions, gate and intake runs too: their requests have no lease, so only this keeps a long turn's claim.
-      const busy = [...[...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids), ...gates.sessions(), ...intake.sessions()];
+      // The inbox session, and gate, intake and office runs too: their requests have no lease, so only this keeps a long turn's claim.
+      const busy = [...[...sessions.values()].filter((s) => s.status === 'busy' || s.status === 'stopping').flatMap((s) => s.facts().ids), ...gates.sessions(), ...intake.sessions(), ...officeRuns.sessions()];
       const r = await reconcile(root, config(), { facts: sessionFacts(), busy, ...(only !== undefined ? { only } : {}) });
       // The pool closed while the pass ran: the session logs it would write to are closed.
       if (closed) return;
@@ -292,19 +292,14 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       }
       // The intake runner takes the inbox requests it handles (below); only the rest reach the inbox session.
       const handled = intake.split(groups);
-      // The gate group is never a session (validScope refuses it): the gate runner takes from it below. While the
-      // foreman or its gate runs are off, gate requests wait, untouched, for a person.
-      for (const scope of groups.keys()) if (validScope(scope)) session(scope);
+      // The gate and office groups are never sessions: their runners take from them below, and while the foreman is off they wait for a person.
+      for (const scope of groups.keys()) if (validScope(scope) && scope !== OFFICE_SCOPE) session(scope);
       const waiters: { s: Session; eligible: string[]; oldest: string }[] = [];
       // A chat is turned only by its owner's messages (sendChat), never by routing.
       for (const s of [...sessions.values()].filter((x) => sessionKind(x.scope) !== 'chat')) {
         if (!wanted) return;
-        if (s.scope === OFFICE_SCOPE && !foreman) {
-          s.setWaiting(false);
-          continue;
-        }
         const routed = groups.get(s.scope) ?? [];
-        // Never the inbox or the office: draft and job-less requests are not the repo budget's to hold.
+        // Never the inbox: job-less requests are not the repo budget's to hold.
         const { eligible, fresh } = s.route(c, routed, shared(s.scope) || !routed.length ? null : repoBudget(c));
         if (!fresh || !s.wanted) {
           s.setWaiting(false);
@@ -312,12 +307,13 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
         }
         if (s.status === 'busy' || s.status === 'stopping') continue;
         if (s.running) s.writeTurn(eligible);
-        // The inbox and the office are never counted against the cap.
+        // The inbox is never counted against the cap.
         else if (shared(s.scope)) startWork(s, c, 'work', eligible);
         else waiters.push({ s, eligible, oldest: routed[0].id });
       }
       if (!wanted) return;
       gates.take(c, foreman ? (groups.get(GATES_SCOPE) ?? []) : []);
+      officeRuns.take(c, foreman ? (groups.get(OFFICE_SCOPE) ?? []) : []);
       intake.take(c, handled);
       if (!wanted) return;
       // Slots go to the job whose oldest pending request is oldest (request ids sort by time).
@@ -420,7 +416,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       live: jobSessions().filter((s) => s.running).length,
       lastError,
       inbox: intake.state(inbox.state()),
-      office: office.state(),
+      office: officeRuns.state(),
       foreman,
       gates: gates.state(),
       jobs,
@@ -462,11 +458,12 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
         return state();
       }
       // Only on taking the lock with none of this pool's children alive: then no session in any record still runs.
-      if (fresh && ![...sessions.values()].some((s) => s.running || s.status === 'stopping') && !intake.sessions().length) {
+      if (fresh && ![...sessions.values()].some((s) => s.running || s.status === 'stopping') && !intake.sessions().length && !officeRuns.sessions().length) {
         reapOrphans(root, { graceMs: o.graceMs });
         expireBootLeases();
-        // No earlier dash's gate run can still be live: what one left claimed goes back, counted.
+        // No earlier dash's gate or office run can still be live: what one left claimed goes back, counted.
         gates.recover();
+        officeRuns.recover();
       }
       wanted = true;
       lastError = null;
@@ -496,7 +493,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     async stop(reason = 'stop') {
       wanted = false;
       for (const s of sessions.values()) s.setWaiting(false);
-      await Promise.all([...[...sessions.values()].map((s) => s.kill('stop', false, reason)), gates.stop(), intake.stop()]);
+      await Promise.all([...[...sessions.values()].map((s) => s.kill('stop', false, reason)), gates.stop(), intake.stop(), officeRuns.stop()]);
       // Unless a start came in while the sessions stopped.
       if (!wanted) releaseDaemonLock();
       return state();
@@ -504,13 +501,14 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     startSession(scope) {
       if (!validScope(scope)) return { error: 'invalid scope' };
       if (isChatScope(scope)) return { error: CHAT_START };
+      if (scope === OFFICE_SCOPE) return { error: OFFICE_NO_SESSION };
       if (!wanted || closed) return { error: 'start the daemon first' };
       session(scope).reset();
       tick();
       return { error: null };
     },
     async stopSession(scope) {
-      if (!validScope(scope)) return state();
+      if (!validScope(scope) || scope === OFFICE_SCOPE) return state();
       // Kept even without a child: a job a human stopped spawns nothing until they start it again.
       const s = session(scope);
       s.setWanted(false);
@@ -534,6 +532,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
     },
     setPermissionMode(scope, mode, actor) {
       if (!validScope(scope)) return { error: 'invalid scope' };
+      if (scope === OFFICE_SCOPE) return { error: OFFICE_NO_SESSION };
       if (!PERMISSION_MODES.includes(mode)) return { error: `mode must be one of ${PERMISSION_MODES.join(', ')}` };
       if (closed) return { error: 'the dashboard is shutting down' };
       modes.choose(scope, mode);
@@ -582,7 +581,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       leave?.();
       // A running sync or pass child gets SIGTERM, then SIGKILL after graceMs, and is waited for: none still writes once close() resolves.
       children.abort();
-      await Promise.all([...[...sessions.values()].map((s) => s.close()), gates.close(), intake.close(), passes.close(), ...(syncInFlight ? [syncInFlight] : []), ...reconciling]);
+      await Promise.all([...[...sessions.values()].map((s) => s.close()), gates.close(), intake.close(), officeRuns.close(), passes.close(), ...(syncInFlight ? [syncInFlight] : []), ...reconciling]);
       releaseDaemonLock();
       subscribers.clear();
     },
@@ -594,6 +593,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       for (const s of sessions.values()) s.killSync();
       gates.killSync();
       intake.killSync();
+      officeRuns.killSync();
       releaseDaemonLock();
     },
   };

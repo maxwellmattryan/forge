@@ -16,7 +16,7 @@ import { createPreviewer, ghRunner } from '#integrations/github/preview.ts';
 import { whoDrives } from '#office/driver.ts';
 import { createPool } from '#office/pool.ts';
 import { createChatRecorder } from '#office/chat/recorder.ts';
-import type { DaemonPoolState, Job, MachineProjectSummary, ProjectsResponse, RepoBudgetStatus } from '#core/types.ts';
+import type { DaemonPoolState, DaemonStatus, Job, MachineProjectSummary, ProjectsResponse, RepoBudgetStatus } from '#core/types.ts';
 import { idlePoolState } from './routes/office.ts';
 import { SSE_SLOW_CLIENT_BYTES, broadcast, lineFrame, stateFrame } from './sse.ts';
 import { resumeProject } from './uptime.ts';
@@ -38,6 +38,11 @@ export function projectJobCounts(jobs: readonly Pick<Job, 'state' | 'waitingOn'>
     active: jobs.filter((j) => !FINISHED.includes(j.state)).length,
     waiting: jobs.filter((j) => j.state === 'waiting' && j.waitingOn !== 'external' && j.waitingOn !== 'shelved').length,
   };
+}
+
+/** A project's office status for the Overview, from its office runs (no session serves `_office`): busy while one is live, idle while the pool is wanted with the foreman on, else off. */
+export function officeStatus(st: Pick<DaemonPoolState, 'office' | 'wanted' | 'foreman'>): DaemonStatus {
+  return st.office.live > 0 ? 'busy' : st.wanted && st.foreman ? 'idle' : 'off';
 }
 
 /** One project's route context: the machine's shared objects plus its own caches. */
@@ -242,7 +247,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
       loaded: true,
       jobs,
       latest,
-      daemon: { enabled: st.enabled, wanted: st.wanted, foreman: st.foreman, office: st.office.status, live: st.live, maxConcurrent: st.maxConcurrent },
+      daemon: { enabled: st.enabled, wanted: st.wanted, foreman: st.foreman, office: officeStatus(st), live: st.live, maxConcurrent: st.maxConcurrent },
     };
   };
 

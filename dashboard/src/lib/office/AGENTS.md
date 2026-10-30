@@ -16,4 +16,5 @@ The Office and Foreman pages: mandates, report cards, milestone drafts, gate run
 | `gate-runs.ts` | The Foreman popover's gate activity list, its pure half: /api/state's DaemonPoolState.gates as rows, newest first (the 50 kept), and the list's header. |
 | `layout.ts` | The Office page's layout classes, shared by the page (views/Office.svelte, components/office/OfficePanel.svelte) and its skeleton so the two hold the same shape. |
 | `report-card.ts` | The Office page's report card model: which card a mandate shows (the live one, or a closed mandate's closing summary card when the server sent one), how one figure renders (a value, pending, or nothing to measure, never 0 for either), and the interventions by gate in WAITING_ON order then none. |
+| `runs.ts` | The Office page's Office runs table, its pure half: /api/state's DaemonPoolState.office as rows, newest first (the 50 kept), and the table's header line. |
 <!-- forge:map:end -->

@@ -9,7 +9,7 @@ export const OVERVIEW_WINDOWS = STATS_WINDOWS.filter(([v]) => v !== 'all');
 
 export interface OverviewCard extends SwitcherEntry {
   latest: MachineProjectSummary['latest'];
-  /** `none`: foreman.enabled is off; else the office session's status; null while not loaded. */
+  /** `none`: foreman.enabled is off; else the office runs' status (busy, idle or off); null while not loaded. */
   foreman: 'none' | DaemonStatus | null;
   /** The Pipeline the waiting count links to, while openable with a job waiting. */
   waitingHref: string | null;

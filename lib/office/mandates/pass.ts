@@ -9,7 +9,7 @@
 // plans it (only when unplanned, or when its own plan went stale before any step ran, and never over
 // another plan), never runs it, and closes the mandate once the release run finished and no mandate job
 // merged after it was planned; while it waits, no pause or stall applies.
-// When a mandate has director work it wakes the office session with one `direct` request. Every
+// When a mandate has director work it queues one `direct` request, which forge dash runs as an office run. Every
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
 // pass read, so an owner's edit, pause or close wins. docs/architecture/foreman.md › Director loop.
 import { ForgeError } from '#core/errors.ts';

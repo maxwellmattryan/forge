@@ -1,11 +1,11 @@
 <!-- The Office page's panel, in two columns where the view is wide enough (lib/office/layout.ts), stacked below that. The
      left column, top to bottom: the mandates (New mandate and the editor, the open ones, unreadable ones as one line each,
      then the closed ones folded), the gate runs (only while the Foreman is on), and the latest directives, newest first;
-     it scrolls on its own. The right column is the office session: the Foreman-off note, or its permission prompts and
-     SessionLog filling the column, whose log pane is the one scroller. Mandates come from GET /api/mandates (S.mandates:
-     on open, on the 15 s view poll and after each write); the gate runs, pending gates and the office log read the
-     /api/state poll and the session stream. Mandate, directive and request strings are owner, session or tracker text and
-     render only as Svelte text. -->
+     it scrolls on its own. The right column is the Office runs: the Foreman-off note, or a header line (runs live, or the
+     hold) and the table of forge dash's office runs, newest first, with the gate runs table's markup (lib/office/runs.ts).
+     Mandates come from GET /api/mandates (S.mandates: on open, on the 15 s view poll and after each write); the gate runs,
+     office runs and pending gates read the /api/state poll. Mandate, directive, request and run strings are owner, CLI,
+     model or tracker text and render only as Svelte text. -->
 <script lang="ts">
   import { tick } from 'svelte';
   import Banner from '../ui/feedback/Banner.svelte';
@@ -13,15 +13,12 @@
   import Empty from '../ui/feedback/Empty.svelte';
   import MandateCard from './MandateCard.svelte';
   import MandateEditor from './MandateEditor.svelte';
-  import PermissionPrompts from '../sessions/PermissionPrompts.svelte';
-  import SessionLog from '../logs/SessionLog.svelte';
   import ForemanDirectivesSkeleton from '../skeletons/office/ForemanDirectivesSkeleton.svelte';
   import ForemanMandatesSkeleton from '../skeletons/office/ForemanMandatesSkeleton.svelte';
   import { OFFICE_GRID, OFFICE_LEFT, OFFICE_RIGHT } from '../../lib/office/layout.ts';
   import { DIRECTIVE_TONE, directiveActor, directiveFeed, isUnreadable, mandateGroups, pendingGates } from '../../lib/office/foreman.ts';
   import { gateRunRows, gateRunsHeader, type GateRunShown } from '../../lib/office/gate-runs.ts';
-  import { pendingPrompts } from '../../lib/sessions/permissions.ts';
-  import { OFFICE_SCOPE } from '../../lib/core/types.ts';
+  import { officeRunRows, officeRunsHeader, type OfficeRunShown } from '../../lib/office/runs.ts';
   import { ago, clock } from '../../lib/core/util.ts';
   import { S, openDrawer } from '../../lib/core/app.svelte.ts';
   import { ticker } from '../../lib/core/clock.svelte.ts';
@@ -29,7 +26,18 @@
 
   const data = $derived(S.data);
   const foremanOn = $derived(data?.daemons?.foreman === true);
-  const prompts = $derived(pendingPrompts(data?.daemons ?? null, OFFICE_SCOPE).length > 0);
+  const office = $derived(foremanOn ? data?.daemons?.office : null);
+  const officeHeader = $derived(officeRunsHeader(office));
+  const officeRuns = $derived(officeRunRows(office));
+  const runOutcome = $derived<Record<OfficeRunShown, string>>({
+    drafted: $t('foreman.office.runOutcome.drafted'),
+    directed: $t('foreman.office.runOutcome.directed'),
+    stale: $t('foreman.office.runOutcome.stale'),
+    refused: $t('foreman.office.runOutcome.refused'),
+    requeued: $t('foreman.office.runOutcome.requeued'),
+    failed: $t('foreman.office.runOutcome.failed'),
+    running: $t('foreman.office.runOutcome.running'),
+  });
   const list = $derived(S.mandates);
   const groups = $derived(mandateGroups(list?.mandates ?? []));
   const jobs = $derived(data?.jobs ?? []);
@@ -173,8 +181,8 @@
       <Empty>{$t('foreman.office.noDirectives')}</Empty>
     {/if}
   </div>
-  <section class={foremanOn ? OFFICE_RIGHT : 'flex min-w-0 flex-col'} aria-labelledby="office-session-title">
-    <h2 id="office-session-title" class="plate h section w-fit max-w-full shrink-0 px-3 py-1.5 mb-3">{$t('foreman.office.session')}</h2>
+  <section class={foremanOn ? OFFICE_RIGHT : 'flex min-w-0 flex-col'} aria-labelledby="office-runs-title">
+    <h2 id="office-runs-title" class="plate h section w-fit max-w-full shrink-0 px-3 py-1.5 mb-3">{$t('foreman.office.runs')}</h2>
     {#if !foremanOn}
       <div class="plate flex flex-col items-start gap-2 p-4">
         <Chip extra="sm foreman off" text={$t('statusbar.foreman.tag')} />
@@ -184,8 +192,32 @@
       </div>
     {:else}
       <div class="flex min-h-0 flex-1 flex-col gap-3">
-        {#if prompts}<div class="max-h-[40%] shrink-0 overflow-y-auto overscroll-contain"><PermissionPrompts scope={OFFICE_SCOPE} name={$t('statusbar.foreman.officeLog')} /></div>{/if}
-        <SessionLog scope={OFFICE_SCOPE} fill />
+        <p class="plain w-fit max-w-full shrink-0 px-3 py-1.5 text-sm text-muted">
+          <span class="mono num">{officeHeader.live ? $t('foreman.office.runsLive', { count: officeHeader.live }) : $t('foreman.office.runsIdle')}</span>
+          {#if officeHeader.held?.kind === 'cap'}<span class="text-warn break-words"> · {$t('foreman.office.runsPausedCap', { message: officeHeader.held.message })}</span>
+          {:else if officeHeader.held?.kind === 'until'}<span class="text-warn"> · {$t('foreman.office.runsPausedUntil', { clock: clock(officeHeader.held.until) })}</span>{/if}
+        </p>
+        {#if officeRuns.length}
+          <div class="plate flat min-h-0 overflow-y-auto overscroll-contain"><div class="overflow-x-auto">
+            <table class="tbl">
+              <thead><tr><th>{$t('foreman.office.type')}</th><th>{$t('foreman.office.mandate')}</th><th>{$t('foreman.office.outcome')}</th><th>{$t('foreman.office.reason')}</th><th>{$t('foreman.office.started')}</th><th>{$t('foreman.office.tokens')}</th></tr></thead>
+              <tbody>
+                {#each officeRuns as r (r.key)}
+                  <tr>
+                    <td class="whitespace-nowrap">{r.type === 'draft' ? $t('foreman.office.typeDraft') : $t('foreman.office.typeDirect')}</td>
+                    <td class="mono whitespace-nowrap">{r.mandate ?? '—'}</td>
+                    <td><Chip tone={r.tone} text={runOutcome[r.outcome]} /></td>
+                    <td class="break-words min-w-[12rem]">{r.reason ?? '—'}</td>
+                    <td class="text-muted whitespace-nowrap">{r.started}</td>
+                    <td class="mono num whitespace-nowrap" title={$t('statusbar.foreman.gates.spend', { usd: r.usd })}>{r.tokens}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div></div>
+        {:else}
+          <p class="plate w-fit max-w-full px-3 py-1.5 text-sm text-muted">{$t('foreman.office.runsEmpty')}</p>
+        {/if}
       </div>
     {/if}
   </section>

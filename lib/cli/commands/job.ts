@@ -65,7 +65,7 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
  */
 export function refuseForemanJobCommand(sub: string | undefined): void {
   if (OFFICE_JOB_COMMANDS.includes(String(sub))) return;
-  if (inOffice()) throw new ForgeError(`${OFFICE_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in the office session`, 1);
+  if (inOffice()) throw new ForgeError(`${OFFICE_REFUSAL}; forge job ${String(sub).slice(0, 40)} is not available in the office`, 1);
 }
 
 /** The result is printed as JSON. */

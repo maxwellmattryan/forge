@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { projectSlug } from '#integrations/claude/transcripts.ts';
-import { importClaudeCodeTranscript } from './usage.ts';
+import { importClaudeCodeTranscript, importSessionTranscript } from './usage.ts';
 
 type JobRefs = NonNullable<Parameters<typeof importClaudeCodeTranscript>[1]>['job'];
 
@@ -49,4 +49,26 @@ test("a role run's session transcript is imported", (t) => {
 
   const later = importClaudeCodeTranscript(id, { root, job, projectsDir, since: T1 });
   assert.deepEqual([later?.input, later?.output, later?.cacheRead, later?.cacheWrite, later?.totalTokens, later?.through], [5, 40, 2000, 0, 2045, T2], 'since skips every line up to the cursor');
+});
+
+test("a headless session's transcript is imported by its session id", (t) => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-usage-'));
+  t.after(() => fs.rmSync(base, { recursive: true, force: true }));
+  const root = path.join(base, 'repo');
+  fs.mkdirSync(root, { recursive: true });
+  const projectsDir = path.join(base, 'projects');
+  const dir = path.join(projectsDir, projectSlug(fs.realpathSync(root)));
+  fs.mkdirSync(dir, { recursive: true });
+  const id = '66666666-6666-4666-8666-666666666666';
+  const usage = { input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 100, cache_creation_input_tokens: 0 };
+  fs.writeFileSync(path.join(dir, `${id}.jsonl`), `${JSON.stringify({ type: 'assistant', timestamp: '2026-10-26T10:00:00.000Z', message: { id: 'm1', model: 'claude-opus-4-5', usage, content: [] } })}\n`);
+  const got = importSessionTranscript(root, id, { projectsDir });
+  assert.deepEqual([got?.model, got?.totalTokens], ['claude-opus-4-5', 110], 'found at the root slug');
+  // No agent-<uuid>.jsonl sub-agent transcript exists, so the sub-agent lookup finds nothing.
+  assert.equal(importClaudeCodeTranscript(id, { projectsDir }), null);
+  for (const bad of ['../x', 'agent-1', '66666666-6666-4666-8666-66666666666']) assert.equal(importSessionTranscript(root, bad, { projectsDir }), null, bad);
+  // A link at the file is never followed.
+  const other = '77777777-7777-4777-8777-777777777777';
+  fs.symlinkSync(path.join(dir, `${id}.jsonl`), path.join(dir, `${other}.jsonl`));
+  assert.equal(importSessionTranscript(root, other, { projectsDir }), null);
 });

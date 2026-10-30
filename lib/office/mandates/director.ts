@@ -1,5 +1,5 @@
-// The director turn's CLI side: `forge office survey|board|start|resume|note`, which the office session
-// runs on a `direct` request (and a person may run in their own terminal). The survey and the board are
+// The director turn's CLI side: `forge office survey|board|start|resume|note`, which a direct office run
+// runs as CLI children (and a person may run in their own terminal). The survey and the board are
 // read-only views; start, resume and note each log one directive, and start and resume re-check every
 // limit of the mandate under the office lock first, so a misled Foreman can at worst start nothing.
 // docs/architecture/foreman.md › Director loop.
