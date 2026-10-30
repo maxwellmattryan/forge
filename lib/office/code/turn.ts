@@ -165,7 +165,8 @@ function onRunnerMessage(d: TurnDeps, runner: Runner, msg: unknown): void {
     case 'started':
       return runner.markStarted();
     case 'child':
-      if (runner.childPid === null && Number.isInteger(m.pid) && m.pid > 1 && m.pid !== process.pid) runner.childPid = m.pid;
+      // Never this server's own process or its parent's: a group the driver may later signal.
+      if (runner.childPid === null && Number.isInteger(m.pid) && m.pid > 1 && m.pid !== process.pid && m.pid !== process.ppid) runner.childPid = m.pid;
       return;
     case 'reply': {
       if (runner.replied) return;
