@@ -127,6 +127,8 @@ export const API_CHANGES = [
   // PipelineConfig.resumeRework; `resume` and `resumeSkipped` on the agent-start event and `resumeFailed` on a role
   // run's agent-end.
   { id: 'resume-rework' },
+  // StateJob.gateReasons (GateReason[] | null): the rules an escalation park lists, each with its CLI-composed detail.
+  { id: 'gate-reasons' },
 ] as const;
 
 /**

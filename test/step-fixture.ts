@@ -9,7 +9,7 @@ import { jobEndpoints } from '#engine/environment/endpoints.ts';
 import { normalizeJob } from '#core/job/schema.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { recallGate } from '#engine/pipeline/step/input.ts';
-import type { Config, Job, JobAgent, JobEvent } from '#core/types.ts';
+import type { Config, GateReason, Job, JobAgent, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput } from '#engine/pipeline/types.ts';
 
 export const ROOT = '/repo';
@@ -43,7 +43,6 @@ export interface FixtureOpts {
   reviewCurrent?: StepInput['reviewCurrent'];
   /** loadStepInput's reviewedShas; {} by default. */
   reviewedShas?: StepInput['reviewedShas'];
-  runbookBeforeMerge?: boolean;
   verdicts?: Partial<StepInput['verdicts']>;
   runtime?: string[];
   /** The job's environment record entry; none by default. */
@@ -62,6 +61,12 @@ export interface FixtureOpts {
   endpoints?: StepInput['endpoints'];
   /** trustedMemberWorktree per member repo; none by default. */
   memberWorktrees?: StepInput['memberWorktrees'];
+  /**
+   * The `gate` event `forge job gate` logged (DC12, PR19): in decide and pr, a job whose `events` hold
+   * none gets one at the end of the log with these reasons ([] by default), so rows about anything else
+   * pass the gate. null leaves the log without one.
+   */
+  gate?: GateReason[] | null;
   /** Fields over acCoverage(null, null), as `forge job acs` would report them. */
   acs?: Partial<AcCoverage>;
   /** loadStepInput's folderMaps; null by default, as at any stage but build. */
@@ -121,6 +126,9 @@ export function fixture(o: FixtureOpts = {}): StepInput {
   o.config?.(config);
   const job = { ...normalizeJob({ id: 'j', branch: 'forge/j', base: 'main', worktree: o.worktree === false ? null : WT, port: 4100 }), ...o.job } as Job;
   const files = Object.fromEntries(Object.keys(FILE_NAMES).map((k) => [k, (o.files ?? []).includes(k as StepFile)])) as Record<StepFile, boolean>;
+  const events = o.events ?? [];
+  const gated = o.gate !== null && ['decide', 'pr'].includes(job.stage) && !events.some((e) => e.type === 'gate');
+  const gate = gated ? [{ v: 1, ts: events.at(-1)?.ts ?? t(0), type: 'gate', round: job.round, head: null, reasons: o.gate ?? [] } as JobEvent] : [];
   const present = [...(o.files ?? []).map((f) => path.join(JOB_DIR, FILE_NAMES[f])), ...(o.present ?? [])];
   return {
     job,
@@ -141,7 +149,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     decisionCurrent: o.decisionCurrent ?? true,
     reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
     reviewedShas: o.reviewedShas ?? {},
-    runbookBeforeMerge: o.runbookBeforeMerge ?? false,
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
@@ -149,7 +156,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     instructionsChanged: o.instructionsChanged ?? [],
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,
-    events: o.events ?? [],
+    events: [...events, ...gate],
     evalTask: o.evalTask ?? null,
     checklists: o.checklists ?? Object.fromEntries(config.review.panel.map((p) => [p.name, path.join(PLUGIN_ROOT, 'reviewers', `${p.name}.md`)])),
     integrationTouched: o.integrationTouched ?? null,

@@ -1,7 +1,9 @@
-// The gate card's PR note: which parks say the PR is open and waits on the decision, and which say the push is held.
+// The gate card's PR note (which parks say the PR is open and waits on the decision, and which say the push is
+// held) and its `Why it waits` rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gatePrNote } from './inbox.ts';
+import { gatePrNote, gateReasonRows } from './inbox.ts';
+import { showParkReason } from '../jobs/protected.ts';
 import type { JobPr } from '../core/types.ts';
 
 const PR = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: null } as JobPr;
@@ -27,4 +29,39 @@ test('gatePrNote', () => {
     ['a running job', park('escalation', 'approver escalated: see decision.md', { state: 'running' })],
   ];
   for (const [name, j] of none) assert.equal(gatePrNote(j), null, name);
+});
+
+test('gatePrNote holds a push-held escalation park', () => {
+  assert.deepEqual(gatePrNote(park('escalation', 'push held: escalation: approver, protected-paths', { pr: null })), { kind: 'held' });
+  assert.deepEqual(gatePrNote(park('escalation', 'push held: escalation: protected-paths')), { kind: 'held' }, 'held even with an open PR: the update is not pushed');
+  assert.deepEqual(gatePrNote(park('escalation', 'escalation: approver, runbook')), { kind: 'open', pr: PR }, 'the escalation park after the push');
+});
+
+test('gateReasonRows', () => {
+  const reasons = [
+    { rule: 'approver', detail: 'the approver escalated: see decision.md' },
+    { rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] },
+  ];
+  assert.deepEqual(gateReasonRows({ gateReasons: reasons }), [
+    { rule: 'approver', detail: 'the approver escalated: see decision.md', paths: [], doc: 'decision.md' },
+    { rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'], doc: null },
+  ]);
+  // Each rule links the file step's gateTell names for it, so a runbook-only or lens-only park links what the person must read.
+  const docs = (rules: string[]) => gateReasonRows({ gateReasons: rules.map((rule) => ({ rule, detail: 'x' })) })?.map((r) => r.doc);
+  assert.deepEqual(docs(['runbook']), ['runbook.md'], 'a runbook-only park links runbook.md, not decision.md');
+  assert.deepEqual(docs(['lens-escalate']), ['review']);
+  assert.deepEqual(docs(['approver', 'protected-paths', 'runbook', 'acs', 'dependencies']), ['decision.md', null, 'runbook.md', null, null], 'protected paths keep the card View diff button; acs and dependencies say it all');
+  assert.deepEqual(docs(['constructor']), [null], 'a rule that is an Object.prototype key links nothing');
+  for (const [name, v] of [
+    ['null', null],
+    ['an older server', undefined],
+    ['an empty list', []],
+    ['not a list', 'escalation: approver'],
+    ['malformed rows only', [{ rule: 1, detail: 'x' }, null, { rule: 'runbook' }]],
+  ] as [string, unknown][])
+    assert.equal(gateReasonRows({ gateReasons: v }), null, name);
+  assert.deepEqual(gateReasonRows({ gateReasons: [{ rule: 'acs', detail: 'unmapped: AC2', paths: [1, 'a.md'] }, 'junk'] }), [{ rule: 'acs', detail: 'unmapped: AC2', paths: ['a.md'], doc: null }], 'only string paths, malformed rows dropped');
+  // The card hides the raw park reason while the list shows.
+  assert.equal(showParkReason({ reason: 'escalation: approver, version', protectedPaths: null, gateReasons: reasons }), false);
+  assert.equal(showParkReason({ reason: 'escalation: approver, version', protectedPaths: null, gateReasons: null }), true);
 });

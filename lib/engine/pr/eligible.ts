@@ -34,10 +34,10 @@ export interface DecisionRecord {
 }
 
 /** Why autoMergeGate refused: MergeResult's reasons it owns. */
-export type GateReason = 'auto-off' | 'superseded' | 'decision' | 'floor';
+export type EligibilityReason = 'auto-off' | 'superseded' | 'decision' | 'floor';
 
 /** `moved`: the live head is not the decided one but carries base merges on it, so its age is the base merge's, not the push's. */
-export type GateResult = { ok: true; moved: boolean } | { ok: false; reason: GateReason; error: string };
+export type GateResult = { ok: true; moved: boolean } | { ok: false; reason: EligibilityReason; error: string };
 
 const sha = (v: unknown): string | null => (typeof v === 'string' && FULL_SHA.test(v) ? v : null);
 

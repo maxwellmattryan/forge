@@ -1,5 +1,5 @@
 // The Foreman's gate policy: which gate class a job waits on, which classes the Foreman decides,
-// what foreman.reserved and the security, total-round and retro holds keep with a human, and the
+// what foreman.reserved and the security, total-round, retro and human-only holds keep with a human, and the
 // `gate` requests a park queues. The session side (the checks on a decision, hand-offs, who owns a
 // gate for the dashboard) is lib/office/foreman/policy.ts. docs/architecture/foreman.md.
 import fs from 'node:fs';
@@ -8,6 +8,8 @@ import { jobDir, readEvents } from '#core/job/store.ts';
 import { enqueue, listRequests } from '#core/job/requests.ts';
 import { OFFICE_GATES, reservedGateEntry } from '#core/job/schema.ts';
 import { isRepoProposalPark, pendingRepoProposals, repoProposals } from '../../project/repo-proposals.ts';
+import { protectedApproved } from '../../guard/protected.ts';
+import { HUMAN_ONLY_RULES, parseEscalationReason } from './escalation.ts';
 import type { Config, ForgeRequest, GateClass, Job, JobEvent } from '#core/types.ts';
 
 /** The `forge job human` actions each gate class takes from the foreman. */
@@ -209,6 +211,25 @@ const isRetroSpec = (job: Partial<Pick<Job, 'kind'>>, gate: GateClass | null): b
 /** What reservedFor returns at a rounds-exhausted park past the total-round ceiling, whatever the action. */
 export const TOTAL_CEILING = '(total-round ceiling: only a human clears it)';
 
+/**
+ * What reservedFor returns at an escalation park for every action when a rule on it is a person's
+ * alone: the park's reason lists a human-only rule, or the job has a protected-paths flag no person
+ * approved (whatever the reason says now, since a session can rewrite it). Null otherwise. Rework is
+ * held too: a round of rework can't remove an auth change, a migration or infra steps. The park's
+ * reason counts as the transition into it recorded it as well as job.reason: `forge job set --reason`
+ * rewrites the latter with no event, so a rewritten reason can't lift the hold.
+ */
+function humanOnlyHold(root: string, job: Partial<Pick<Job, 'id' | 'reason' | 'protectedPaths'>>, gate: GateClass | null): string | null {
+  if (gate !== 'escalation') return null;
+  const events = typeof job.id === 'string' ? readEvents(root, job.id) : [];
+  const parked = events.findLast((e) => e.type === 'transition')?.reason;
+  const listed = [...parseEscalationReason(job.reason), ...parseEscalationReason(parked)].find((r) => HUMAN_ONLY_RULES.includes(r));
+  if (listed) return `(escalation: ${listed} needs a person)`;
+  const flag = job.protectedPaths;
+  if (flag?.hits?.length && typeof job.id === 'string' && !protectedApproved(flag, events)) return '(escalation: protected-paths needs a person)';
+  return null;
+}
+
 /** The foreman actions that send a job back to fix a security finding rather than accept it. */
 const SECURITY_MITIGATIONS: readonly string[] = ['rework', 'revise-spec', 'revise-split', 'reject-repos'];
 
@@ -227,18 +248,21 @@ export function securityHold(job: Pick<Job, 'verdicts'>): string | null {
  * would accept it: the foreman may still mitigate (rework or revise to fix the findings), never approve
  * past them: security always has to pass. With `action`, that action is judged; without, the gate is
  * held when it has no mitigation. A rounds-exhausted park past the total-round ceiling is held for
- * every action: only a person opens another round there.
+ * every action: only a person opens another round there, and so is an escalation park with a
+ * human-only rule (humanOnlyHold).
  */
 export function reservedFor(
   root: string,
   config: Config,
-  job: Pick<Job, 'id' | 'reason' | 'verdicts'> & Partial<Pick<Job, 'round' | 'maxRounds' | 'waitingOn' | 'kind'>>,
+  job: Pick<Job, 'id' | 'reason' | 'verdicts'> & Partial<Pick<Job, 'round' | 'maxRounds' | 'waitingOn' | 'kind' | 'protectedPaths'>>,
   gate: GateClass | null,
   extra: (string | null | undefined)[] = [],
   opts: { action?: string } = {},
 ): string | null {
   if (isRetroSpec(job, gate)) return RETRO_SPEC_HOLD;
   if (gate === 'rounds-exhausted' && pastTotalCeiling(config, job)) return TOTAL_CEILING;
+  const only = humanOnlyHold(root, job, gate);
+  if (only) return only;
   const hold = securityHold(job);
   const mitigates = opts.action !== undefined ? SECURITY_MITIGATIONS.includes(opts.action) : gate !== null && ACTIONS_BY_GATE[gate].some((a) => SECURITY_MITIGATIONS.includes(a));
   if (hold && !mitigates) return hold;
