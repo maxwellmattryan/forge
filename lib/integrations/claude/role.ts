@@ -5,7 +5,7 @@
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 import { briefLine } from './stream.ts';
-import type { ClaudeAdapter, ClaudeChild, ClaudeEvent, SessionCost } from './types.ts';
+import type { ClaudeAdapter, ClaudeChild, ClaudeEvent, DenyWhy, SessionCost } from './types.ts';
 import type { PermissionDecision } from '#core/types.ts';
 
 /** Why a role run failed. `untrusted` is the caller's own post-run check; runRoleChild never returns it. */
@@ -73,10 +73,20 @@ export interface RoleRunOptions {
   onSessionId?: (id: string) => void;
   /**
    * Decides a permission prompt. Without it no one is there: every prompt is denied with
-   * UNATTENDED_DENIED and counted. A callback that throws or rejects is a deny too.
+   * UNATTENDED_DENIED and counted. A callback that throws or rejects is a deny too. A `{ decision, why }`
+   * answer's `why` picks the deny's fixed text (TIMEOUT_DENIED for a prompt nobody answered in time).
    */
-  onPermission?: (ask: RolePermissionAsk) => PermissionDecision | Promise<PermissionDecision>;
+  onPermission?: (ask: RolePermissionAsk) => RolePermissionAnswer | Promise<RolePermissionAnswer>;
+  /** claude withdrew a prompt it asked (its `control_cancel_request`): whoever shows it drops it. */
+  onCancel?: (requestId: string) => void;
+  /** claude's process was created, with its pid (the leader of its own process group). */
+  onStart?: (pid: number) => void;
+  /** The child's first main-loop assistant message arrived: once per run, the hand-off metric's end. */
+  onFirstRequest?: () => void;
 }
+
+/** onPermission's answer: a bare decision, or one with the deny's reason. */
+export type RolePermissionAnswer = PermissionDecision | { decision: PermissionDecision; why?: DenyWhy };
 
 /** A running role child: `done` settles once it closed (or was given up on after SIGKILL); `stop` interrupts it. */
 export interface RoleRun {
@@ -93,6 +103,15 @@ const KILL_GRACE_MS = 5_000;
 const MAX_TIMER_MS = 2 ** 31 - 1;
 
 const forgeLine = (type: string, fields: Record<string, unknown>): string => JSON.stringify({ type, at: now(), ...fields });
+
+/** A caller's observer that throws must not end the run: what it reports is advisory. */
+function callSafely(fn: () => void): void {
+  try {
+    fn();
+  } catch {
+    // Ignored on purpose: the run's outcome never depends on an observer.
+  }
+}
 
 /**
  * Starts one role child: `argv` with `env` in `cwd`, then the brief on its stdin, which stays open so
@@ -179,11 +198,19 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
     arm(() => finish(null), killGrace);
   }
 
-  function answer(ask: RolePermissionAsk, decision: PermissionDecision, why?: 'unattended'): void {
+  function answer(ask: RolePermissionAsk, decision: PermissionDecision, why?: DenyWhy): void {
     if (finished || !child) return;
     if (!child.answerPermission(ask.requestId, decision, why)) return;
     if (decision === 'deny') denied++;
     o.onLine(forgeLine('forge-permission', { requestId: ask.requestId, tool: ask.tool, decision, ...(why ? { why } : {}) }));
+  }
+
+  let repliedOnce = false;
+  /** The first main-loop assistant line (one with a usage or a tool call), reported once. */
+  function replied(): void {
+    if (repliedOnce) return;
+    repliedOnce = true;
+    callSafely(() => o.onFirstRequest?.());
   }
 
   function onEvent(e: ClaudeEvent): void {
@@ -207,10 +234,12 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
         return;
       case 'first-request':
         firstRequest ??= { input: e.input, cacheRead: e.cacheRead, cacheWrite: e.cacheWrite };
-        return;
+        return replied();
       case 'tool-use':
         for (const name of e.names) if (tools.size < MAX_TOOLS_KEPT) tools.add(name);
-        return;
+        return replied();
+      case 'permission-cancelled':
+        return void callSafely(() => o.onCancel?.(e.requestId));
       case 'session-id':
         if (sessionId !== null) return;
         sessionId = e.id;
@@ -221,7 +250,13 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
         Promise.resolve()
           .then(() => decide(e))
           .then(
-            (d) => answer(e, d),
+            (d) => {
+              if (d === 'allow' || d === 'session' || d === 'deny') return answer(e, d);
+              const why = d?.why === 'timeout' || d?.why === 'unattended' ? d.why : undefined;
+              const decision = d?.decision;
+              if (decision === 'allow' || decision === 'session' || decision === 'deny') return answer(e, decision, decision === 'deny' ? why : undefined);
+              answer(e, 'deny', 'unattended');
+            },
             () => answer(e, 'deny', 'unattended'),
           );
         return;
@@ -257,6 +292,8 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
     return { done, stop() {} };
   }
   started = child.pid !== null;
+  const pid = child.pid;
+  if (!finished && pid !== null) callSafely(() => o.onStart?.(pid));
   if (!finished) {
     child.writeBrief(o.brief);
     if (typeof o.timeoutMs === 'number' && o.timeoutMs > 0 && o.timeoutMs <= MAX_TIMER_MS) {
