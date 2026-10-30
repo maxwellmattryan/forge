@@ -16,6 +16,7 @@ import { isActive, leaseStatus, listJobs, progress, readEvents, jobDir } from '#
 import { paths, exists, PLUGIN_ROOT } from '#core/paths.ts';
 import { API_VERSION, CONFIG_SCHEMA_VERSION, EVENT_SCHEMA_VERSION, JOB_SCHEMA_VERSION } from '#core/job/schema.ts';
 import { computeStats } from '#engine/metrics/stats.ts';
+import { isSessionUsageEvent } from '#engine/metrics/meter.ts';
 import { projectGraph } from '#engine/project/graph.ts';
 import { jobBudgetOf } from '#engine/metrics/budget.ts';
 import { billingOf } from '#integrations/claude/argv.ts';
@@ -235,7 +236,8 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
   const requests = listRequests(root);
   const jobs = listJobs(root).map((j) => {
     const events = readEvents(root, j.id);
-    const last = events[events.length - 1] ?? null;
+    // A session-usage event is accounting, not activity: the card's time and the secret-park chip read the last real one.
+    const last = events.findLast((e) => !isSessionUsageEvent(e)) ?? null;
     // Without the per-run lists, so /api/state doesn't grow with every run: the job detail serves them.
     return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
   });
