@@ -321,6 +321,7 @@ const EVENT_ROWS: Row[] = [
     removed: ['resume'],
     note: "read as written; agent-start's resume and agent-end's resumeFailed are the same identity step",
   },
+  { step: 'gate-event', input: { ts: 't', type: 'gate', round: 2, head: null, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }] }, fields: { type: 'gate', round: 2, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }] }, note: "read as written; a decision's gated is the same identity step" },
 ];
 
 const MACHINE_ROWS: Row[] = [

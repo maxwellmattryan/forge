@@ -102,7 +102,6 @@ test("pr gate syncs the PR's gate section and label", () => {
   const s = opening(() => {});
   try {
     const dir = jobDir(s.root, s.id);
-    const ESCALATED = 'approver escalated: see decision.md';
     const first = s.open();
     const record = () => s.github.record(first.number!)!;
     const section = () => {
@@ -110,15 +109,24 @@ test("pr gate syncs the PR's gate section and label", () => {
       return body.slice(body.indexOf(GATE_START), body.indexOf(GATE_END) + GATE_END.length);
     };
     assert.equal(section(), `${GATE_START}\n${GATE_END}`, 'pr open creates the body with the gate markers');
+    const gate = (...reasons: Record<string, unknown>[]) => logEvent(s.root, s.id, 'gate', { round: 1, head: null, reasons });
+    const RUNBOOK = { rule: 'runbook', detail: 'runbook.md has steps for a person' };
+    const BULLETS = '- `approver`: the approver escalated: see decision.md\n- `runbook`: runbook.md has steps for a person';
 
-    // An escalation: the reason in a code span, For the human as text whose fence never closes early.
+    // A two-reason park: the reason in a code span, a bullet per reason, For the human and the runbook's
+    // Steps as text whose fence never closes early.
     fs.writeFileSync(path.join(dir, 'decision.md'), 'ESCALATE: risky\n\n## Why\nwhy\n\n## For the human\nping @octocat\n```\n<img src=x onerror=alert(1)>\n````js\nx\n');
+    fs.writeFileSync(path.join(dir, 'runbook.md'), '# Runbook\nWhen: after merge\n\n## Steps\n1. run the migration\n\n## Rollback\nnone\n');
+    gate(RUNBOOK);
     const set = syncPrGate(s.root, s.config, s.github, s.id);
-    assert.deepEqual([set.action, 'rule' in set && set.rule, 'labeled' in set && set.labeled, 'body' in set && set.body], ['set', 'PR15', true, true]);
+    assert.deepEqual([set.action, 'rule' in set && set.rule, 'reason' in set && set.reason, 'labeled' in set && set.labeled, 'body' in set && set.body], ['set', 'PR15', 'escalation: approver, runbook', true, true]);
     const text = section();
-    assert.ok(text.includes(`\`${ESCALATED}\``), text);
+    assert.ok(text.includes('`escalation: approver, runbook`'), text);
+    assert.ok(text.includes(BULLETS), text);
     assert.ok(text.includes('### For the human\n\n```text\nping @octocat\n'), text);
-    assert.equal(text.split('\n').filter((l) => /^\s*`{3,}/.test(l)).length, 2, 'one fence, opened once and closed once');
+    assert.ok(text.includes('### Before merge\n\n```text\n1. run the migration\n```'), text);
+    assert.ok(!text.includes('Rollback'));
+    assert.equal(text.split('\n').filter((l) => /^\s*`{3,}/.test(l)).length, 4, 'two fences, each opened once and closed once');
     assert.deepEqual(record().labels, ['forge:needs-human']);
     assert.deepEqual(s.github.calls.filter((c) => c.op === 'createLabel').map((c) => c.name), ['forge:needs-human'], 'created when the repo lacked it');
     assert.deepEqual(s.events('pr-gate').at(-1)!.action, 'set');
@@ -135,23 +143,29 @@ test("pr gate syncs the PR's gate section and label", () => {
     assert.ok(section().includes('@octocat ping two'), 'the text is inside the section');
     assert.ok(!whole.slice(whole.indexOf(GATE_END) + GATE_END.length).includes('@octocat'), 'and not after it');
 
-    // A person's approve at the escalation park: the label goes, the section shows the approval.
-    s.approveAt(ESCALATED, undefined, 'escalation');
+    // A person's approve at the escalation park: the label goes, the section shows the approval of each rule.
+    s.approveAt('escalation: approver, runbook', undefined, 'escalation');
     const clear = syncPrGate(s.root, s.config, s.github, s.id);
     assert.equal(clear.action, 'clear');
     assert.deepEqual(record().labels, []);
-    assert.match(section(), /^<!-- forge:gate -->\n## Decision\n\nEscalated: `approver escalated: see decision\.md`\. Approved by `al` \(env\) on \d{4}-\d\d-\d\d\.\n<!-- \/forge:gate -->$/);
+    assert.match(section(), /^<!-- forge:gate -->\n## Decision\n\nEscalated for: `approver`, `runbook`\. Approved by `al` \(env\) on \d{4}-\d\d-\d\d\.\n\n- `approver`: [^\n]+\n- `runbook`: [^\n]+\n<!-- \/forge:gate -->$/);
+    assert.ok(section().includes(BULLETS));
     const body = prText(s.root, s.config, loadJob(s.root, s.id)).body;
-    assert.equal(body.split('Escalated:').length, 2, 'the approval line once');
-    assert.ok(body.indexOf('Escalated:') > body.indexOf(GATE_START) && body.indexOf('Escalated:') < body.indexOf(GATE_END), 'inside the markers');
+    assert.equal(body.split('Escalated for:').length, 2, 'the approval line once');
+    assert.ok(body.indexOf('Escalated for:') > body.indexOf(GATE_START) && body.indexOf('Escalated for:') < body.indexOf(GATE_END), 'inside the markers');
 
-    // A runbook with steps before merge: the section holds its Steps; the label exists now.
+    // A version reason: its paths in code spans; the label exists now.
     fs.writeFileSync(path.join(dir, 'decision.md'), 'APPROVE\n');
-    fs.writeFileSync(path.join(dir, 'runbook.md'), '# Runbook\nWhen: before merge\n\n## Steps\n1. run the migration\n\n## Rollback\nnone\n');
+    gate({ rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] });
     assert.equal(syncPrGate(s.root, s.config, s.github, s.id).action, 'set');
-    assert.ok(section().includes('### Before merge\n\n```text\n1. run the migration\n```'), section());
-    assert.ok(!section().includes('Rollback'));
+    assert.ok(section().includes('- `version`: version changed in 1 manifest: `package.json`'), section());
+    assert.ok(!section().includes('### Before merge'));
     assert.equal(s.github.calls.filter((c) => c.op === 'createLabel').length, 1);
+    // The Foreman may clear a version-only park, and its approve shows no Decision line.
+    s.approveAt('escalation: version', FOREMAN, 'escalation');
+    assert.equal(syncPrGate(s.root, s.config, s.github, s.id).action, 'clear');
+    assert.equal(section(), `${GATE_START}\n${GATE_END}`);
+    gate({ rule: 'dependencies', detail: 'dependency tables changed in 1 manifest', paths: ['go.mod'] });
 
     // A body without the markers gets the label only.
     s.github.patch(first.number!, { body: 'a person rewrote it', labels: [] });
@@ -167,15 +181,15 @@ test("pr gate syncs the PR's gate section and label", () => {
     assert.equal(s.events('pr-gate').at(-1)!.error, 'gh: HTTP 502');
     s.github.fail('viewBody', null);
 
-    // A likely secret in the section stops it before any edit.
+    // A likely secret in the section (here a branch path) stops it before any edit.
     const token = `gh${'p'}_${randomBytes(18).toString('hex')}`;
-    fs.writeFileSync(path.join(dir, 'runbook.md'), `When: before merge\n\n## Steps\nexport TOKEN=${token}\n`);
+    gate({ rule: 'dependencies', detail: 'dependency tables changed in 1 manifest', paths: [`requirements-${token}.txt`] });
     const calls = s.github.calls.length;
     assert.equal(codeOf(() => syncPrGate(s.root, s.config, s.github, s.id)), 'secret_found');
     assert.equal(s.github.calls.length, calls, 'nothing was called');
 
     // pr.needsHumanLabel: null makes no label calls.
-    fs.writeFileSync(path.join(dir, 'runbook.md'), 'When: before merge\n\n## Steps\n1. go\n');
+    gate({ rule: 'dependencies', detail: 'dependency tables changed in 1 manifest', paths: ['go.mod'] });
     s.config.pr.needsHumanLabel = null;
     const labels = s.github.calls.filter((c) => c.op === 'editLabels' || c.op === 'createLabel').length;
     const off = syncPrGate(s.root, s.config, s.github, s.id);
@@ -193,7 +207,7 @@ describe('the held push', { concurrency: 4 }, () => {
       assert.ok(r.created && s.remote(), 'pushed and opened');
       const logged = s.events('protected-path').at(-1)!;
       assert.deepEqual([logged.gate, logged.action, logged.blocked, (logged.paths as { path: string }[]).map((p) => p.path)], ['pr', 'escalate', false, ['db/migrations/0001.sql']]);
-      assert.equal(loadJob(s.root, s.id).protectedPaths?.hits.length, 1, 'the flag stays for PP1b');
+      assert.equal(loadJob(s.root, s.id).protectedPaths?.hits.length, 1, 'the flag stays for the escalation park after the push');
     } finally {
       s.cleanup();
     }
@@ -206,9 +220,11 @@ describe('the held push', { concurrency: 4 }, () => {
       assert.equal(s.remote(), null, 'no branch on the remote');
       assert.equal(s.github.calls.filter((c) => c.op === 'create').length, 0, 'no create call');
       assert.equal(s.events('protected-path').at(-1)!.blocked, true);
-      s.approveAt('push held: protected paths: .github/workflows/ci.yml', FOREMAN);
+      s.approveAt('push held: escalation: approver, protected-paths', FOREMAN, 'escalation');
       assert.equal(codeOf(s.open), 'protected_path', "the Foreman's approve does not count");
-      s.approveAt('push held: protected paths: .github/workflows/ci.yml');
+      s.approveAt('push held: escalation: approver', undefined, 'escalation');
+      assert.equal(codeOf(s.open), 'protected_path', 'an approve at a park that does not list protected-paths does not count');
+      s.approveAt('push held: escalation: approver, protected-paths', undefined, 'escalation');
       const r = s.open();
       assert.ok(r.created && s.remote(), 'one approval covers the push: no second hold for the same CI content');
       assert.equal(s.events('push-held').length, 0);

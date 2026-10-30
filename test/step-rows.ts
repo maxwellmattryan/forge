@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { shellLine, step } from '#engine/pipeline/step.ts';
-import type { Config, Job, JobAgent, VerifyRun } from '#core/types.ts';
+import type { Config, GateReason, Job, JobAgent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
@@ -307,9 +307,18 @@ const recallWaiver = (reason = RECALL_REASON, human: Record<string, unknown> = {
   tr(34, { stage, state: 'waiting', waitingOn: 'human' }, { stage }),
 ];
 
-// ---- The moved gates: the PR opens, then the merge waits (PR13, PR15–PR17, PP1b)
+// ---- The moved gates: the PR opens, then the merge waits (PR13, PR15, PR17)
+/** The reasons PR15 and PR16 parked on before the merge gates collapsed into one escalation park. */
 const ESCALATED = 'approver escalated: see decision.md';
 const RUNBOOK = 'runbook: steps before merge';
+/** The escalation park's reason listing `rules`. */
+const ESC = (...rules: string[]) => `escalation: ${rules.join(', ')}`;
+/** `forge job gate` logged `reasons` at minute n. */
+const GATE = (n: number, reasons: GateReason[] = []) => ev('gate', n, { round: 1, head: null, reasons });
+const R_RUNBOOK: GateReason = { rule: 'runbook', detail: 'runbook.md has steps for a person' };
+const R_VERSION: GateReason = { rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] };
+const R_LENS: GateReason = { rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' };
+const R_PROTECTED: GateReason = { rule: 'protected-paths', detail: '1 escalate path no person approved', paths: ['db/migrations/0001.sql'] };
 const GATE_PR: Job['pr'] = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) };
 /** In pr after the move: the approver ended at 21, verify passed at 30 and the PR is OPEN. */
 const atGate = (more: Partial<Job> = {}): Partial<Job> => job({ stage: 'pr', round: 1, reviewers: ['code'], verdicts: { 1: { code: 'PASS' } }, agents: { approver: ag(1, 20, 21) }, verifyRuns: [vr(1, 30, true)], pr: GATE_PR, ...more });
@@ -330,8 +339,8 @@ const MIGRATION = (at = 15) => FLAG(at, ['db/migrations/0001.sql']);
 const MIGRATION_REASON = 'protected paths: db/migrations/0001.sql';
 const CI_REASON = 'push held: CI config changes: .github/workflows/ci.yml [ci 0123456789abcdef]';
 /** `forge pr gate` set the PR's gate section and label for (`rule`, `reason`) at minute n. */
-const synced = (n: number, rule: string, reason: string) => ev('pr-gate', n, { action: 'set', rule, reason, number: 7, label: 'forge:needs-human', labeled: true, body: true });
-const PR15_SYNCED = synced(31, 'PR15', 'approver escalated: see decision.md');
+const synced = (n: number, rule: string, reason: string, reasons?: GateReason[]) => ev('pr-gate', n, { action: 'set', rule, reason, ...(reasons ? { reasons } : {}), number: 7, label: 'forge:needs-human', labeled: true, body: true });
+const PR15_SYNCED = synced(31, 'PR15', ESC('approver'));
 /** pr open logged a held push at minute n. */
 const held = (n: number, reason = CI_REASON) => ev('push-held', n, { kind: 'ci', reason, head: HEAD_SHA, paths: ['.github/workflows/ci.yml'] });
 
@@ -1309,7 +1318,7 @@ export const rows: Row[] = [
   { name: 'DC1 an eval job within maxRounds still spawns the approver', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'decide', round: 3, maxRounds: 3, verdicts: { 3: { code: 'PASS' } } }), evalTask: { rubric: 'rubric.md', reference: null } }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
   { name: 'DC6 eval mode: graded is done', fx: { job: atDecide({ kind: 'eval', eval: { run: 'r', task: 'hello' } }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ev('eval-graded', 23)] }, want: run('job', 'set', 'j', '--stage', 'done', '--state', 'done') },
   { name: 'DC9b an ESCALATE no longer parks in decide: it goes on to integrate', fx: { job: atDecide(), decision: { decision: 'ESCALATE' }, events: [ev('decision', 22)] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
-  { name: 'DC9b runbook steps before merge no longer park in decide', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], runbookBeforeMerge: true }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
+  { name: 'DC9b a runbook gate reason does not park in decide', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], gate: [R_RUNBOOK] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
   { name: 'DC9b approved: integrate', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
   { name: 'DC9 approved on an integrated branch: pr', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: [reviewed, ev('integrated', 31, { behind: 0 }), tr(33, { stage: 'integrate' }, { stage: 'decide' }), ev('decision', 36)] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'running') },
   { name: 'DC9b a legacy job with no integration since review integrates', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('decision', 22)] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },
@@ -1326,10 +1335,16 @@ export const rows: Row[] = [
   { name: 'DC9b an escalation parked in decide before the move goes on to integrate when the job runs again', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: escalated.slice(0, 5) }, want: { rule: 'DC9b' } },
   { name: 'DC9b approved after an escalation wait re-integrates', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: unparked }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'cleared gate: a human-cleared escalation (the old DC7 park) re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'ESCALATE' }, events: sentBack }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
-  { name: 'cleared gate: a human-cleared runbook (the old DC8 park) re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: runbookSentBack, runbookBeforeMerge: true }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
-  { name: 'PR15 a budget acknowledgement after an ESCALATE does not clear it', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'budget', 'job budget: 1000 tokens')] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESCALATED) },
-  { name: 'PR16 a budget acknowledgement does not clear the runbook', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PR16', RUNBOOK), ...approvedAt(32, 'pr', 'budget', 'job budget: 1000 tokens')], runbookBeforeMerge: true }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'infra', '--reason', RUNBOOK) },
-  { name: 'PR16 an escalation approve does not clear the runbook', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PR16', RUNBOOK), ...approvedAt(32, 'pr', 'escalation', ESCALATED)], runbookBeforeMerge: true }, want: { rule: 'PR16' } },
+  { name: 'cleared gate: a human-cleared runbook (the old DC8 park) re-entering decide goes on to DC9', fx: { job: decidedLate(), decision: { decision: 'APPROVE' }, events: runbookSentBack, gate: [R_RUNBOOK] }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC9' } },
+  { name: 'PR15 a budget acknowledgement after an ESCALATE does not clear it', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'budget', 'job budget: 1000 tokens')] }, want: run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('approver')) },
+  // AC13: an approve clears only the rules its park listed, given after the review.
+  { name: 'PR15 a budget approve clears nothing', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK]), synced(31, 'PR15', ESC('runbook')), ...approvedAt(32, 'pr', 'budget', 'job budget: 1000 tokens')] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('runbook')), rule: 'PR15' } },
+  { name: 'PR15 an approve at a park whose reason does not list the rule clears nothing', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK]), synced(31, 'PR15', ESC('runbook')), ...approvedAt(32, 'pr', 'escalation', ESC('approver'))] }, want: { rule: 'PR15' } },
+  {
+    name: 'PR15 an approve before the latest review leaves the runbook open',
+    fx: { job: atGate({ pr: null }), decision: { decision: 'APPROVE' }, events: [...approvedAt(10, 'pr', 'escalation', ESC('runbook')), tr(15, { stage: 'review' }, { stage: 'integrate' }), decided('APPROVE', true, 22), GATE(23, [R_RUNBOOK]), OPENED] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('runbook')), rule: 'PR15' },
+  },
   { name: 'DC3 a budget acknowledgement does not clear a missing decision line', fx: { job: decidedLate(), events: budgetAck('APPROVE').slice(0, -1) }, want: { rule: 'DC3' } },
   { name: 'cleared gate: DC3 a human-cleared missing decision line goes on to DC9', fx: { job: decidedLate(), events: sentBack }, want: { rule: 'DC9' } },
   { name: 'DC10 an open PR in decide goes to pr', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }) }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'DC10' } },
@@ -1340,6 +1355,27 @@ export const rows: Row[] = [
   { name: 'DC9b a round with no recorded review still integrates (reviewCurrent null)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: null }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC9b a HEAD that follows the reviewed head integrates (reviewCurrent true)', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)], reviewCurrent: true }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'DC1 under auto-merge a PR rework goes back to the approver', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'decide', round: 2, pr: OPEN_PR }), files: ['spec'] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
+  // ---- DC12: the gate reasons, once per review, before anything decides (AC5)
+  { name: 'DC12 a job entering decide after a review with no gate event since computes one', fx: { job: freshDecide(), files: ['spec'], events: [tr(15, { stage: 'review' }, { stage: 'decide' })], gate: null }, want: { ...run('job', 'gate', 'j'), rule: 'DC12' } },
+  { name: 'DC12 a gate event before the latest review does not count', fx: { job: freshDecide(), files: ['spec'], events: [ev('gate', 10, { round: 1, head: null, reasons: [] }), tr(15, { stage: 'review' }, { stage: 'decide' })] }, want: { rule: 'DC12' } },
+  { name: 'DC12 runs before RC1', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] }, gate: null }, want: { rule: 'DC12' } },
+  { name: 'DC12 runs before DC10', fx: { job: job({ stage: 'decide', round: 1, pr: OPEN_PR }), gate: null }, want: { rule: 'DC12' } },
+  { name: 'DC1 with a gate event after the review, the approver spawns', fx: { job: freshDecide(), files: ['spec'], events: [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('gate', 16, { round: 1, head: null, reasons: [{ rule: 'runbook', detail: 'x' }] })] }, want: { action: 'spawn', rule: 'DC1', role: 'approver' } },
+  ...(
+    [
+      ['the gate event since the review', [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('gate', 16, { round: 1, head: null, reasons: [{ rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] }] })], 'Gate reasons (JSON): [{"rule":"version","detail":"version changed in 1 manifest","paths":["package.json"]}]'],
+      ['an empty gate event', [tr(15, { stage: 'review' }, { stage: 'decide' }), ev('gate', 16, { round: 1, head: null, reasons: [] })], 'Gate reasons: none'],
+    ] as const
+  ).map(([what, events, line]) => ({
+    name: `DC1 brief: the approver's Gate reasons line from ${what}`,
+    fx: { job: freshDecide(), files: ['spec'] as FixtureOpts['files'], events: [...events] },
+    want: { action: 'spawn', rule: 'DC1', role: 'approver' },
+    check: (a: any) => assert.ok(a.brief.split('\n').some((l: string) => l.startsWith(line)), a.brief),
+  })),
+  { name: 'DC4 an exhausted eval skips DC12', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'decide', round: 4, maxRounds: 3, verdicts: { 3: { code: 'CHANGES' } } }), evalTask: { rubric: 'rubric.md', reference: null }, gate: null }, want: { rule: 'DC4' } },
+  { name: 'DC12 an eval within its rounds computes the gate too', fx: { job: job({ kind: 'eval', eval: { run: 'r', task: 'hello' }, stage: 'decide', round: 3, maxRounds: 3 }), gate: null }, want: { rule: 'DC12' } },
+  // AC7: a decision recorded eligible before the gate counted (or under a gate reason) never reaches PR4.
+  { name: 'PR5 an eligible decision under gate reasons never reaches PR4', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED, ev('pr-opened', 11), ev('gate', 12, { round: 1, head: null, reasons: [{ rule: 'acs', detail: 'unmapped: AC2' }] }), ...approvedAt(13, 'pr', 'escalation', 'escalation: acs')] }, want: { rule: 'PR5' } },
   // ---- Recall eval before the approver (RC1; the old RC2 park is PR17 now)
   { name: 'RC1 a diff touching agents/ runs the recall procedure', fx: { job: freshDecide(), recall: { changed: ['agents/x.md'] } }, want: { action: 'procedure', rule: 'RC1', reference: RECALL_MD } },
   { name: 'RC1 a diff touching reviewers/code.md runs it', fx: { job: freshDecide(), recall: { changed: ['lib/x.ts', 'reviewers/code.md'] } }, want: { action: 'procedure', reference: RECALL_MD } },
@@ -1572,11 +1608,58 @@ export const rows: Row[] = [
     want: { action: 'wait', tell: `j push held (push held: protected paths: .github/workflows/ci.yml): nothing has left this machine. Read the change in ${WT} and ${path.join(JOB_DIR, 'protected.diff')}, then /forge approve j to push, or /forge rework j <note>` },
   },
 
-  // ---- The merge gates on the open PR (PR15, PR16, PP1b, PR17): AC2–AC4, AC12, AC16
+  // ---- The merge gates on the open PR (PR15, the one escalation park, then PR17): AC2–AC4, AC12, AC16
   { name: 'PR14 an ESCALATE on the open PR: forge pr gate says why first', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: gateEvents('ESCALATE') }, want: { ...run('pr', 'gate', 'j'), rule: 'PR14', why: 'say on the PR why it waits on a decision before merge' } },
-  { name: 'PR14 a sync of another gate syncs again', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), synced(32, 'PR16', RUNBOOK)] }, want: { rule: 'PR14' } },
-  { name: 'PR14 a sync before the last push syncs again', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true, 22), synced(29, 'PR15', ESCALATED), OPENED] }, want: { rule: 'PR14' } },
-  { name: 'PR15 an ESCALATE parks on escalation after the PR says why', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESCALATED), rule: 'PR15' } },
+  { name: 'PR14 a sync of another reason syncs again', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), synced(32, 'PR15', ESC('runbook'))] }, want: { rule: 'PR14' } },
+  { name: 'PR14 a sync that listed other details under the same reason syncs again', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), synced(32, 'PR15', ESC('version'), [{ rule: 'version', detail: 'version changed in 2 manifests', paths: ['a/package.json', 'package.json'] }])] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR14' } },
+  { name: 'PR15 a sync that listed the same reasons parks', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), synced(32, 'PR15', ESC('version'), [R_VERSION])] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('version')), rule: 'PR15' } },
+  { name: 'PR14 a sync before the last push syncs again',fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true, 22), synced(29, 'PR15', ESC('approver')), OPENED] }, want: { rule: 'PR14' } },
+  { name: 'PR15 an ESCALATE parks on escalation after the PR says why', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('approver')), rule: 'PR15' } },
+  // AC8: every open reason on one park, after PR14 synced that one gate.
+  { name: 'PR14 syncs the collapsed gate first', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), GATE(31, [R_RUNBOOK, R_VERSION])] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR14' } },
+  {
+    name: 'PR15 every open reason in one park',
+    fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), GATE(31, [R_VERSION, R_RUNBOOK]), synced(32, 'PR15', ESC('approver', 'runbook', 'version'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'escalation: approver, runbook, version'), rule: 'PR15' },
+  },
+  // AC9: one person's approve there, after the review and the approver's end, clears every rule it lists.
+  {
+    name: 'PR18 one approve clears every reason, protected paths included',
+    fx: { job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), GATE(31, [R_RUNBOOK, R_VERSION]), synced(31, 'PR15', ESC('approver', 'protected-paths', 'runbook', 'version')), ...approvedAt(32, 'pr', 'escalation', ESC('approver', 'protected-paths', 'runbook', 'version'))] },
+    want: { ...run('pr', 'gate', 'j'), rule: 'PR18' },
+  },
+  {
+    name: 'PR5 after that approve and PR18, the job waits on review with no second park',
+    fx: { config: (c) => (c.merge.auto = true), job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), GATE(31, [R_RUNBOOK, R_VERSION]), synced(31, 'PR15', ESC('approver', 'protected-paths', 'runbook', 'version')), ...approvedAt(32, 'pr', 'escalation', ESC('approver', 'protected-paths', 'runbook', 'version')), ev('pr-gate', 35, { action: 'clear', rule: null, reason: null, labeled: false })] },
+    want: { rule: 'PR5' },
+  },
+  {
+    name: "PR15 an approve before the flag's at leaves protected-paths open",
+    fx: { job: atGate({ pr: null, protectedPaths: MIGRATION(40) }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), GATE(31, [R_RUNBOOK, R_VERSION]), ...approvedAt(32, 'pr', 'escalation', ESC('approver', 'protected-paths', 'runbook', 'version'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('protected-paths')), rule: 'PR15' },
+  },
+  // AC11: a human-only rule is never cleared by the Foreman, and the open rules come from facts, not the park's reason.
+  {
+    name: 'PR15 a Foreman approve leaves a lens-escalate park parked',
+    fx: { job: atGate({ pr: null }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_LENS]), ...approvedAt(32, 'pr', 'escalation', ESC('lens-escalate'), { actor: FOREMAN })] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('lens-escalate')), rule: 'PR15' },
+  },
+  { name: "PR18 a person's approve clears the lens-escalate park", fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_LENS]), synced(31, 'PR15', ESC('lens-escalate')), ...approvedAt(32, 'pr', 'escalation', ESC('lens-escalate'))] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
+  { name: 'PR18 a Foreman approve clears a version-only park', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), synced(31, 'PR15', ESC('version')), ...approvedAt(32, 'pr', 'escalation', ESC('version'), { actor: FOREMAN })] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
+  { name: 'PR15 a Foreman approve at a runbook park leaves it parked', fx: { job: atGate({ pr: null }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK]), ...approvedAt(32, 'pr', 'escalation', ESC('runbook'), { actor: FOREMAN })] }, want: { rule: 'PR15' } },
+  {
+    name: 'PR15 a park reason rewritten to drop lens-escalate leaves it open',
+    fx: { job: atGate({ pr: null }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_LENS, R_VERSION]), ...approvedAt(32, 'pr', 'escalation', ESC('version'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('lens-escalate')), rule: 'PR15' },
+  },
+  // AC14: a job decided before gate reasons existed, and the parks it made then.
+  { name: 'PR19 a decided job with no gate event computes one', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: gateEvents('APPROVE'), gate: null }, want: { ...run('job', 'gate', 'j'), rule: 'PR19' } },
+  { name: 'PR19 a DC10 rework round reviewed after the last gate event computes one', fx: { job: atGate({ round: 2 }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(32), tr(40, { stage: 'review' }, { stage: 'decide' }), tr(41, { stage: 'decide' }, { stage: 'pr' })] }, want: { rule: 'PR19' } },
+  { name: 'PR18 a legacy PR16 approve clears the runbook', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PR16', RUNBOOK), ...approvedAt(32, 'pr', 'infra', RUNBOOK), GATE(35, [R_RUNBOOK])] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
+  { name: 'PR18 a legacy PR15 approve clears the approver reason', fx: { job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), synced(31, 'PR15', ESCALATED), ...approvedAt(32, 'pr', 'escalation', ESCALATED), GATE(35)] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
+  { name: 'PR18 a legacy PP1b approve clears protected paths', fx: { job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PP1b', MIGRATION_REASON), ...approvedAt(32, 'pr', 'human', MIGRATION_REASON), GATE(35, [R_PROTECTED])] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
+  { name: 'G4b a job parked on the legacy PR16 park keeps waiting there', fx: { job: job({ stage: 'pr', round: 1, state: 'waiting', waitingOn: 'infra', reason: RUNBOOK, pr: GATE_PR }), events: [parkTr(32, 'pr', 'infra', RUNBOOK)] }, want: { action: 'wait', waitingOn: 'infra' } },
+  { name: 'G4b a job parked on the legacy PP1b park keeps waiting there', fx: { job: job({ stage: 'pr', round: 1, state: 'waiting', waitingOn: 'human', reason: MIGRATION_REASON, pr: GATE_PR }), events: [parkTr(32, 'pr', 'human', MIGRATION_REASON)] }, want: { action: 'wait', waitingOn: 'human' } },
   { name: 'PR15 parks with merge.auto on and a current decision too', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'ESCALATE' }, decisionCurrent: true, events: [...gateEvents('ESCALATE', true), PR15_SYNCED] }, want: { rule: 'PR15' } },
   { name: 'PR15 parks without a PR to tell (a deferred root)', fx: { job: atGate({ pr: null }), decision: { decision: 'ESCALATE' }, events: gateEvents('ESCALATE') }, want: { rule: 'PR15' } },
   { name: "GA2 a person's approve at the PR15 park goes to integrate", fx: answeredAt('pr', 'escalation', 'approve', { reason: ESCALATED, pr: GATE_PR }), want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'GA2' } },
@@ -1586,22 +1669,37 @@ export const rows: Row[] = [
   // PR18: the gate cleared while the PR still says it is open.
   { name: 'PR18 after the approve, forge pr gate clears the label and the section', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'escalation', ESCALATED)] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
   { name: 'PR5 once the PR is told, an approved ESCALATE waits on review and never reaches PR4', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'escalation', ESCALATED), ev('pr-gate', 35, { action: 'clear', rule: null, reason: null, labeled: false })] }, want: run('job', 'set', 'j', '--stage', 'pr', '--state', 'waiting', '--waiting-on', 'pr-review') },
-  { name: 'PR5 no PR18 on a PR that is no longer open', fx: { job: atGate({ pr: { ...GATE_PR!, state: 'CLOSED' } }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(32, 'PR16', RUNBOOK)] }, want: { rule: 'PR5' } },
+  { name: 'PR5 no PR18 on a PR that is no longer open', fx: { job: atGate({ pr: { ...GATE_PR!, state: 'CLOSED' } }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(32, 'PR15', ESC('runbook'))] }, want: { rule: 'PR5' } },
+  {
+    name: 'G4b an escalation park names the file behind each rule',
+    fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'escalation', reason: ESC('approver', 'protected-paths', 'lens-escalate', 'runbook', 'version'), pr: GATE_PR }) },
+    want: {
+      action: 'wait',
+      rule: 'G4b',
+      tell: `j escalated (${ESC('approver', 'protected-paths', 'lens-escalate', 'runbook', 'version')}): see ${[path.join(JOB_DIR, 'decision.md'), path.join(JOB_DIR, 'protected.diff'), path.join(JOB_DIR, 'review'), path.join(JOB_DIR, 'runbook.md')].join(', ')}. /forge approve j or /forge rework j <note>\nj PR https://github.com/o/r/pull/7 is open: it waits on this decision before merge`,
+    },
+  },
+  {
+    name: 'G4b a push-held escalation park says nothing has left the machine',
+    fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'escalation', reason: `push held: ${ESC('approver', 'protected-paths')}`, pr: GATE_PR }) },
+    want: { tell: `j escalated (push held: ${ESC('approver', 'protected-paths')}): see ${path.join(JOB_DIR, 'decision.md')}, ${path.join(JOB_DIR, 'protected.diff')}. The push is held: nothing has left this machine. /forge approve j or /forge rework j <note>` },
+  },
   {
     name: 'G4b a PR15 park on an open PR says the PR waits on the decision',
     fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'escalation', reason: ESCALATED, pr: GATE_PR }) },
     want: { action: 'wait', rule: 'G4b', waitingOn: 'escalation', tell: `j escalated (${ESCALATED}): see ${path.join(JOB_DIR, 'decision.md')}. /forge approve j or /forge rework j <note>\nj PR https://github.com/o/r/pull/7 is open: it waits on this decision before merge` },
   },
   { name: 'G4b a decide-stage escalation has no PR line', fx: { job: job({ stage: 'decide', state: 'waiting', waitingOn: 'escalation', reason: ESCALATED, pr: GATE_PR }) }, want: { tell: `j escalated (${ESCALATED}): see ${path.join(JOB_DIR, 'decision.md')}. /forge approve j or /forge rework j <note>` } },
-  { name: 'PR16 a before-merge runbook parks on infra after the push', fx: { job: atGate(), decision: { decision: 'APPROVE' }, runbookBeforeMerge: true, events: [...gateEvents('APPROVE'), synced(32, 'PR16', RUNBOOK)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'infra', '--reason', RUNBOOK), rule: 'PR16' } },
-  { name: 'PR16 an eligible APPROVE with merge.auto on never reaches PR4 before the approve', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, runbookBeforeMerge: true, events: [...gateEvents('APPROVE'), synced(32, 'PR16', RUNBOOK)] }, want: { rule: 'PR16' } },
+  { name: 'PR15 a runbook parks on escalation after the push', fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK]), synced(32, 'PR15', ESC('runbook'))] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('runbook')), rule: 'PR15' } },
+  { name: 'PR15 an eligible APPROVE with merge.auto on never reaches PR4 before the approve', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK]), synced(32, 'PR15', ESC('runbook'))] }, want: { rule: 'PR15' } },
   { name: "GA3 a person's approve at the PR16 park goes to integrate", fx: answeredAt('pr', 'infra', 'approve', { reason: RUNBOOK, pr: GATE_PR }), want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'GA3' } },
-  { name: 'PR4 after the runbook approve, an eligible APPROVE merges', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, runbookBeforeMerge: true, events: [...gateEvents('APPROVE'), ...approvedAt(32, 'pr', 'infra', RUNBOOK)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: "GA2 a person's approve at the escalation park goes to integrate", fx: answeredAt('pr', 'escalation', 'approve', { reason: ESC('approver', 'runbook'), pr: GATE_PR }), want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'GA2' } },
+  { name: 'PR5 after the runbook approve, a gated decision waits on review', fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK]), ...approvedAt(32, 'pr', 'escalation', ESC('runbook'))] }, want: { rule: 'PR5' } },
   { name: "GA6 a person's approve at the PP1b park keeps the stage", fx: answeredAt('pr', 'human', 'approve', { reason: MIGRATION_REASON, pr: GATE_PR }), want: { ...run('job', 'set', 'j', '--state', 'running'), rule: 'GA6' } },
   { name: 'GA8 a rework at the PR15 park goes to build and keeps the PR', fx: answeredAt('pr', 'escalation', 'rework', { reason: ESCALATED, pr: GATE_PR }), want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'GA8' } },
   {
     name: 'PR5 after a rework with merge.auto off, the earlier approval still clears PR15',
-    fx: { job: atGate({ round: 2, verifyRuns: [vr(1, 30, true), vr(2, 44, true)] }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), ...approvedAt(32, 'pr', 'escalation', ESCALATED), tr(40, { stage: 'pr' }, { stage: 'build' }), tr(43, { stage: 'decide' }, { stage: 'pr' }), ev('pr-updated', 45)] },
+    fx: { job: atGate({ round: 2, verifyRuns: [vr(1, 30, true), vr(2, 44, true)] }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), ...approvedAt(32, 'pr', 'escalation', ESC('approver')), tr(40, { stage: 'pr' }, { stage: 'build' }), tr(43, { stage: 'decide' }, { stage: 'pr' }), ev('pr-updated', 45)] },
     want: { rule: 'PR5' },
   },
   {
@@ -1611,8 +1709,8 @@ export const rows: Row[] = [
   },
   {
     name: 'PR15 after a rework with merge.auto on, a new ESCALATE parks again',
-    fx: { config: (c) => (c.merge.auto = true), job: atGate({ round: 2, verifyRuns: [vr(1, 30, true), vr(2, 44, true)], agents: { approver: ag(2, 41, 42) } }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'escalation', ESCALATED), ev('decision', 42, { decision: 'ESCALATE', autoMerge: false, head: HEAD_SHA }), ev('pr-updated', 45), synced(46, 'PR15', ESCALATED)] },
-    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESCALATED), rule: 'PR15' },
+    fx: { config: (c) => (c.merge.auto = true), job: atGate({ round: 2, verifyRuns: [vr(1, 30, true), vr(2, 44, true)], agents: { approver: ag(2, 41, 42) } }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, ...approvedAt(32, 'pr', 'escalation', ESCALATED), ev('decision', 42, { decision: 'ESCALATE', autoMerge: false, head: HEAD_SHA }), ev('pr-updated', 45), synced(46, 'PR15', ESC('approver'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('approver')), rule: 'PR15' },
   },
   { name: 'PR18 after a rework with merge.auto on, a new APPROVE clears the label', fx: { config: (c) => (c.merge.auto = true), job: atGate({ round: 2, verifyRuns: [vr(1, 30, true), vr(2, 44, true)], agents: { approver: ag(2, 41, 42) } }), decision: { decision: 'APPROVE' }, events: [...gateEvents('ESCALATE'), PR15_SYNCED, decided('APPROVE', true, 42), ev('pr-updated', 45)] }, want: { ...run('pr', 'gate', 'j'), rule: 'PR18' } },
   { name: 'PR4 after a rework with merge.auto on, a new APPROVE merges', fx: { config: (c) => (c.merge.auto = true), job: atGate({ round: 2, verifyRuns: [vr(1, 30, true), vr(2, 44, true)], agents: { approver: ag(2, 41, 42) } }), decision: { decision: 'APPROVE' }, events: [...gateEvents('ESCALATE'), ...approvedAt(32, 'pr', 'escalation', ESCALATED), decided('APPROVE', true, 42), ev('pr-updated', 45)] }, want: { rule: 'PR4' } },
@@ -1620,37 +1718,74 @@ export const rows: Row[] = [
   // ---- Protected paths (PP1, PP2)
   { name: 'DC9b decide with APPROVE and an unapproved flag on db/migrations/0001.sql goes on to integrate', fx: { job: atDecide({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   { name: 'protected paths: PP1 an approve after at, at a protected park, gives DC9', fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25)] }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
-  // PP1b: after the push, escalate paths no human approved hold the merge (AC5).
-  { name: 'PP1b an unapproved flag on db/migrations/0001.sql parks on a human after the push', fx: { job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(32, 'PP1b', MIGRATION_REASON)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', MIGRATION_REASON), rule: 'PP1b' } },
+  // PR15: after the push, escalate paths no human approved hold the merge on the escalation park (AC5).
+  { name: 'PR15 an unapproved flag on db/migrations/0001.sql parks on escalation after the push', fx: { job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(32, 'PR15', ESC('protected-paths'))] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('protected-paths')), rule: 'PR15' } },
   { name: "PR5 a person's approve at the PP1b park clears it, and PR4 stays out while hits exist", fx: { config: (c) => (c.merge.auto = true), job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), ...approvedAt(32, 'pr', 'human', MIGRATION_REASON)] }, want: { rule: 'PR5' } },
-  { name: "PP1b the foreman's approve does not clear it", fx: { job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PP1b', MIGRATION_REASON), ...approvedAt(32, 'pr', 'human', MIGRATION_REASON, { actor: FOREMAN })] }, want: { rule: 'PP1b' } },
-  { name: 'PP1b an approve before at does not count', fx: { job: atGate({ pr: null, protectedPaths: MIGRATION(40) }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), ...approvedAt(32, 'pr', 'human', MIGRATION_REASON)] }, want: { rule: 'PP1b' } },
-  { name: 'PP1b a v1 foreman actor does not count', fx: { job: atGate({ pr: null, protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: 'foreman' }), OPENED] }, want: { rule: 'PP1b' } },
-  { name: 'PP1b a v2 foreman actor does not count', fx: { job: atGate({ pr: null, protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: { login: null, source: 'foreman' } }), OPENED] }, want: { rule: 'PP1b' } },
+  { name: "PR15 the foreman's approve at the PP1b park does not clear it", fx: { job: atGate({ protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), synced(31, 'PR15', ESC('protected-paths')), ...approvedAt(32, 'pr', 'human', MIGRATION_REASON, { actor: FOREMAN })] }, want: { rule: 'PR15' } },
+  { name: "PR15 the foreman's approve at the escalation park does not clear protected paths", fx: { job: atGate({ pr: null, protectedPaths: MIGRATION() }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), ...approvedAt(32, 'pr', 'escalation', ESC('protected-paths'), { actor: FOREMAN })] }, want: { rule: 'PR15' } },
+  { name: 'PR15 an approve before at does not count', fx: { job: atGate({ pr: null, protectedPaths: MIGRATION(40) }), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), ...approvedAt(32, 'pr', 'human', MIGRATION_REASON)] }, want: { rule: 'PR15' } },
+  { name: 'PR15 a v1 foreman actor does not count', fx: { job: atGate({ pr: null, protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: 'foreman' }), OPENED] }, want: { rule: 'PR15' } },
+  { name: 'PR15 a v2 foreman actor does not count', fx: { job: atGate({ pr: null, protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: { login: null, source: 'foreman' } }), OPENED] }, want: { rule: 'PR15' } },
   { name: "protected paths: PP1 a v2 person's approve gives DC9", fx: { job: atDecide({ protectedPaths: FLAG() }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22), ...ppPark(23, 25, { actor: { login: 'alice', source: 'gh' } })] }, want: { ...run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running'), rule: 'DC9b' } },
   {
-    name: 'PP1b an approve at the escalation park clears the escalation, not the protected paths',
-    fx: { job: atGate({ protectedPaths: FLAG() }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), ...approvedAt(32, 'pr', 'escalation', ESCALATED), synced(35, 'PP1b', 'protected paths: package-lock.json')] },
-    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: package-lock.json'), rule: 'PP1b' },
+    name: 'PR15 an approve at the legacy approver park clears the escalation, not the protected paths',
+    fx: { job: atGate({ protectedPaths: FLAG() }), decision: { decision: 'ESCALATE' }, events: [...gateEvents('ESCALATE'), ...approvedAt(32, 'pr', 'escalation', ESCALATED), synced(35, 'PR15', ESC('protected-paths'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('protected-paths')), rule: 'PR15' },
   },
   { name: 'protected paths: PP1 no flag gives DC9', fx: { job: atDecide(), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] }, want: { rule: 'DC9b' } },
   { name: 'protected paths: PP1 an eval job does not park', fx: { job: job({ kind: 'eval', stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG() }) }, want: { ...run('pr', 'open', 'j'), rule: 'PR3' } },
   {
-    name: 'PP1 a path outside the safe class is counted, never printed',
+    name: 'PP1 a path outside the safe class never reaches the reason',
     fx: { job: atGate({ pr: null, protectedPaths: FLAG(15, ['package-lock.json', "x'$(touch y)/yarn.lock", '-rf/yarn.lock', 'a b/Cargo.lock'], 2) }), decision: { decision: 'APPROVE' }, events: [ev('decision', 22)] },
-    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'push held: protected paths: package-lock.json, +5 more'), rule: 'PP1' },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths')}`), rule: 'PP1' },
   },
-  { name: 'PP1b a flag raised at the pr stage parks after the push', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['Dockerfile']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'protected paths: Dockerfile'), rule: 'PP1b' } },
-  { name: "PP1 a member repo's CI path holds the push, named in the reason", fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['lib:.github/workflows/ci.yml']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'push held: protected paths: lib:.github/workflows/ci.yml'), rule: 'PP1' } },
+  { name: 'PR15 a flag raised at the pr stage parks after the push', fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['Dockerfile']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('protected-paths')), rule: 'PR15' } },
+  { name: "PP1 a member repo's CI path holds the push", fx: { job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)], protectedPaths: FLAG(12, ['lib:.github/workflows/ci.yml']) }), events: [ev('pr-opened', 11)] }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths')}`), rule: 'PP1' } },
   // PP1: a CI path stays before the push (AC6).
-  { name: 'PP1 an unapproved CI path parks before PR3 with the push held', fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'APPROVE' } }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'push held: protected paths: .github/workflows/ci.yml'), rule: 'PP1' } },
+  { name: 'PP1 an unapproved CI path parks before PR3 with the push held', fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'APPROVE' } }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths')}`), rule: 'PP1' } },
   { name: 'PP1 a CI path in another spelling holds the push too', fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.GitHub/Workflows/CI.yml']) }) }, want: { rule: 'PP1' } },
-  { name: 'PP1 hits past the stored ones hold the push', fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['Dockerfile'], 3) }) }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'push held: protected paths: Dockerfile, +3 more'), rule: 'PP1' } },
+  { name: 'PP1 hits past the stored ones hold the push', fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['Dockerfile'], 3) }) }, want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths')}`), rule: 'PP1' } },
   {
     name: "PP1 parks when only pr open's blocked escalate event names the CI path",
     fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['Dockerfile']) }), events: [ev('protected-path', 33, { gate: 'pr', action: 'escalate', blocked: true, paths: [{ path: '.github/workflows/ci.yml' }], more: 0, head: HEAD_SHA })] },
-    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'human', '--reason', 'push held: protected paths: Dockerfile'), rule: 'PP1' },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths')}`), rule: 'PP1' },
   },
+  // AC10: the held push lists every open rule, and its one approve covers the merge too.
+  {
+    name: 'PP1 the held push lists every open reason',
+    fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'ESCALATE' }, events: [decided('ESCALATE', true, 22)] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', 'push held: escalation: approver, protected-paths'), rule: 'PP1' },
+  },
+  {
+    name: 'PP1 lists the gate reasons found before the park too',
+    fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', true, 22), GATE(23, [R_RUNBOOK])] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', `push held: ${ESC('protected-paths', 'runbook')}`), rule: 'PP1' },
+  },
+  {
+    name: "PR19 computes this review's gate event before PP1 holds the push",
+    fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), decision: { decision: 'APPROVE' }, events: [decided('APPROVE', true, 22)], gate: null },
+    want: { ...run('job', 'gate', 'j'), rule: 'PR19' },
+  },
+  {
+    name: 'PR15 a later gate event that lists fewer reasons does not shrink the park',
+    fx: { job: atGate(), decision: { decision: 'APPROVE' }, events: [...gateEvents('APPROVE'), GATE(31, [R_RUNBOOK, R_VERSION]), GATE(33, [R_VERSION]), synced(34, 'PR15', ESC('runbook', 'version'))] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'escalation', '--reason', ESC('runbook', 'version')), rule: 'PR15' },
+  },
+  {
+    name: 'PR5 a later empty gate event does not make an eligible decision mergeable',
+    fx: { config: (c) => (c.merge.auto = true), job: atGate(), decision: { decision: 'APPROVE' }, decisionCurrent: true, events: [...gateEvents('APPROVE'), GATE(31, [R_VERSION]), ...approvedAt(32, 'pr', 'escalation', ESC('version')), GATE(35)] },
+    want: { rule: 'PR5' },
+  },
+  {
+    name: 'PR18 the PP1 approve covers the merge too',
+    fx: {
+      job: atGate({ protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }),
+      decision: { decision: 'ESCALATE' },
+      events: [decided('ESCALATE', true, 22), ev('pr-opened', 24), synced(25, 'PR15', ESC('approver')), ...approvedAt(32, 'pr', 'escalation', 'push held: escalation: approver, protected-paths'), ev('pr-updated', 35)],
+    },
+    want: { ...run('pr', 'gate', 'j'), rule: 'PR18' },
+  },
+  { name: "PP1 the foreman's approve at the held escalation park does not count", fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), events: [...approvedAt(32, 'pr', 'escalation', `push held: ${ESC('protected-paths')}`, { actor: FOREMAN })] }, want: { rule: 'PP1' } },
   { name: 'PR3 a blocked escalate event older than the last verify opens again', fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['Dockerfile']) }), events: [ev('protected-path', 29, { gate: 'pr', action: 'escalate', blocked: true })] }, want: { rule: 'PR3' } },
   { name: "PR3 a person's approve at the push-held protected park lets pr open push", fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), events: [...approvedAt(32, 'pr', 'human', 'push held: protected paths: .github/workflows/ci.yml')] }, want: { rule: 'PR3' } },
   { name: "PP1 the foreman's approve at the push-held protected park does not count", fx: { job: atGate({ pr: null, protectedPaths: FLAG(12, ['.github/workflows/ci.yml']) }), events: [...approvedAt(32, 'pr', 'human', 'push held: protected paths: .github/workflows/ci.yml', { actor: FOREMAN })] }, want: { rule: 'PP1' } },

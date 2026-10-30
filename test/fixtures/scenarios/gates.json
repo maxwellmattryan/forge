@@ -26,7 +26,11 @@
     {
       "key": "escalation",
       "title": "Escalated auth change",
-      "steps": [["job", "set", "{id}", "--stage", "decide", "--state", "waiting", "--waiting-on", "escalation", "--reason", "touches auth"]]
+      "files": { "runbook.md": "## Steps\n1. Rotate the session keys.\n" },
+      "steps": [
+        ["job", "gate", "{id}"],
+        ["job", "set", "{id}", "--stage", "pr", "--state", "waiting", "--waiting-on", "escalation", "--reason", "escalation: approver, runbook"]
+      ]
     },
     {
       "key": "infra",
