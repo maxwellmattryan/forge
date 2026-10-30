@@ -75,8 +75,6 @@ export interface FixtureOpts {
   folderMaps?: StepInput['folderMaps'];
   /** Checklist path per lens; the plugin's checklist for each panel lens by default. */
   checklists?: StepInput['checklists'];
-  /** loadStepInput's verifierQuestions; null by default, as at any stage but build. */
-  verifierQuestions?: StepInput['verifierQuestions'];
   /** loadStepInput's instructionsChanged; [] (nothing changed) by default, and null (git failed) when given. */
   instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
@@ -155,7 +153,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },
     folderMaps: o.folderMaps ?? null,
-    verifierQuestions: o.verifierQuestions ?? null,
     instructionsChanged: o.instructionsChanged === undefined ? [] : o.instructionsChanged,
     runtime: o.runtime ?? [],
     environment: o.environment ?? null,

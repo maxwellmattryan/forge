@@ -23,7 +23,7 @@ import type { Config, Job, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { isInsidePath, readJson, readText } from '#core/os/fs.ts';
 import { INSTRUCTION_ROLES, changedInstructionFiles, instructionsFor } from '#core/config/validators/instructions.ts';
-import { loadVerifiers, verifierCount } from '../verifiers.ts';
+import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
 import { decisionCurrent, decisionEligible, lastDecision, reviewCurrent } from '../../pr/eligible.ts';
@@ -147,8 +147,6 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     acs: acCoverage(read('spec.md'), read('build.md')),
     // Only at build: the walk reads the worktree, and only the fresh builder brief uses it.
     folderMaps: job.stage === 'build' && job.worktree && exists(job.worktree) && specText ? folderMaps(job.worktree, specFileMapPaths(specText)) : null,
-    // The main checkout's verifiers, the same root verifierCount reads, so a branch can't add or weaken one.
-    verifierQuestions: job.stage === 'build' && specText ? verifierQuestions(root, specFileMapPaths(specText)) : null,
     instructionsChanged: loadInstructionsChanged(config, job),
     runtime,
     environment: environmentState(root, job.id),
@@ -298,17 +296,6 @@ export function folderMaps(worktree: string, files: readonly string[]): { maps: 
   const more = Math.max(0, maps.length - MAX_FOLDER_MAPS) + Math.max(0, topics.length - MAX_FOLDER_MAPS);
   const abs = (list: string[]) => list.slice(0, MAX_FOLDER_MAPS).map((rel) => path.join(worktree, rel));
   return { maps: abs(maps), topics: abs(topics), ...(more ? { more } : {}) };
-}
-
-/**
- * The fresh builder brief's `Verifier questions (JSON)` line: the main checkout's valid verifiers
- * (never problem files) with a `paths` glob matching a file-map path, in loadVerifiers' order, as
- * name and parsed question only. The file-map paths only select; none is returned.
- */
-export function verifierQuestions(root: string, files: readonly string[]): { name: string; question: string }[] {
-  return loadVerifiers(root)
-    .verifiers.filter((v) => files.some((f) => inSpec(f, v.paths)))
-    .map(({ name, question }) => ({ name, question }));
 }
 
 /**

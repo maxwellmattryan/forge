@@ -183,28 +183,6 @@ export function needsBrowser(spawn: { role: string; lens?: string }, uiAcs: read
   return name !== undefined && BROWSER_LENSES.includes(name);
 }
 
-const STANDARDS_SHOWN = 20;
-
-/**
- * The fresh builder brief's review standards: the panel's checklist paths (`job.reviewers` order, a
- * lens without one left out) and the main checkout's verifier questions its file map matches. JSON,
- * U+2028 and U+2029 escaped too, so a question can't start a line of the brief.
- */
-function standardsLines(input: Pick<StepInput, 'job' | 'checklists' | 'verifierQuestions'>): string[] {
-  const lines: string[] = [];
-  const checklists = Object.fromEntries((input.job.reviewers ?? []).map((l) => [l, input.checklists[l] ?? null]).filter(([, p]) => p));
-  if (Object.keys(checklists).length)
-    lines.push(`Review checklists (JSON): ${oneLineJson(checklists)} · the panel reviews against these: read each before you write code`);
-  const questions = (input.verifierQuestions ?? []).map((v) => `${v.name} · ${v.question}`);
-  if (questions.length) {
-    const more = questions.length - STANDARDS_SHOWN;
-    lines.push(
-      `Verifier questions (JSON): ${oneLineJson(questions.slice(0, STANDARDS_SHOWN))}${more > 0 ? ` (+${more} more)` : ''} · yes/no checks the main checkout runs on files your file map names: read them before you write code`,
-    );
-  }
-  return lines;
-}
-
 /** What step decided about a spawn that changes its brief: roleBrief. */
 export interface RoleContext {
   lens?: string;
@@ -368,7 +346,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       const maps = fm && (fm.maps.length || fm.topics.length)
         ? [`Maps (JSON): ${JSON.stringify(fm)} · read these before you search: the folder maps say where code lives, the topics the rules behind it`]
         : [];
-      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof, ...maps, fileMap, ...standardsLines(input)]);
+      return out([p('tasks'), p('build')], inputs, [...(rework.length ? [`Rework: ${rework.join(', ')}`] : []), infra, ...backingLines, ...secretLines, uiProof, ...maps, fileMap]);
     }
     case 'reviewer': {
       const lens = ctx.lens ?? role.slice('reviewer:'.length);
