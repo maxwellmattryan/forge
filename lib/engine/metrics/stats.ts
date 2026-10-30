@@ -22,6 +22,8 @@ import { ForgeError } from '#core/errors.ts';
 import { AGENT_ID, agentTranscriptById, claudeProjectsDir, firstToolCallAt, openTranscript } from '#integrations/claude/transcripts.ts';
 import { jobSpeed, median, speedFigures, spread } from './speed.ts';
 import type { JobSpeed } from './speed.ts';
+import { addRunSpreads, roleRunSamples } from './runs.ts';
+import type { RunSamples } from './runs.ts';
 
 export type { StatsSource } from './types.ts';
 export { median } from './speed.ts';
@@ -200,6 +202,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   const verifiers: Record<string, VerifierStats> = {};
   const byRole: Record<string, UsageRow> = {};
   const byModel: Record<string, UsageRow> = {};
+  const runSamples: Record<string, RunSamples>[] = [];
   let tokens = 0, cost = 0, agentRuns = 0, agentRunsWithUsage = 0, exactRuns = 0;
   const jobLane = emptyLane();
   const sessionCoverage = { jobs: jobs.length, withUsage: 0, agentUsd: 0 };
@@ -395,6 +398,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       c.read += n(v.cacheRead);
       c.all += n(v.input) + n(v.cacheRead) + n(v.cacheWrite);
     }
+    runSamples.push(roleRunSamples(j.agents));
     for (const [k, v] of Object.entries(j.usage?.byModel ?? {})) {
       if (k === '__proto__') continue;
       const b = (byModel[k] ??= { tokens: 0, estCostUsd: 0, runs: 0 });
@@ -420,6 +424,7 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   }
   for (const s of Object.values(verifiers)) s.hitRate = ratio(s.fails, s.runs);
   for (const [k, c] of cacheByRole) byRole[k].cacheReadShare = ratio(c.read, c.all);
+  addRunSpreads(byRole, runSamples);
   const none = { median: null, p90: null, n: 0 };
   return {
     generatedAt: new Date().toISOString(),

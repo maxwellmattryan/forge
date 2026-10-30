@@ -129,6 +129,9 @@ export const API_CHANGES = [
   { id: 'resume-rework' },
   // StateJob.gateReasons (GateReason[] | null): the rules an escalation park lists, each with its CLI-composed detail.
   { id: 'gate-reasons' },
+  // UsageRow.peakContext and UsageRow.runTokens (TimeSpread) on Stats.cost.byRole rows: the role's recorded runs'
+  // composition.total and usage.totalTokens.
+  { id: 'role-peak-context' },
 ] as const;
 
 /**

@@ -18,7 +18,7 @@ export const HELP: HelpGroup[] = [
         command: 'stats',
         args: '[--since DATE] [--include-evals] [--json] | --by prompt [--role R] [--since DATE] [--include-evals] | --csv [--since DATE] [--by job|role|model|day] | --mandate <id>',
         summary:
-          'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, blockers, sole-CHANGES and reopened counts, recurring, carried and new findings, escalations, time to PR, working minutes by stage, parked minutes, time between agents, stalls, agent gaps, agent start and extra-round time, tokens, cost and cache-read share (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate\'s live report card',
+          'pipeline metrics: review and verify first-pass rates, per-lens change, dispute and miss rates, blockers, sole-CHANGES and reopened counts, recurring, carried and new findings, escalations, time to PR, working minutes by stage, parked minutes, time between agents, stalls, agent gaps, agent start and extra-round time, tokens, cost, cache-read share and peak context per role (a text summary, or the full object with --json); --by prompt groups jobs into prompt cohorts; --mandate prints one mandate\'s live report card',
         flags: [
           ['--since DATE', 'only jobs created on or after DATE'],
           ['--include-evals', 'count eval jobs too (--csv always counts every job)'],
@@ -96,6 +96,9 @@ export function statsSections(s: Stats): StatsSections {
   const gaps = sp.handoffSeconds;
   const extra = sp.minutesPerExtraRound;
   const shares = Object.entries(s.cost.byRole ?? {}).flatMap(([k, v]) => (typeof v.cacheReadShare === 'number' ? [`${k} ${pct(v.cacheReadShare)}`] : []));
+  // An older stats.json (or /api/stats) has no peak context.
+  const K = (x: number | null) => (x === null ? '—' : Math.round(x / 1000));
+  const peaks = Object.entries(s.cost.byRole ?? {}).flatMap(([k, { peakContext: p }]) => (p?.n ? [`${k} ${K(p.median)}K (p90 ${K(p.p90)}K, n ${p.n})`] : []));
   const orch = s.cost.orchestrator;
   return {
     // An older stats.json (or /api/stats) has no shelved count.
@@ -119,6 +122,7 @@ export function statsSections(s: Stats): StatsSections {
     cost: [
       `tokens ${s.cost.totalTokens.toLocaleString()} · est. API cost $${s.cost.estCostUsd} · per job $${s.cost.avgCostPerJobUsd ?? '—'} · usage coverage ${s.cost.reportingCoverage.withUsage}/${s.cost.reportingCoverage.agentRuns} (exact ${s.cost.reportingCoverage.exact})`,
       ...(shares.length ? [`cache-read share ${shares.join(' · ')}`] : []),
+      ...(peaks.length ? [`peak context ${peaks.join(' · ')}`] : []),
       // An older stats.json (or /api/stats) has no orchestrator figure.
       ...(orch
         ? [`orchestrator $${orch.estCostUsd} (job $${orch.byLane.job.estCostUsd} · inbox $${orch.byLane.inbox.estCostUsd} · office $${orch.byLane.office.estCostUsd}) · ${orch.turns} turns · session usage on ${orch.coverage.withUsage}/${orch.coverage.jobs} jobs`]
