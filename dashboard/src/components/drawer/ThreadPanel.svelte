@@ -3,7 +3,9 @@
      results are untrusted: they render only through the escape-first md(), or as plain text in Raw (and above 20k
      characters). The secret scanner's notes (secret-found events) are an ember plate whose masked findings and scan
      error are plain text, never markdown. Progress lines (lib/jobs/thread-progress.ts) sit between the messages as one-line rows,
-     their agent and engine text plain; the Progress button hides them, and they never count as unread. The opening request
+     their agent and engine text plain; the Progress button hides them, and they never count as unread. An agent's row has a
+     Transcript button that opens the Agents tab on its role, and what one `forge job advance` ran is one row listing each
+     step, a failed one in the warn tone. The opening request
      comes as the server's 2,000-character excerpt; when it was cut, a button loads the whole request.md, which goes
      through the same md() or text view. Each sender has its own colour and icon (lib/logs/sender.ts WHO), the same on every
      message. A message or reply that arrives while the Thread is open types out behind a caret (lib/jobs/typing.ts), its
@@ -31,7 +33,14 @@
   import { t } from '../../lib/text/locale.ts';
 
   /** `baseline`: the Thread's marks when the drawer opened; a message whose mark is not in it is new or changed since. */
-  let { job, requests, opening, events = [], baseline = null }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; events?: JobEvent[]; baseline?: string[] | null } = $props();
+  let {
+    job,
+    requests,
+    opening,
+    events = [],
+    baseline = null,
+    onrole,
+  }: { job: Job; requests: ForgeRequest[]; opening: ThreadOpening; events?: JobEvent[]; baseline?: string[] | null; onrole?: (role: string) => void } = $props();
   const items = $derived(threadItems(requests, opening, events));
   const seenAtOpen = $derived(baseline ? new Set(baseline) : null);
   let showProgress = $state(pref.get('threadProgress', '1') !== '0');
@@ -132,6 +141,8 @@
         return m.approve ? 'ok' : 'spark';
       case 'pr-merged':
         return 'ok';
+      case 'ran':
+        return m.lines.some((l) => !l.ok) ? 'warn' : 'hollow';
       default:
         return 'hollow';
     }
@@ -170,6 +181,8 @@
         return m.reran ? $t('thread.progress.ciRerunFailed') : $t('thread.progress.ciRerunRefused');
       case 'note':
         return $t('thread.forge');
+      case 'ran':
+        return $t('thread.progress.ran', { count: m.lines.length });
     }
   }
 
@@ -267,7 +280,16 @@
             {@const detail = progressDetail(ms)}
             <li class="flex items-baseline gap-2 px-3 text-sm">
               <span class="dot {progressTone(ms)} size-1.5 shrink-0 self-center" aria-hidden="true"></span>
-              <span class="min-w-0 flex-1 break-words">{#if ms.kind === 'agent'}<span class="text-gleam">{ms.role}</span>{' '}{/if}<span class="text-fg">{progressText(ms)}</span>{#if detail}<span class="selectable text-muted">{' · '}{detail}</span>{/if}</span>
+              <span class="min-w-0 flex-1 break-words">{#if ms.kind === 'agent'}<span class="text-gleam">{ms.role}</span>{' '}{/if}<span class="text-fg">{progressText(ms)}</span>{#if detail}<span class="selectable text-muted">{' · '}{detail}</span>{/if}
+                {#if ms.kind === 'ran'}
+                  <ul class="mt-0.5 flex flex-col gap-0.5 text-xs">
+                    {#each ms.lines as l, i (i)}
+                      <li class="selectable break-words {l.ok ? 'text-muted' : 'text-warn'}"><span class="font-mono">{l.rule}</span>{' · '}<span class="font-mono">{l.command}</span>{#if l.text}{' · '}{l.text}{/if}{#if !l.ok}{' · '}{$t('thread.progress.ranFailed')}{/if}</li>
+                    {/each}
+                  </ul>
+                {/if}
+              </span>
+              {#if ms.kind === 'agent' && onrole}<button type="button" class="btn sm shrink-0" title={$t('thread.progress.transcriptTitle')} onclick={() => onrole?.(ms.role)}>{$t('thread.progress.transcript')}</button>{/if}
               <span class="shrink-0 text-xs text-muted">{ago(row.item.at, ticker.now)}</span>
             </li>
           {:else}

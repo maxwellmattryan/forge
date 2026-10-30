@@ -1,8 +1,10 @@
 <!-- The drawer's Agents tab: the current round's agents (plus any still running), newest first, and the chosen agent's
      Claude Code transcript below the list, followed live while it runs. Each role button also opens or closes that
      row's runs panel (AgentRuns), several at once; its Tokens are the sum of the role's runs. Transcript text is
-     untrusted and renders through SessionLog's rules. Keyed by job id in the Drawer, so the choice resets with the job. -->
+     untrusted and renders through SessionLog's rules. Keyed by job id in the Drawer, so the choice resets with the job; a
+     Thread row's Transcript button opens it on that row's role (`focus`). -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import AgentRuns from './AgentRuns.svelte';
   import Chip from '../ui/Chip.svelte';
@@ -16,10 +18,10 @@
   import { dur, tokensShort } from '../../lib/core/util.ts';
   import { t } from '../../lib/text/locale.ts';
 
-  let { job, detail, active }: { job: string; detail: Pick<JobDetail, 'agents'>; active: boolean } = $props();
+  let { job, detail, active, focus = null }: { job: string; detail: Pick<JobDetail, 'agents'>; active: boolean; focus?: string | null } = $props();
   const rows = $derived(roundAgents(detail, ticker.now));
-  /** The chosen row; null follows the newest agent with a transcript. */
-  let pick = $state<string | null>(null);
+  /** The chosen row; null follows the newest agent with a transcript. A Thread row's Transcript button seeds it (`focus`). */
+  let pick = $state<string | null>(untrack(() => focus));
   /** The roles whose runs panel is open. */
   const open = new SvelteSet<string>();
   const role = $derived(pick !== null && rows.some((r) => r.role === pick) ? pick : (rows.find((r) => r.transcript)?.role ?? rows[0]?.role ?? null));

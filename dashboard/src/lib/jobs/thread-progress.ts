@@ -21,7 +21,16 @@ export type Progress =
   | { kind: 'conflicts'; count: number }
   | { kind: 'ci-rerun'; checks: string[] }
   | { kind: 'ci-rerun-failed'; reran: boolean; checks: string[] }
-  | { kind: 'note'; text: string };
+  | { kind: 'note'; text: string }
+  | { kind: 'ran'; lines: RanLine[] };
+
+/** One command a `forge job advance` call ran (its `advance-ran` event): step's rule, `forge` and its first words, and what it said. */
+export interface RanLine {
+  rule: string;
+  command: string;
+  ok: boolean;
+  text: string | null;
+}
 
 export interface ProgressItem {
   id: string;
@@ -45,6 +54,27 @@ const checkNames = (v: unknown): string[] =>
     .filter((n): n is string => n !== null)
     .map((n) => n.slice(0, 60))
     .slice(0, 5);
+
+/** A step rule id (lib/engine/pipeline/step/rules.ts RULES): `B1`, `RV8c`, `DC12`. */
+const RULE = /^[A-Z][A-Za-z0-9]{0,11}$/;
+const MAX_RAN = 20;
+/** Plain text cut to `max` characters; null when nothing is left. */
+const capped = (v: unknown, max: number): string | null => {
+  const text = plainLine(v);
+  return text === null ? null : text.length > max ? `${text.slice(0, max - 1)}…` : text;
+};
+
+/** An `advance-ran` event's entries that read as one: a rule id, a `forge` command, a boolean ok; at most 20, null when none does. */
+function ranLines(v: unknown): RanLine[] | null {
+  const lines: RanLine[] = [];
+  for (const raw of (Array.isArray(v) ? v : []).slice(0, MAX_RAN)) {
+    const e = obj(raw);
+    const command = capped(e.command, 80);
+    if (typeof e.rule !== 'string' || !RULE.test(e.rule) || command === null || typeof e.ok !== 'boolean') continue;
+    lines.push({ rule: e.rule, command, ok: e.ok, text: capped(e.text, 200) });
+  }
+  return lines.length ? lines : null;
+}
 
 /** Agent or engine text on one line: control characters become spaces, at most 2,000 chars; null when nothing is left. */
 export function plainLine(v: unknown): string | null {
@@ -105,6 +135,10 @@ export function progressOf(e: JobEvent): Progress | null {
     case 'note': {
       const text = plainLine(e.text);
       return text === null ? null : { kind: 'note', text };
+    }
+    case 'advance-ran': {
+      const lines = ranLines(x.ran);
+      return lines === null ? null : { kind: 'ran', lines };
     }
     default:
       return null;

@@ -24,3 +24,25 @@ test('CI re-run events become Thread lines', () => {
   ];
   for (const [name, e, want] of rows) assert.deepEqual(progressOf(e), want, name);
 });
+
+test('what an advance ran becomes one Thread line', () => {
+  const ok = { rule: 'B1', command: 'forge job round j', ok: true, text: 'round=1' };
+  const rows: [string, JobEvent, unknown][] = [
+    ['entries in order, a failed one kept', ev('advance-ran', { ran: [ok, { rule: 'RV8c', command: 'forge pr open j', ok: false, text: 'gh exited 1' }] }), { kind: 'ran', lines: [ok, { rule: 'RV8c', command: 'forge pr open j', ok: false, text: 'gh exited 1' }] }],
+    ['no text', ev('advance-ran', { ran: [{ ...ok, text: null }] }), { kind: 'ran', lines: [{ ...ok, text: null }] }],
+    [
+      'malformed entries dropped',
+      ev('advance-ran', { ran: [null, 'B1', { ...ok, rule: 'b1' }, { ...ok, rule: 'B1\nX' }, { ...ok, command: 7 }, { ...ok, command: ' ' }, { ...ok, ok: 'yes' }, ok] }),
+      { kind: 'ran', lines: [ok] },
+    ],
+    [
+      'text kept plain and capped',
+      ev('advance-ran', { ran: [{ ...ok, command: `forge ${'c'.repeat(100)}`, text: `a\nb ${'x'.repeat(300)}` }] }),
+      { kind: 'ran', lines: [{ ...ok, command: `forge ${'c'.repeat(73)}…`, text: `a b ${'x'.repeat(195)}…` }] },
+    ],
+    ['at most 20', ev('advance-ran', { ran: Array.from({ length: 25 }, () => ok) }), { kind: 'ran', lines: Array.from({ length: 20 }, () => ok) }],
+    ['none valid', ev('advance-ran', { ran: [{ rule: 'B1' }] }), null],
+    ['not a list', ev('advance-ran', { ran: 'B1' }), null],
+  ];
+  for (const [name, e, want] of rows) assert.deepEqual(progressOf(e), want, name);
+});

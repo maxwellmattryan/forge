@@ -97,7 +97,14 @@
       },
       "ciRerun": "Re-ran the failed checks",
       "ciRerunFailed": "Checks failed again after the re-run",
-      "ciRerunRefused": "Couldn't re-run the failed checks"
+      "ciRerunRefused": "Couldn't re-run the failed checks",
+      "ran": {
+        "one": "Forge ran {count} step",
+        "other": "Forge ran {count} steps"
+      },
+      "ranFailed": "failed",
+      "transcript": "Transcript",
+      "transcriptTitle": "Open this role's transcript in the Agents tab"
     },
     "live": {
       "label": "Open this job's Log",
