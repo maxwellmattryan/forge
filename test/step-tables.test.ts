@@ -27,7 +27,7 @@ const PINNED: Record<string, string[]> = {
   downstream: ['DS1'],
   backlog: ['I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8'],
   plan: ['P1', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'P2', 'P2b', 'P3', 'P4', 'P5'],
-  spec: ['SP1', 'SP2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'SP3', 'SP4', 'SP5', 'SP7', 'SP6'],
+  spec: ['SP1', 'SP2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'SP8', 'SP3', 'SP4', 'SP5', 'SP7', 'SP6'],
   design: ['D1', 'M1', 'M2', 'D2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'D3'],
   build: ['B1', 'B6', 'B7', 'B6b', 'B2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'B3', 'B8', 'B4', 'B5'],
   verify: ['V1', 'VF1', 'VF2', 'VF2b', 'VF3', 'V2', 'V2b', 'V3', 'V3b'],

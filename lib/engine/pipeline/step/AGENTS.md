@@ -29,6 +29,6 @@
 | `stages/plan.ts` | Plan: the planner decides one job or a split, and a split waits on a human unless split is auto. |
 | `stages/pr.ts` | PR: verify, open or update the PR (unless the push is held), follow interim deferrals and releases, then hold the merge on an open merge gate (an escalation, a before-merge runbook, protected paths, a missing recall eval) until a person decides, merge, or wait on review. |
 | `stages/review.ts` | Review: pick the panel, write the scope report, run the lenses, record their verdicts, move on. |
-| `stages/spec.ts` | Spec: the spec-writer writes spec.md, step records the panel, then the spec gate and the issue link. |
+| `stages/spec.ts` | Spec: the spec-writer writes spec.md (or proposes a split for the planner), step records the panel, then the spec gate and the issue link. |
 | `stages/verify.ts` | Verify: run the checks, then the repo's verifiers when it has some, then review or back to build. |
 <!-- forge:map:end -->

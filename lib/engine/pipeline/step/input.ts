@@ -32,9 +32,8 @@ import { UUID, readInfo, roleRunFiles } from '#core/job/session-files.ts';
 import { roleRunTranscriptById } from '#integrations/claude/transcripts.ts';
 import { ended } from './facts.ts';
 
-/** Request bodies above this, or with this many list or heading lines, get a planner under `pipeline.plan: auto`. */
-export const PLAN_AUTO_CHARS = 600;
-export const PLAN_AUTO_LINES = 3;
+// facts.ts owns them (splitCheck reads them, and facts can't import this file); step.ts re-exports them from here.
+export { PLAN_AUTO_CHARS, PLAN_AUTO_LINES } from './facts.ts';
 
 /** Events loadStepInput keeps; everything else in events.jsonl is noise to step. */
 const STEP_EVENTS = new Set([
@@ -415,6 +414,8 @@ export function parseSpecHeader(text: string): Omit<StepInput['spec'], 'approach
     // `Services:` is the header's old name: a spec written before the rename reads the same way.
     components: items(value('Components') ?? value('Services')),
     suggested: items(value('Suggested reviewers')),
+    // Read only while the split check applies (SP8); otherwise the line is ignored.
+    split: /^yes\b/i.test(value('Split') ?? ''),
   };
 }
 

@@ -100,7 +100,7 @@ The `forge` CLI underneath also serves scripts, CI and other agent runtimes: see
                                                   CI → continue
 ```
 
-1. **Plan.** The planner decides whether your request is one job or several, and the spec-writer turns it into a spec with acceptance criteria for you to approve.
+1. **Plan.** The spec-writer turns your request into a spec with acceptance criteria for you to approve. On a long request it first decides whether it is one job or several (the split check), and the planner runs only to plan a split.
 2. **Build.** The builder implements the spec on its own branch and worktree, then your tests and verifiers check it.
 3. **Review.** A panel of reviewers, picked from what the diff touches, reads it through one lens each; blocking findings send it back to build.
 4. **Decide.** The approver opens the pull request, or escalates to you on the open PR (the merge waits for you there), and Forge follows the PR until it merges.

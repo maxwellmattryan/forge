@@ -25,6 +25,8 @@ export const RULES = [
   'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8',
   'P1', 'P2', 'P2b', 'P3', 'P4', 'P5',
   'SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6', 'SP7',
+  // The spec-writer's split check proposed a split: on to the planner.
+  'SP8',
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B6b', 'B7', 'B8',
   'V1', 'V2', 'V2b', 'V3', 'V3b',

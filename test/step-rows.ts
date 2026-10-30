@@ -372,6 +372,9 @@ function npRows(): Row[] {
   ];
 }
 
+/** A spawn's `Split check:` brief lines. */
+const splitLines = (a: any): string[] => String(a.brief).split('\n').filter((l) => l.startsWith('Split check'));
+
 /** The follow-up `job set j [--stage <stage>] --state running`. */
 const setRunning = (stage?: string) => run('job', 'set', 'j', ...(stage ? ['--stage', stage] : []), '--state', 'running');
 
@@ -576,14 +579,14 @@ export const rows: Row[] = [
   },
   { name: 'I3 an unlinked job with candidates gets its worktree', fx: { config: LOCAL, files: ['issueCandidates'], worktree: false, job: job({ stage: 'backlog' }) }, want: run('worktree', 'create', 'j') },
   { name: 'I8 an unlinked job specs like a linked one', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)] }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
-  { name: 'I7 an unlinked long request gets a planner', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 601 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
+  { name: 'I8 an unlinked long request goes to spec for the split check', fx: { config: LOCAL, files: ['issueCandidates'], job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 601 } }, want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'running'), rule: 'I8' } },
   { name: 'I4 a failed setup command fails the job', fx: { job: job({ stage: 'backlog' }), events: [ev('worktree', 1), ev('worktree-setup-failed', 2)] }, want: run('job', 'set', 'j', '--state', 'failed', '--reason', 'worktree setup failed') },
   { name: 'I4 a backing failure in the same millisecond as its worktree fails the job', fx: { job: job({ stage: 'backlog' }), events: [ev('worktree', 1), ev('worktree-setup-failed', 1, { backing: 'postgres' })] }, want: run('job', 'set', 'j', '--state', 'failed', '--reason', 'worktree setup failed') },
   { name: 'I5 a setup failure before the worktree was created again does not fail the job', fx: { job: job({ stage: 'backlog' }), events: [ev('worktree-setup-failed', 1), ev('worktree', 1)] }, want: run('pr', 'find', 'j') },
   { name: 'I5 looks for an existing PR', fx: { job: job({ stage: 'backlog' }) }, want: run('pr', 'find', 'j') },
   { name: 'I6 an existing PR is a continuation', fx: { job: job({ stage: 'backlog', pr: { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: t(0) } }), events: [ev('pr-adopted', 1)] }, want: { action: 'procedure', why: 'PR exists' } },
-  { name: 'I7 a long request gets a planner', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1, { found: false })], request: { length: 601 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
-  { name: 'I7 three list lines get a planner', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { listLines: 3 } }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
+  { name: 'I8 a long request goes to spec for the split check', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1, { found: false })], request: { length: 601 } }, want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'running'), rule: 'I8' } },
+  { name: 'I8 three list lines go to spec for the split check', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { listLines: 3 } }, want: { ...run('job', 'set', 'j', '--stage', 'spec', '--state', 'running'), rule: 'I8' } },
   { name: 'I7 pipeline.plan always plans', fx: { config: (c) => (c.pipeline.plan = 'always'), job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)] }, want: run('job', 'set', 'j', '--stage', 'plan', '--state', 'running') },
   { name: 'I8 a short request goes straight to spec', fx: { job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 600, listLines: 2 } }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
   { name: 'I8 pipeline.plan never skips planning', fx: { config: (c) => (c.pipeline.plan = 'never'), job: job({ stage: 'backlog' }), events: [ev('pr-find', 1)], request: { length: 5000 } }, want: run('job', 'set', 'j', '--stage', 'spec', '--state', 'running') },
@@ -645,6 +648,37 @@ export const rows: Row[] = [
     want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' },
     check: (a) => assert.deepEqual(briefInstructions(a.brief), { files: [path.join(ROOT, 'AGENTS.md'), path.join(ROOT, 'docs', 'DEVELOPING.md')], line: true }),
   },
+  // The split check (pipeline.plan auto): the spec-writer answers one job or a split before the planner runs.
+  { name: 'SP1 the spec-writer gets the split check on a long request', fx: { files: ['request'], job: job({ stage: 'spec' }), request: { length: 601 } }, want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' }, check: (a) => assert.deepEqual(splitLines(a), ['Split check: yes · split mode ask'], a.brief) },
+  { name: 'SP1 the split check names split mode auto', fx: { config: (c) => (c.pipeline.split = 'auto'), files: ['request'], job: job({ stage: 'spec' }), request: { length: 601 } }, want: { action: 'spawn', rule: 'SP1' }, check: (a) => assert.deepEqual(splitLines(a), ['Split check: yes · split mode auto'], a.brief) },
+  ...(
+    [
+      ['a 600-character, 2-list-line request', { request: { length: 600, listLines: 2 } }],
+      ['under pipeline.split never', { config: (c: Config) => (c.pipeline.split = 'never') }],
+      ["with the job's split mode never", { job: job({ stage: 'spec', splitMode: 'never' }) }],
+      ['under pipeline.plan never', { config: (c: Config) => (c.pipeline.plan = 'never') }],
+      ['once a planner ran', { job: job({ stage: 'spec', agents: { planner: ag(0, 1, 2) } }) }],
+    ] as [string, FixtureOpts][]
+  ).map(([why, fx]): Row => ({
+    name: `SP1 no split check ${why}`,
+    fx: { files: ['request'], job: job({ stage: 'spec' }), request: { length: 601 }, ...fx },
+    want: { action: 'spawn', rule: 'SP1', role: 'spec-writer' },
+    check: (a) => assert.deepEqual(splitLines(a), [], a.brief),
+  })),
+  { name: "SP8 a split from the spec-writer goes to the planner", fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), request: { length: 601 }, spec: { split: true } }, want: { ...setRunning('plan'), rule: 'SP8' } },
+  { name: 'SP8 three list lines and a split go to the planner', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), request: { listLines: 3 }, spec: { split: true } }, want: { rule: 'SP8' } },
+  { name: 'SP3 a Split line without the split check is ignored', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { split: true } }, want: { action: 'run', rule: 'SP3' } },
+  { name: 'SP3 a Split line under split mode never is ignored', fx: { config: (c) => (c.pipeline.split = 'never'), job: job({ stage: 'spec', agents: SPEC_DONE }), request: { length: 601 }, spec: { split: true } }, want: { action: 'run', rule: 'SP3' } },
+  {
+    name: "SP2 a single plan after the spec-writer's split rewrites the spec",
+    fx: { files: ['plan'], job: job({ stage: 'spec', agents: { 'spec-writer': ag(0, 1, 2), planner: ag(0, 4, 5) } }), request: { length: 601 }, spec: { split: true }, plan: { verdict: 'SINGLE' } },
+    want: { action: 'spawn', rule: 'SP2', role: 'spec-writer' },
+    check: (a) => {
+      assert.deepEqual(splitLines(a), [], a.brief);
+      assert.ok(a.brief.split('\n').find((l: string) => l.startsWith('Inputs: '))!.includes(path.join(JOB_DIR, 'plan.md')), a.brief);
+    },
+  },
+  { name: 'SP3 a planner before the spec-writer changes nothing', fx: { config: (c) => (c.pipeline.plan = 'always'), job: job({ stage: 'spec', agents: { planner: ag(0, 1, 2), 'spec-writer': ag(0, 3, 4) } }), request: { length: 601 }, spec: { split: true } }, want: { action: 'run', rule: 'SP3' } },
   { name: 'SP2 a revise-spec re-runs the spec-writer with feedback', fx: { files: ['feedback'], job: job({ stage: 'spec', agents: SPEC_DONE }), events: [PANEL_SET, ev('human', 4, { action: 'revise-spec' })] }, want: { action: 'spawn', role: 'spec-writer' }, check: (a) => assert.ok(a.brief.includes(path.join(JOB_DIR, 'feedback.md'))) },
   { name: 'SP3 panel always lenses', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }) }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests"]', '--field', 'componentsDeclared=[]') },
   { name: 'SP3 panel adds suggested lenses that exist', fx: { job: job({ stage: 'spec', agents: SPEC_DONE }), spec: { suggested: ['security', 'docs'] } }, want: run('job', 'set', 'j', '--field', 'reviewers=["code","tests","security"]', '--field', 'componentsDeclared=[]') },

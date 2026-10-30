@@ -3,16 +3,11 @@ import { issueLinkStatus } from '#core/job/issue-link.ts';
 import type { StepInput } from '../../types.ts';
 import { procedure, run, set, toStage } from '../actions.ts';
 import { lastEvent } from '../facts.ts';
-import { PLAN_AUTO_CHARS, PLAN_AUTO_LINES } from '../input.ts';
 import { inStage } from '../rules.ts';
 import type { Table } from '../rules.ts';
 
-function planningNeeded(x: StepInput): boolean {
-  const mode = x.config.pipeline.plan;
-  if (mode === 'always') return true;
-  if (mode === 'never') return false;
-  return x.request.length > PLAN_AUTO_CHARS || x.request.listLines >= PLAN_AUTO_LINES;
-}
+// Under `auto` the spec-writer answers the planner's question first (splitCheck), and SP8 brings the planner in on a split.
+const planningNeeded = (x: StepInput): boolean => x.config.pipeline.plan === 'always';
 
 export const INTAKE: Table = {
   name: 'backlog',
@@ -33,7 +28,7 @@ export const INTAKE: Table = {
       then: ({ x }) => run(x, 'I5', ['pr', 'find', x.job.id], 'continue an existing PR instead of forking it'),
     },
     { id: 'I6', when: ({ x }) => Boolean(x.job.pr), then: ({ x }) => procedure(x, 'I6', 'pr-lifecycle.md', 'PR exists') },
-    { id: 'I7', when: ({ x }) => planningNeeded(x), then: ({ x }) => toStage(x, 'I7', 'plan', 'the request needs a plan') },
-    { id: 'I8', when: () => true, then: ({ x }) => toStage(x, 'I8', 'spec', 'the request is small enough to spec directly') },
+    { id: 'I7', when: ({ x }) => planningNeeded(x), then: ({ x }) => toStage(x, 'I7', 'plan', 'pipeline.plan always: plan first') },
+    { id: 'I8', when: () => true, then: ({ x }) => toStage(x, 'I8', 'spec', 'spec next: under plan auto the spec-writer checks for a split first') },
   ],
 };

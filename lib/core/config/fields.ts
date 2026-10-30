@@ -107,7 +107,7 @@ const EFFORT_LABEL: Record<(typeof EFFORT_ROLES)[number], string> = {
 };
 
 export const FIELDS: ConfigField[] = [
-  field('pipeline.plan', 'pipeline', 'Plan', 'Whether a request goes through the planner first.', { type: 'enum', options: ['auto', 'always', 'never'] }),
+  field('pipeline.plan', 'pipeline', 'Plan', 'Whether a request goes through the planner first: always plans first, auto has the spec-writer check a long request for a split and plans only a split, never skips planning.', { type: 'enum', options: ['auto', 'always', 'never'] }),
   field('pipeline.split', 'pipeline', 'Split', 'What a plan that proposes several jobs does: ask parks it for approval, auto creates the jobs, never keeps one job.', { type: 'enum', options: ['ask', 'auto', 'never'] }),
   field('pipeline.specApproval', 'pipeline', 'Spec approval', 'Which specs wait for a human before the build starts.', { type: 'enum', options: ['always', 'large', 'never'] }),
   field('pipeline.design', 'pipeline', 'Design', 'Whether UI jobs get a design reference or a mockup first.', { type: 'enum', options: ['none', 'reference', 'mockup'] }),
