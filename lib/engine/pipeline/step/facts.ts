@@ -1,7 +1,9 @@
-// What step reads off a StepInput: agent records, events and the facts derived from them, and the park reason
-// NP1b writes for a prompt nobody answered in time, with its parser (brief.ts reads it without the step rows).
+// What step reads off a StepInput: agent records, events and the facts derived from them, whether a rework spawn
+// resumes its role's last session, and the park reason NP1b writes for a prompt nobody answered in time, with its
+// parser (brief.ts reads it without the step rows).
 import path from 'node:path';
 import { SAFE_TOOL } from '#core/text.ts';
+import { UUID } from '#core/job/session-files.ts';
 import type { JobAgent, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { lastRun } from '../../verify/record.ts';
@@ -168,6 +170,36 @@ export function latestVerifiers(x: StepInput): JobEvent | undefined {
 export function pendingVerifiers(x: StepInput): JobEvent | null {
   const e = latestVerifiers(x);
   return e?.phase === 'run' ? e : null;
+}
+
+/** A session whose last context is above this many tokens is not resumed: a fresh run reads less than it would carry. */
+export const RESUME_CONTEXT_CEILING = 120_000;
+/** Why a rework spawn does not resume its role's last session, in the order reworkResume checks them. */
+export const RESUME_SKIPS = ['off', 'last run failed', 'no session', 'model changed', 'spec changed', 'no transcript', 'context unknown', 'context over ceiling'] as const;
+export type ResumeSkip = (typeof RESUME_SKIPS)[number];
+
+/**
+ * Whether a rework spawn of `role` at `model` continues the role's last run (`resume`: its session id) or why not
+ * (`skipped`, the first check that applies); null for the role's first run, which never had one.
+ */
+export function reworkResume(x: StepInput, role: string, model: string): { resume: string } | { skipped: ResumeSkip } | null {
+  const a = agent(x, role);
+  if (!ended(a)) return null;
+  const skip = (skipped: ResumeSkip) => ({ skipped });
+  if (!x.config.pipeline.resumeRework) return skip('off');
+  if (a.status !== 'done') return skip('last run failed');
+  const id = a.agentId;
+  const last = x.lastSessions[role];
+  if (typeof id !== 'string' || !UUID.test(id) || last?.session !== id) return skip('no session');
+  const started = lastEvent(x, (e) => e.type === 'agent-start' && e.role === role);
+  const lastModel = typeof started?.model === 'string' ? started.model : a.model;
+  if (lastModel !== model) return skip('model changed');
+  const revised = x.events.some((e) => e.type === 'human' && e.action === 'revise-spec' && after(e.ts, a.startedAt));
+  if (revised || after(agent(x, 'spec-writer')?.endedAt, a.startedAt)) return skip('spec changed');
+  if (!last.transcript) return skip('no transcript');
+  if (last.context === null) return skip('context unknown');
+  if (last.context > RESUME_CONTEXT_CEILING) return skip('context over ceiling');
+  return { resume: id };
 }
 
 export function outputMissing(x: StepInput, role: string): boolean {

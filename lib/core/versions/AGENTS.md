@@ -7,6 +7,7 @@ The version lists: one append-only list of named steps per persisted shape, whos
 - Ids are unique per list, kebab-case, at most 60 characters (`stepProblems` in `steps.ts`).
 - The version is the list's length + 1, never a typed number.
 - Add one row per step in `test/schema.test.ts`, keyed by the step id.
+- A config or job step needs its doc line (a `**Migration**` note in docs/CONFIG.md, a paragraph in docs/architecture/versioning.md), and so does an `API_CHANGES` step; `test/invariants/version.test.ts` names a missing one.
 - On conflict keep both, in merge order: the base branch's entries first, then the job's. If both sides used the same id, rename the job's entry and its row.
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->

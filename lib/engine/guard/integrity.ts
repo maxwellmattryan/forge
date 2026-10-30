@@ -223,7 +223,7 @@ function overrideRule(file: string, text: string, leaks: string[]): LinkOverride
   return null;
 }
 
-const PACKAGE_DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides', 'resolutions'];
+export const PACKAGE_DEP_KEYS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides', 'resolutions'];
 
 /**
  * R4: dependency specs in a package.json at `file` that are new or changed and are `file:` or `link:`

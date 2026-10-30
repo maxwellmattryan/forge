@@ -8,8 +8,8 @@ Read `waitingOn` from `forge job show <job>`, then record:
 | Waiting on | Record |
 |---|---|
 | `spec-approval` | `forge job human <job> approve-spec [--link …] --note "…"` (`--link` only when the job's reason is `spec ready, issue unlinked` and a link was given; see below). Step builds, or parks on `issue-link` while the job has no issue. The CLI also writes the note to approval-notes.md for the builder; never write that file yourself |
-| `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"`. Step sends the job to `integrate` (to `decide` when it is already in `integrate`). In stage `pr` (a merge gate on the open PR), integrate sends it back to `pr`, and the merge goes on |
-| `infra` | `forge job human <job> approve --note "…"` (in stage `pr`, as for an escalation) |
+| `escalation` or `rounds-exhausted` | `forge job human <job> approve --note "…"`. Step sends the job to `integrate` (to `decide` when it is already in `integrate`). In stage `pr` (the escalation park on the open PR, `escalation: <rules>`), the one approve clears every rule its reason lists, integrate sends the job back to `pr`, and the merge goes on |
+| `infra` | `forge job human <job> approve --note "…"` (a job parked on a runbook before the merge gates collapsed; in stage `pr`, as for an escalation) |
 | `conflicts` | `forge job human <job> approve --note "…"` (the integrator fixes them) |
 | `budget` with a reason starting `repo budget:` | nothing: approving never lifts the repo cap. Report that a human runs `forge budget ack --period <period>` with the current UTC month (YYYY-MM), or the day (YYYY-MM-DD) when the reason says today, or raises `budget.*`, and leave the job waiting; release queues it again |
 | `budget` | Nothing the session can run lifts it, in any mode: never run `--ack` or `--set`. Run `forge job budget <job>` (a read). If its `stillExceeded` is empty, because a person already raised or acknowledged the budget (usually with Approve on the budget gate in the dashboard), record `forge job human <job> approve --note "…"`. Otherwise report the step's `tell` and leave the job waiting |

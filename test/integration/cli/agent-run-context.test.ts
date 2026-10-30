@@ -7,8 +7,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { BIN, cliEnv, forgeAsync, forgeInProcess, jobAt, repoTemplate, waitFor, withLease } from '../../helpers.ts';
-import { loadJob, logEvent, readEvents, updateJob } from '#core/job/store.ts';
-import { defaults } from '#core/config/load.ts';
+import crypto from 'node:crypto';
+import { loadJob, logEvent, readEvents, recordAgent, updateJob } from '#core/job/store.ts';
+import { defaults, loadConfig } from '#core/config/load.ts';
+import { projectSlug } from '#integrations/claude/transcripts.ts';
 
 const CLAUDE = path.resolve(import.meta.dirname, '..', '..', 'fixtures', 'bin', 'claude');
 const S = '11111111-1111-4111-8111-111111111111';
@@ -97,7 +99,37 @@ function scratch(t: { after: (fn: () => void) => void }) {
     assert.ok(r.status === 0 || r.status === 1, JSON.stringify(r.error ?? r.data));
     return r.data as any;
   };
-  return { root, fakeLog, env, children, inReview, stepOf, run };
+  return { root, fakeLog, claudeDir, env, children, inReview, stepOf, run };
+}
+
+/**
+ * Round 2's rework build after a round-1 builder that ran as a role run: its start and end with uuid `old`, the
+ * sidecar the runner left (role builder, `context`), its transcript in the worktree's project dir, and a CHANGES round.
+ */
+async function reworkAfterRoleRun(s: ReturnType<typeof scratch>, context: number) {
+  const { id, dir } = await s.inReview();
+  const config = loadConfig(s.root).config;
+  // The model step gives this builder, so the role's last start matches it.
+  updateJob(s.root, id, (j) => void (j.stage = 'build'));
+  const first = await s.stepOf(id);
+  assert.deepEqual([first.rule, first.role, 'resume' in first, 'resumeSkipped' in first], ['B4', 'builder', false, false], JSON.stringify(first));
+  const old = crypto.randomUUID();
+  recordAgent(s.root, id, { role: 'builder', phase: 'start', model: first.model }, config);
+  recordAgent(s.root, id, { role: 'builder', phase: 'end', agentId: old, status: 'done' }, config);
+  const sidecar = path.join(s.root, '.forge', 'runtime', 'agents', id, `${old}.json`);
+  fs.mkdirSync(path.dirname(sidecar), { recursive: true });
+  fs.writeFileSync(sidecar, JSON.stringify({ v: 1, cum: { usd: 0, models: {} }, at: new Date().toISOString(), role: 'builder', context }));
+  const wt = fs.realpathSync(loadJob(s.root, id).worktree!);
+  const projects = path.join(s.claudeDir, 'projects', projectSlug(wt));
+  fs.mkdirSync(projects, { recursive: true });
+  fs.writeFileSync(path.join(projects, `${old}.jsonl`), '{}\n');
+  updateJob(s.root, id, (j) => {
+    j.verdicts = { 1: { code: 'CHANGES', tests: 'PASS', docs: 'PASS', security: 'PASS' } };
+    j.round = 2;
+  });
+  logEvent(s.root, id, 'round', { round: 2 });
+  fs.mkdirSync(path.join(dir, 'review', 'round-2'), { recursive: true });
+  return { id, old, sidecar };
 }
 
 const flag = (argv: string[], name: string): string | null => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : null);
@@ -200,6 +232,40 @@ test('no fork names an agent different from its context session\'s', async (t) =
   const builderCtx = [...bySession.values()].filter((c) => flag(c.argv, '--agent') === 'forge:builder');
   assert.equal(builderCtx.length, 1, 'the rework builder gets its own forge:builder context');
   assert.equal(loadJob(s.root, id).contexts.filter((c) => c.agent === 'forge:builder' && c.round === 2).length, 1);
+});
+
+test('a rework builder resumes its last session instead of forking', async (t) => {
+  const s = scratch(t);
+  const { id, old, sidecar } = await reworkAfterRoleRun(s, 50_000);
+  // The transcript lookup follows CLAUDE_CONFIG_DIR, as the run's own step does.
+  const sp = (await forgeInProcess(s.root, ['job', 'step', id], { env: s.env() })).data as any;
+  assert.deepEqual([sp.rule, sp.resume, sp.resumeSkipped], ['B4', old, undefined]);
+  const out = await s.run(id, { FAKE_CLAUDE_MODEL_USAGE: JSON.stringify(FORK_USAGE) });
+  assert.equal(out.status, 'done', JSON.stringify(out));
+  const all = s.children();
+  assert.deepEqual([all.length, all.some(isContext)], [1, false], 'no context child starts');
+  assert.equal(flag(all[0].argv, '--resume'), old);
+  assert.ok(!all[0].argv.includes('--fork-session'));
+  assert.deepEqual([out.resumed, out.context, out.agentId, 'resumeSkipped' in out], [true, null, old, false]);
+  assert.equal(readEvents(s.root, id).findLast((e) => e.type === 'agent-start')?.resume, old);
+  // The fake's last turn: input 2 + cache read 15000 + cache write 14000.
+  const rec = JSON.parse(fs.readFileSync(sidecar, 'utf8'));
+  assert.deepEqual([rec.v, rec.role, rec.context], [1, 'builder', 29002]);
+});
+
+test('a rework builder over the context ceiling forks as today and logs why', async (t) => {
+  const s = scratch(t);
+  const { id, old } = await reworkAfterRoleRun(s, 130_000);
+  const out = await s.run(id, { FAKE_CLAUDE_MODEL_USAGE: JSON.stringify(FORK_USAGE) });
+  assert.equal(out.status, 'done', JSON.stringify(out));
+  const all = s.children();
+  assert.ok(all.every((c) => flag(c.argv, '--resume') !== old), 'nothing resumes the old session');
+  const ctx = all.filter(isContext);
+  assert.equal(ctx.length, 1);
+  const role = all.filter((c) => !isContext(c));
+  assert.deepEqual(role.map((c) => [flag(c.argv, '--resume'), c.argv.includes('--fork-session')]), [[flag(ctx[0].argv, '--session-id'), true]]);
+  assert.deepEqual([out.resumed, out.context.mode, out.resumeSkipped], [false, 'fork', 'context over ceiling']);
+  assert.equal(readEvents(s.root, id).findLast((e) => e.type === 'agent-start')?.resumeSkipped, 'context over ceiling');
 });
 
 test('context sessions fall back cold with a reason', async (t) => {

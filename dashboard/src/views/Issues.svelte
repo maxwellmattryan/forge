@@ -1,14 +1,14 @@
 <!-- Issues: the tracker's items with their triage readiness, and Start for unclaimed ones (needs-info included: starting one
      overrides triage). A row opens its issue panel; the ref link, Claimed by and Start keep their own action. -->
 <script lang="ts">
-  import Banner from '../components/Banner.svelte';
-  import Chip from '../components/Chip.svelte';
-  import Empty from '../components/Empty.svelte';
-  import Icon from '../components/Icon.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
-  import IssuesTableSkeleton from '../components/skeletons/IssuesTableSkeleton.svelte';
-  import Skeleton from '../components/Skeleton.svelte';
-  import TriageMissing from '../components/TriageMissing.svelte';
+  import Banner from '../components/ui/feedback/Banner.svelte';
+  import Chip from '../components/ui/Chip.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import Icon from '../components/ui/Icon.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
+  import IssuesTableSkeleton from '../components/skeletons/project/IssuesTableSkeleton.svelte';
+  import Skeleton from '../components/ui/feedback/Skeleton.svelte';
+  import TriageMissing from '../components/drawer/TriageMissing.svelte';
   import { readiness } from '../lib/project/backlog.ts';
   import { canStart, refLabel } from '../lib/project/issue-view.ts';
   import { safeUrl } from '../lib/text/markdown.ts';

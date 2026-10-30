@@ -7,7 +7,7 @@ import { jobDir, reviewDir } from '#core/job/store.ts';
 import { memberEntry, memberRepos } from '../project/job-repos.ts';
 import { downstreamMembers } from '../project/downstream.ts';
 import { releaseGates, resolveInterim } from '../release/interim.ts';
-import { isLens, reviewFileName, reviewedRepoNames, splitLens } from '#core/job/lens.ts';
+import { reviewFileName, reviewedRepoNames, splitLens } from '#core/job/lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from '../project/graph.ts';
 import { paths, exists } from '#core/paths.ts';
@@ -15,7 +15,9 @@ import { releaseFiles } from '../release/files.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { instructionsFor } from '#core/config/validators/instructions.ts';
 import { recallLine } from './step/recall.ts';
-import { approvalNotesNew, parsePromptTimeoutReason } from './step/facts.ts';
+import { approvalNotesNew, computeFacts, parsePromptTimeoutReason } from './step/facts.ts';
+import { gateReasonsLine, protectedLine } from './moves/escalation.ts';
+import { reviewHistoryLines, reworkPanelLine } from './step/panel.ts';
 import { lastRun } from '../verify/record.ts';
 import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
 import type { StepInput } from './types.ts';
@@ -247,15 +249,6 @@ function componentsLine(config: Pick<Config, 'components'>): string | null {
   return rows.length ? `Components (JSON): ${JSON.stringify(rows)}` : null;
 }
 
-/** The approver's `Protected paths:` line. JSON, so a path can't start a line of the brief. */
-function protectedLine(job: Pick<Job, 'protectedPaths'>): string {
-  const flag = job.protectedPaths;
-  if (!flag?.hits?.length) return 'Protected paths: none';
-  const shown = flag.hits.slice(0, 20).map((h) => h.path);
-  const more = flag.hits.length - shown.length + (Number(flag.more) || 0);
-  return `Protected paths: ${JSON.stringify(shown)}${more > 0 ? ` (+${more} more)` : ''}: a human must approve after you whatever you decide; never mark auto-merge eligible`;
-}
-
 /**
  * The builder's `Downstream failures (JSON)` line: the downstream consumers the last verify run saw
  * fail, or null. JSON, and names that pass REPO_NAME, so nothing a session wrote starts a line.
@@ -279,31 +272,6 @@ function releaseGateLine(config: Pick<Config, 'components' | 'repos' | 'release'
   const edges = resolveInterim(config, job).edges;
   if (!edges.length) return 'Release gate: none';
   return `Release gate (JSON): ${JSON.stringify(releaseGates(edges, events, job))}; held: the consumer PR stays a draft and Forge refuses to ready or merge it until a human records the release; bump-due: the release is recorded and verify still has to bump the consumer's manifests to it; ci: the seeded release-gate check fails while the pin remains. Never mark auto-merge eligible while a gate is held or bump-due.`;
-}
-
-/**
- * The approver's `Rework panel:` line when the last review round re-ran only part of the panel:
- * which lenses re-reviewed, and each skipped lens with the latest round it passed in. Lens names
- * only (isLens), so nothing from the event log can start a line of the brief.
- */
-function reworkPanelLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
-  const j = input.job;
-  const ev = input.events.findLast((e) => e.type === 'panel');
-  const rerun: unknown = ev?.rerun;
-  const lenses: unknown = ev?.lenses;
-  if (!ev || typeof ev.round !== 'number' || !Array.isArray(rerun) || !rerun.length || !Array.isArray(lenses)) return null;
-  const names = (v: unknown[]) => v.filter((l): l is string => typeof l === 'string' && isLens(l));
-  const ran = names(rerun);
-  const round = ev.round;
-  const carried = names(lenses)
-    .filter((l) => !ran.includes(l))
-    .map((l) => {
-      let m: number | null = null;
-      for (let r = round; r >= 1 && m === null; r--) if (j.verdicts[String(r)]?.[l] === 'PASS') m = r;
-      return `${l} (round ${m ?? 'none'})`;
-    });
-  if (!ran.length) return null;
-  return `Rework panel: round ${round} re-reviewed ${ran.join(', ')}; carried passes: ${carried.join(', ') || 'none'}`;
 }
 
 /**
@@ -415,7 +383,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       extra.push(...backingLines, ...secretLines);
       // The integration review stays root-only and has its own Diff line below.
       if (!ctx.integration)
-        extra.push(`Diff: ${p('roundDiff')} ${input.paths.scopeDiff ? '(every job repo; member paths are prefixed <repo>/)' : "(stat, then the branch's diff from its merge base)"}`);
+        extra.push(`Diff: ${p('roundDiff')} ${input.paths.scopeDiff ? '(every job repo; member paths are prefixed <repo>/)' : "(stat, then the branch's diff from its merge base)"}`, ...reviewHistoryLines(input, lens));
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);
@@ -434,6 +402,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           `Always escalate: ${JSON.stringify(c.approver.alwaysEscalate ?? [])}`,
           `Merge: auto ${autoMerge(c)} · autoWhen ${JSON.stringify(c.merge.autoWhen ?? [])}`,
           protectedLine(j),
+          gateReasonsLine(input.events, computeFacts(input).reviewedAt),
           releaseGateLine(c, j, input.events),
           recallLine(input),
           ...(reworkPanel ? [reworkPanel] : []),
@@ -538,7 +507,7 @@ export function assistantBrief(
   job: Job,
   gate: GateClass,
   reserved: unknown,
-  events: Pick<JobEvent, 'type'>[],
+  events: JobEvent[],
   pending: { repo: string; reason: string }[] = [],
   releaseHash: string | null = null,
   security: string | null = null,
@@ -580,6 +549,7 @@ export function assistantBrief(
         ]
       : []),
     releaseGateLine(config, job, events),
+    ...(gate === 'escalation' ? [gateReasonsLine(events, events.findLastIndex((e) => e.type === 'round'))] : []),
     ...(security ? [`Security review: ${security}. Approving is refused while it stands: security always has to pass, so rework or revise to fix the findings.`] : []),
     ...promptTimeoutLines(gate, job.reason, dir),
     ...(repos ? [repos] : []),

@@ -44,6 +44,7 @@ When the brief has a `Context (JSON)` line, its inputs are already in your conte
 - Take each UI AC's screenshots once, at the end of its phase, not after each tweak.
 
 ## Rework round
+- In a resumed session your earlier rounds are already in this conversation and that context is yours: don't re-read the spec or the code you wrote; read only what the brief says changed (the findings, verify report, feedback or answer in Inputs:).
 - Read the findings in `Inputs:` first, then only the spec sections they touch.
 - Change only what a finding names. Don't refactor, re-plan or rewrite `tasks.md`; add a task per finding and tick it.
 - While iterating, run `forge run <job> test --changed`; leave the full suite to `forge verify`.

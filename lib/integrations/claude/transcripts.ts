@@ -160,6 +160,18 @@ function roleRunTranscript(root: string, job: JobRefs, agentId: string, projects
   return null;
 }
 
+/**
+ * A role run's own session transcript and nothing else, never a subagent file: what `claude --resume <uuid>` loads, so
+ * step's rework resume (loadLastSessions) asks for exactly this file. Null for a non-uuid id or no such file.
+ */
+export function roleRunTranscriptById(root: string, job: JobRefs, agentId: unknown, opts: TranscriptOpts = {}): TranscriptHit | null {
+  if (typeof agentId !== 'string' || !UUID.test(agentId)) return null;
+  const projects = opts.projects ?? claudeProjectsDir();
+  const projectsReal = realProjects(projects);
+  if (!projectsReal) return null;
+  return roleRunTranscript(root, job, agentId, projects, projectsReal, opts.worktrees);
+}
+
 /** The transcript of agent `agentId`: a role run's session file, else a subagent's under one of this job's sessions, or null. */
 export function agentTranscriptById(root: string, job: JobRefs, agentId: unknown, opts: TranscriptOpts = {}): TranscriptHit | null {
   if (typeof agentId !== 'string' || !AGENT_ID.test(agentId)) return null;

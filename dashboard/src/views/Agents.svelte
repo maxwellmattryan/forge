@@ -1,9 +1,9 @@
 <!-- Agents: running agents, orchestrator sessions, and the roster and review panel. -->
 <script lang="ts">
-  import Chip from '../components/Chip.svelte';
-  import EffortChip from '../components/EffortChip.svelte';
-  import Empty from '../components/Empty.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
+  import Chip from '../components/ui/Chip.svelte';
+  import EffortChip from '../components/jobs/EffortChip.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
   import { ago } from '../lib/core/util.ts';
   import { effortChip } from '../lib/jobs/effort.ts';
   import type { ApiState, Effort, EffortSource, RosterModelBy } from '../lib/core/types.ts';

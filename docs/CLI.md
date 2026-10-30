@@ -456,7 +456,7 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge git add <id> [--repo NAME] -- <path>...` | stage paths in the job's worktree, from any cwd; refuses git options, paths outside the worktree and a protected path the policy refuses; prints protected: <n> when the branch changes escalate paths |
 | `forge git commit <id> [--repo NAME] (--message T \| --message-file F) [-- <path>...]` | commit in the job's worktree, on its branch, from any cwd (how agents commit, in a daemon session too); refuses git options, paths outside the worktree, AI attribution, a protected path the policy refuses and a likely secret (in the message always; in the staged changes under verifySecrets: block); prints protected: <n> when the branch changes escalate paths |
 | `forge job advance <id> --session S [--epoch N] [--max N]` | runs step's `run` actions in-process (at most N, default 20) and returns the next `spawn`, `wait`, `procedure` or `done` with `ran`, one line per command it ran; refuses (exit 3) a job session S does not hold, and stops at the first failed command (exit 1) |
-| `forge job agent run <id> --session S [--spawn-index N] [--epoch N] [--cold]` | run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork\|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn |
+| `forge job agent run <id> --session S [--spawn-index N] [--epoch N] [--cold]` | run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A spawn carrying `resume` resumes that session (`claude --resume`) instead of forking, and runs once more as a fresh session when the resume fails before init (resumeFailed: true). Any other review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, resumeSkipped (when step gave a reason not to resume), status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork\|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn |
 | `forge job archive <id>\|--done --older-than D` | archive a finished job into .forge/archive/<id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs (see [Retention](architecture/retention.md)) |
 | `forge job audit <id> [--json\|--csv]` | the job's audit trail: who did each human action (best effort, unauthenticated), its gate transitions, and its PR opening and merge, in time order (see [Audit trail](architecture/audit-trail.md)) |
 | `forge job delete <id> [--force]` | delete a job started by mistake, for good: releases its tracker claim, removes its worktrees, per-job backing services and the branch Forge named for it, rejects its open requests and deletes its job folder and session logs, keeping no archive record. A job with a PR, split children or an active dependent is refused: cancel and archive real work instead (see [Deleting a job](architecture/deleting-a-job.md)) |
@@ -1009,6 +1009,8 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | `--import` | with end and --agent-id: read usage from the agent's Claude Code transcript (implied in a daemon session) |
 | `--model M` | the model it ran on |
 | `--output P` | with start: the file it must write, inside the job dir |
+| `--resume A` | with start: the session this run continues, recorded on agent-start (an agent id, else exits 2) |
+| `--resume-skipped R` | with start: why step did not resume this rework spawn, recorded on agent-start (one of off, last run failed, no session, model changed, spec changed, no transcript, context unknown, context over ceiling; else exits 2) |
 | `--retry` | with start: a retry of a lost agent |
 | `--role R` | the role: a role name (a-z, 0-9, -) or reviewer:&lt;lens> (required; anything else exits 2) |
 | `--status S` | how it ended |
@@ -1021,7 +1023,7 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | 1 | no such job, an --output outside the job dir, the inbox or office session starting an agent, or attach on a role that is not running |
 | 3 | stale_epoch: the lease moved past --epoch |
 
-**`forge job agent run <id> --session S [--spawn-index N] [--epoch N] [--cold]`**: run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: &lt;class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn
+**`forge job agent run <id> --session S [--spawn-index N] [--epoch N] [--cold]`**: run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A spawn carrying `resume` resumes that session (`claude --resume`) instead of forking, and runs once more as a fresh session when the resume fails before init (resumeFailed: true). Any other review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, resumeSkipped (when step gave a reason not to resume), status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: &lt;class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn
 
 | Flag | Meaning |
 |---|---|
@@ -1097,7 +1099,7 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing
+**`forge job decision <id>`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
 
 | Exit | When |
 |---|---|
@@ -1145,6 +1147,12 @@ See [Effort](CONFIG.md#effort).
 | 3 | the tracker claim was lost to another job |
 | 4 | the repo budget holds new work |
 | 5 | gh failed (GitHub tracker) |
+
+**`forge job gate <id>`**: compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that said ESCALATE when forge job verdicts recorded it, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}
+
+| Exit | When |
+|---|---|
+| 1 | no such job |
 
 **`forge job get <id> [path]`**: one value of job.json by dotted path (null when absent)
 
@@ -1387,18 +1395,18 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command) |
 
-**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD
+**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read the current round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and, for each lens whose reviewer ran in the round, whether its Summary says ESCALATE (escalate), which forge job gate reads instead of the files; recording a round again never takes an escalate back
 
 | Flag | Meaning |
 |---|---|
 | `--compact` | one verdict per lens, and the missing files |
 | `--malformed changes` | count a malformed review as CHANGES |
 | `--reviewers a,b` | the lenses to read (default: the job's reviewers) |
-| `--round N` | the round (default: the current one), or integration |
+| `--round N` | the current round (the default; an earlier or later number is refused), or integration |
 
 | Exit | When |
 |---|---|
-| 1 | no such job, or no reviewers selected |
+| 1 | no such job, no reviewers selected, or a numbered --round that is not the current one |
 
 ### `forge mandate`
 
@@ -1761,7 +1769,7 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
-**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
+**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (the escalation park, which lists the approver's escalation and every gate reason, or a missing recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
 
 | Exit | When |
 |---|---|

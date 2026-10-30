@@ -1,4 +1,4 @@
-// The keyboard model of components/Select.svelte, the dashboard's themed replacement for a native <select> (the WAI-ARIA
+// The keyboard model of components/ui/Select.svelte, the dashboard's themed replacement for a native <select> (the WAI-ARIA
 // "select-only combobox"), as plain functions node:test can pin: which option opens active, how arrows, Home/End and
 // type-ahead move it, and which keys choose, close or are left to the page. An option's icon, hint, group and separator
 // are presentation only: indices stay flat over every option, and type-ahead matches `label` even when the component

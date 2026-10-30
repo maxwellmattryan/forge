@@ -49,6 +49,39 @@ test('job agent refuses a role that is not a role name before anything is writte
   }
 });
 
+test('agent start records a resume or why it was skipped', (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const root = repo.dir;
+  const config = defaults();
+  const id = createJob(root, config, { title: 'resume' }).id;
+  const files = () => [...jobFiles(root, id, 'job.json'), ...jobFiles(root, id, 'events.jsonl')].map((f) => fs.readFileSync(f, 'utf8'));
+  const before = files();
+  const refused: Record<string, unknown>[] = [
+    { resume: '../x' },
+    { resume: 'a b' },
+    { resume: 'x'.repeat(101) },
+    { resume: true },
+    { 'resume-skipped': 'because' },
+    { 'resume-skipped': "off'; touch x; '" },
+    { 'resume-skipped': true },
+  ];
+  for (const extra of refused) {
+    assert.throws(() => agent(root, config, [id, 'start'], { role: 'builder', ...extra }), (e: any) => e.exitCode === 2 && e.code === 'usage', JSON.stringify(extra));
+  }
+  assert.deepEqual(files(), before, 'nothing was written');
+
+  const sid = '0b0b0b0b-0000-4000-8000-000000000001';
+  agent(root, config, [id, 'start'], { role: 'builder', resume: sid });
+  agent(root, config, [id, 'start'], { role: 'reviewer:code', 'resume-skipped': 'context over ceiling' });
+  agent(root, config, [id, 'start'], { role: 'planner' });
+  const starts = readEvents(root, id).filter((e) => e.type === 'agent-start');
+  assert.deepEqual(
+    starts.map((e) => [e.role, e.resume, e.resumeSkipped]),
+    [['builder', sid, undefined], ['reviewer:code', undefined, 'context over ceiling'], ['planner', undefined, undefined]],
+  );
+});
+
 test("a daemon session's agent end is measured, never self-reported", (t) => {
   const repo = tempRepo();
   t.after(repo.cleanup);

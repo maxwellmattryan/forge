@@ -1,5 +1,6 @@
 // `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs` reads.
 import { OFFICE_GATES } from '#core/job/schema.ts';
+import { RESUME_SKIPS } from '#engine/pipeline/step/facts.ts';
 import type { HelpGroup } from '../../types.ts';
 
 const NO_JOB: [1, string] = [1, 'no such job'];
@@ -211,6 +212,8 @@ export const JOB: HelpGroup = {
         ['--summary S', 'its one-line reply'],
         ['--output P', 'with start: the file it must write, inside the job dir'],
         ['--retry', 'with start: a retry of a lost agent'],
+        ['--resume A', "with start: the session this run continues, recorded on agent-start (an agent id, else exits 2)"],
+        ['--resume-skipped R', `with start: why step did not resume this rework spawn, recorded on agent-start (one of ${RESUME_SKIPS.join(', ')}; else exits 2)`],
         ['--tokens N', 'with end: tokens used (refused in a daemon session)'],
         ['--tool-uses N', 'with end: tool calls made (refused in a daemon session)'],
         ['--duration-ms N', 'with end: wall time (refused in a daemon session)'],
@@ -226,7 +229,7 @@ export const JOB: HelpGroup = {
       command: 'job agent run',
       args: '<id> --session S [--spawn-index N] [--epoch N] [--cold]',
       summary:
-        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn",
+        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A spawn carrying `resume` resumes that session (`claude --resume`) instead of forking, and runs once more as a fresh session when the resume fails before init (resumeFailed: true). Any other review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, resumeSkipped (when step gave a reason not to resume), status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn",
       flags: [
         ['--session S', 'the session that holds the job (required): only its driver may run a role'],
         ['--spawn-index N', "which spawn of step's list to run: 0 (the default) is the action itself, 1 on its `spawns`"],
@@ -321,16 +324,23 @@ export const JOB: HelpGroup = {
     {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
-      summary: "read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD",
+      summary: "read the current round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and, for each lens whose reviewer ran in the round, whether its Summary says ESCALATE (escalate), which forge job gate reads instead of the files; recording a round again never takes an escalate back",
       flags: [
-        ['--round N', 'the round (default: the current one), or integration'],
+        ['--round N', 'the current round (the default; an earlier or later number is refused), or integration'],
         ['--reviewers a,b', 'the lenses to read (default: the job\'s reviewers)'],
         ['--malformed changes', 'count a malformed review as CHANGES'],
         ['--compact', 'one verdict per lens, and the missing files'],
       ],
-      exits: [[1, 'no such job, or no reviewers selected']],
+      exits: [[1, 'no such job, no reviewers selected, or a numbered --round that is not the current one']],
     },
-    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
+    {
+      command: 'job gate',
+      args: '<id>',
+      summary:
+        'compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that said ESCALATE when forge job verdicts recorded it, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}',
+      exits: [NO_JOB],
+    },
+    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
     {
       command: 'job score',
       args: 'record <id>',

@@ -1,11 +1,11 @@
 <!-- Evals: the run form, the latest run's KPIs, runs, compare and tasks. -->
 <script lang="ts">
-  import Chip from '../components/Chip.svelte';
-  import CompareTable from '../components/CompareTable.svelte';
-  import Empty from '../components/Empty.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
-  import Select from '../components/Select.svelte';
-  import EvalsBodySkeleton from '../components/skeletons/EvalsBodySkeleton.svelte';
+  import Chip from '../components/ui/Chip.svelte';
+  import CompareTable from '../components/metrics/CompareTable.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
+  import Select from '../components/ui/Select.svelte';
+  import EvalsBodySkeleton from '../components/skeletons/metrics/EvalsBodySkeleton.svelte';
   import { safeUrl } from '../lib/text/markdown.ts';
   import { pct, tokensShort, usd } from '../lib/core/util.ts';
   import type { ApiState } from '../lib/core/types.ts';

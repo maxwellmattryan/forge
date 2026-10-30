@@ -969,7 +969,7 @@
 }
 
 /* ---------- skeleton: the shape of a page still loading ---------- */
-/* One bone (components/Skeleton.svelte): a line-coloured bar on whatever surface holds it, sized like the text, chip or
+/* One bone (components/ui/feedback/Skeleton.svelte): a line-coloured bar on whatever surface holds it, sized like the text, chip or
    panel that will sit there, breathing over --heat-breathe while the data is on its way. Reduced motion holds it still.
    .round for a dot or pill. */
 @utility skeleton {
@@ -1098,7 +1098,7 @@
 @utility graph-edge-lit { stroke: var(--gleam); stroke-width: 2; }
 @utility graph-arrow { fill: var(--line-strong); &.lit { fill: var(--gleam); } }
 
-/* ---------- series: the Overview's stacked bars (components/StackedBars.svelte) ----------
+/* ---------- series: the Overview's stacked bars (components/metrics/StackedBars.svelte) ----------
    One colour per project, the same in the bars (fill) and the legend swatch (background), cycling by name order
    (src/lib/metrics/overview.ts SERIES). The hues are the theme's own tokens, spread apart in every theme: gleam, ok, the
    tracker's hue (the one gleam and ember leave free) and warn first. Spark stays out: on crucible it is gleam's gold.

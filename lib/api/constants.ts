@@ -82,6 +82,15 @@ export const COMPLEXITIES = ['low', 'medium', 'high'] as const;
  */
 export const OFFICE_GATES = ['spec-approval', 'split-approval', 'escalation', 'rounds-exhausted', 'conflicts', 'pr-feedback', 'repo-proposal', 'release', 'milestone-approval'] as const;
 
+/**
+ * Why a job needs a person before merge, in the fixed order an escalation park lists them: the approver's
+ * ESCALATE (only the park adds it), then the gate reasons `forge job gate` computes from job facts
+ * (lib/engine/pipeline/moves/gate-reasons.ts).
+ */
+export const ESCALATION_RULES = ['approver', 'protected-paths', 'lens-escalate', 'runbook', 'acs', 'version', 'dependencies'] as const;
+/** The rules `forge job gate` computes: every escalation rule but `approver`. */
+export const GATE_RULES = ['protected-paths', 'lens-escalate', 'runbook', 'acs', 'version', 'dependencies'] as const;
+
 /** A mandate's status (`.forge/runtime/mandates/<id>.md`): only `forge mandate pause|resume|close` moves it. */
 export const MANDATE_STATUSES = ['active', 'paused', 'closed'] as const;
 /**

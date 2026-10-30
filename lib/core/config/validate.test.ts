@@ -5,6 +5,7 @@ import os from 'node:os';
 import { foremanProblems, validateConfig } from './validate.ts';
 import { defaults } from './keys/defaults.ts';
 import { setConfigValue } from './set.ts';
+import { FIELDS } from './fields.ts';
 
 const seedProblems = (seed: unknown): string[] => {
   const c: any = defaults();
@@ -196,4 +197,17 @@ test('validates maxTotalRounds, maxCiReworks and daemon.jobBudget', () => {
   assert.equal(problems((c) => (c.daemon.jobBudget = { changedLines: 5 }), 'daemon.jobBudget').length, 1);
   assert.equal(problems((c) => (c.daemon.jobBudget = { tokens: 1.5 }), 'daemon.jobBudget').length, 1);
   assert.equal(problems((c) => (c.daemon.jobBudget = [1]), 'daemon.jobBudget').length, 1);
+});
+
+test('validates pipeline.resumeRework', () => {
+  const problems = (v: unknown) => {
+    const c: any = defaults();
+    c.pipeline.resumeRework = v;
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith('pipeline.resumeRework'));
+  };
+  assert.equal(defaults().pipeline.resumeRework, true);
+  for (const ok of [true, false]) assert.deepEqual(problems(ok), [], String(ok));
+  for (const bad of ['true', 1, null, undefined, {}]) assert.deepEqual(problems(bad), [`pipeline.resumeRework must be true or false (got ${JSON.stringify(bad)})`], String(bad));
+  const f = FIELDS.find((x) => x.key === 'pipeline.resumeRework');
+  assert.ok(f && f.type === 'boolean' && f.editable && f.default === true);
 });

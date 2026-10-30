@@ -3,6 +3,7 @@ import type { AcCoverage } from './acs.ts';
 import type { BackingRecord, EnvironmentState } from '../environment/types.ts';
 import type { Config } from '#core/config/types.ts';
 import type { Effort, Job, JobEvent, JobState, WaitingOn } from '#api/types.ts';
+import type { ResumeSkip } from './step/facts.ts';
 
 /** What a `wait` waits on: a gate, or the agents still running. */
 export type StepWaitingOn = WaitingOn | 'agents';
@@ -23,7 +24,10 @@ export interface StepSpawn extends StepBase {
   round: number;
   output?: string;
   retry?: true;
+  /** The session the run continues: N2's and IG10b's answered agent, or a rework spawn's role's last run (reworkResume). */
   resume?: string;
+  /** Why a rework spawn of a role that ran before does not resume (reworkResume in step/facts.ts); absent on a role's first run. */
+  resumeSkipped?: ResumeSkip;
   parallel?: true;
   start: string[];
   startShell: string;
@@ -113,7 +117,12 @@ export interface StepInput {
    * has no recorded review.
    */
   reviewCurrent: boolean | null;
-  runbookBeforeMerge: boolean;
+  /**
+   * Earlier round (as a string) → the validated sha its review saw (reviewedSha in
+   * lib/engine/pipeline/scope.ts), for a round 2+ reviewer brief's `Changed since:` line. Only at stage
+   * review, round ≥ 2, no open PR, no reviewed member, with a worktree; `{}` otherwise.
+   */
+  reviewedShas: Record<string, string>;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;
   /**
@@ -168,6 +177,13 @@ export interface StepInput {
   memberWorktrees: Record<string, string | null>;
   /** While the job waits on `budget`: the keys still over their limit after acks (`forge job budget`'s stillExceeded); null otherwise. */
   budgetExceeded: string[] | null;
+  /**
+   * At stage build or review: each rework role's (`builder`, `reviewer:*`) last run as a session `claude --resume` could
+   * continue (loadLastSessions in lib/engine/pipeline/step/input.ts): its uuid, whether its transcript is in the job's
+   * own worktree project dir, and its last context from the runner's sidecar (null when unknown). A role with no runner
+   * sidecar naming it has no entry; `{}` at every other stage.
+   */
+  lastSessions: Record<string, { session: string; transcript: boolean; context: number | null }>;
 }
 
 /** The job files StepInput.files records. */
