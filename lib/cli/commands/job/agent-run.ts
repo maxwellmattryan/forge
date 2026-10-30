@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { refuseInboxDrive } from '#office/owner.ts';
+import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { absoluteDenyRules, confineDigest, spawnConfinement } from '#office/session/confine.ts';
 import { loadStepInput, step } from '#engine/pipeline/step.ts';
 import { jobWorktreeProblem } from '#engine/workspace/regenerate.ts';
@@ -35,7 +35,7 @@ import {
 import { browserMcpConfig } from '#integrations/claude/browser.ts';
 import { claudeAdapter } from '#integrations/claude/child.ts';
 import { commandPermissionMode, parseTemplate, roleArgv, sessionEnv } from '#integrations/claude/argv.ts';
-import { runRoleChild, type RoleFailure, type RoleOutcome, type RoleRun } from '#integrations/claude/role.ts';
+import { runRoleChild, type RoleFailure, type RoleOutcome, type RolePermissionAnswer, type RolePermissionAsk, type RoleRun } from '#integrations/claude/role.ts';
 import { briefLine } from '#integrations/claude/stream.ts';
 import { TRUST_ENV, daemonProblems, loadConfig, trackerSymlinks, trustDigest } from '#core/config/load.ts';
 import { assertEpoch, attachAgent, importCursor, leaseStatus, loadJob } from '#core/job/store.ts';
@@ -45,7 +45,8 @@ import { writeJsonAtomic } from '#core/os/fs.ts';
 import { PLUGIN_ROOT, jobDir, paths } from '#core/paths.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
-import type { AgentUsage, Config, ContextMark, ContextSession, LoadedJob } from '#core/types.ts';
+import { agentRole } from '#core/job/lens.ts';
+import type { AgentUsage, Config, ContextMark, ContextSession, LoadedJob, PermissionDecision } from '#core/types.ts';
 import type { StepAction, StepSpawn } from '#engine/pipeline/types.ts';
 import { num, req, str } from '../args.ts';
 import { endAgent, startAgent } from './agent.ts';
@@ -98,12 +99,77 @@ function deltaUsage(base: MeterCum, cost: NonNullable<RoleOutcome['cost']>, fall
   return u;
 }
 
-/** The spawn this call runs, or stale_step: step must still return a spawn, and `index` must be in its list. */
-function pickSpawn(a: StepAction, index: number): StepSpawn {
+/** The spawn this call runs, or stale_step: step must still return a spawn, and `role` (else `index`) must be in its list. */
+function pickSpawn(a: StepAction, index: number, role: string | null): StepSpawn {
   if (a.action !== 'spawn') throw staleStep(`${described(a)}, not a spawn`);
   const list = [a, ...(a.spawns ?? [])];
+  if (role !== null) {
+    const picked = list.find((s) => s.role === role);
+    if (!picked) throw staleStep(`${described(a)} with ${list.length} spawn${list.length === 1 ? '' : 's'}, none of them for ${role}`);
+    return picked;
+  }
   if (index >= list.length) throw staleStep(`${described(a)} with ${list.length} spawn${list.length === 1 ? '' : 's'}; --spawn-index ${index} is past them`);
   return list[index];
+}
+
+/** What a `forge-answer` from the parent may carry; anything else is no answer. */
+const DECISIONS: readonly PermissionDecision[] = ['allow', 'session', 'deny'];
+
+/**
+ * --ipc: the parent (forge dash's code driver, lib/office/code/job-driver.ts) hears the run's start, its child's pid, its
+ * first reply and each permission prompt, and answers the prompts. The channel is unref'd, so it never keeps the runner
+ * alive by itself; once it disconnects, every prompt still waiting is denied unattended and the role is interrupted.
+ */
+function parentChannel(role: string, onLost: () => void) {
+  const waiting = new Map<string, (a: RolePermissionAnswer) => void>();
+  let lost = false;
+  const send = (msg: Record<string, unknown>) => {
+    try {
+      if (process.connected) process.send?.({ type: 'forge-role', role, ...msg });
+    } catch {}
+  };
+  const onMessage = (m: unknown) => {
+    if (!m || typeof m !== 'object' || Array.isArray(m)) return;
+    const { type, requestId, decision, why } = m as Record<string, unknown>;
+    if (type !== 'forge-answer' || typeof requestId !== 'string') return;
+    const resolve = waiting.get(requestId);
+    if (!resolve) return;
+    waiting.delete(requestId);
+    if (!DECISIONS.includes(decision as PermissionDecision)) return resolve({ decision: 'deny', why: 'unattended' });
+    resolve({ decision: decision as PermissionDecision, ...(why === 'timeout' ? { why: 'timeout' as const } : {}) });
+  };
+  const onDisconnect = () => {
+    if (lost) return;
+    lost = true;
+    for (const resolve of waiting.values()) resolve({ decision: 'deny', why: 'unattended' });
+    waiting.clear();
+    onLost();
+  };
+  process.on('message', onMessage);
+  process.on('disconnect', onDisconnect);
+  (process.channel as { unref?: () => void } | undefined)?.unref?.();
+  return {
+    send,
+    ask(e: RolePermissionAsk): Promise<RolePermissionAnswer> | RolePermissionAnswer {
+      if (lost) return { decision: 'deny', why: 'unattended' };
+      return new Promise((resolve) => {
+        waiting.set(e.requestId, resolve);
+        send({ event: 'ask', requestId: e.requestId, tool: e.tool, input: e.input, description: e.description, agentId: e.agentId, blockedPath: e.blockedPath, rules: e.rules, dirs: e.dirs });
+      });
+    },
+    cancel(requestId: string): void {
+      if (waiting.delete(requestId)) send({ event: 'cancel', requestId });
+    },
+    close(): void {
+      process.off('message', onMessage);
+      process.off('disconnect', onDisconnect);
+      for (const resolve of waiting.values()) resolve({ decision: 'deny', why: 'unattended' });
+      waiting.clear();
+      try {
+        if (process.connected) process.disconnect();
+      } catch {}
+    },
+  };
 }
 
 export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env): Promise<Dispatched> {
@@ -112,6 +178,11 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const session = req(str(flags.session, '--session'), '--session');
   const index = num(flags['spawn-index'], '--spawn-index', { integer: true }) ?? 0;
   const epoch = num(flags.epoch, '--epoch', { integer: true });
+  const byRole = flags.role === undefined ? null : agentRole(flags.role);
+  if (byRole !== null && flags['spawn-index'] !== undefined) throw new ForgeError('--role and --spawn-index each pick the spawn; pass one', 'usage');
+  const ipc = flags.ipc === true;
+  // A role child must never reach this channel (its env drops NODE_CHANNEL_*), and a runner without one has no one to ask.
+  if (ipc && !(typeof process.send === 'function' && process.connected)) throw new ForgeError('--ipc needs an IPC channel to the parent process that started this run', 'usage');
   const id = req(rest[0], 'job id');
   // 2. The job, and who may drive it.
   const job = loadJob(root, id);
@@ -130,7 +201,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   }
   // 4. The spawn step chose.
   const input = loadStepInput(root, ctx.config, jobId);
-  const sp = pickSpawn(step(input), index);
+  const sp = pickSpawn(step(input), index, byRole);
   // 5. The config, read once: its digest and its parse come from the same bytes.
   let bytes: Buffer | null = null;
   try {
@@ -174,7 +245,10 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   // 9. The env. Outside a daemon session whoever runs the CLI is the trust anchor, as a human starting the pool is.
   // FORGE_ROOT is pinned, as the pool pins it for every session: an inherited one must not steer the child's `forge` calls elsewhere.
   const trusted = env.FORGE_DAEMON === '1' ? (env[TRUST_ENV] as string) : digest;
-  const childEnv = { ...sessionEnv(env, config.daemon.auth), ...confined.env, FORGE_ROOT: root, [TRUST_ENV]: trusted, [SCOPE_ENV]: jobId };
+  const childEnv: NodeJS.ProcessEnv = { ...sessionEnv(env, config.daemon.auth), ...confined.env, FORGE_ROOT: root, [TRUST_ENV]: trusted, [SCOPE_ENV]: jobId };
+  // The parent's IPC channel is the runner's alone: a role child that inherited its fd could answer its own prompts.
+  delete childEnv.NODE_CHANNEL_FD;
+  delete childEnv.NODE_CHANNEL_SERIALIZATION_MODE;
   // 10. The command line, the prefix on every launch; a resume only of a session id, never of an in-process subagent's.
   // The agent's own tool list, built-ins only: MCP tools reach a child only through a server Forge declares.
   const role = sp.agent.startsWith('forge:') ? sp.agent.slice('forge:'.length) : sp.agent;
@@ -239,6 +313,12 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   };
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
+  const release = () => {
+    process.off('SIGINT', onSignal);
+    process.off('SIGTERM', onSignal);
+  };
+  const parent = ipc ? parentChannel(sp.role, () => onSignal('SIGTERM')) : null;
+  parent?.send({ event: 'started' });
   let log = '';
   let reported: string | null = null;
   let outcome: RoleOutcome;
@@ -277,6 +357,15 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
             attachAgent(root, jobId, sp.role, sid);
           } catch {}
         },
+        // Only the role's own launch reports to the parent and asks it; a context child stays unattended.
+        ...(parent && o.attach
+          ? {
+              onStart: (pid: number) => parent.send({ event: 'child', pid }),
+              onFirstRequest: () => parent.send({ event: 'reply' }),
+              onPermission: (e: RolePermissionAsk) => parent.ask(e),
+              onCancel: (requestId: string) => parent.cancel(requestId),
+            }
+          : {}),
       });
       return await current.done;
     } finally {
@@ -383,61 +472,69 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
       reported = null;
       outcome = await launch(argv, sessionId, brief, { attach: true, timeoutMs });
     }
-  } finally {
-    process.off('SIGINT', onSignal);
-    process.off('SIGTERM', onSignal);
-  }
-  const wallMs = Date.now() - t0;
-  const agentId: string = reported ?? sessionId;
-  if (mark) {
-    const firstRead = outcome.firstRequest?.cacheRead ?? null;
-    // A fork whose first request read no more than the context's own first request missed the cache: logged cold, not repeated.
-    mark = fork && cacheMiss(firstRead, fork.startPrefix) === true ? { ...cold('cache miss', fork.id), firstRead } : { ...mark, firstRead };
-  }
-  // 15. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
-  let failure: RoleFailure | null = outcome.failure;
-  if (trustMoved()) failure = { class: 'untrusted', reason: CHANGED, resetsAt: null };
-
-  // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
-  const resumed = resumeId !== null && !resumeFailed;
-  const base = resumed ? baseline : fork && outcome.cost ? forkBase(sidecarCum(roleRunFiles(root, jobId, fork.id).cum), outcome.cost) : ZERO;
-  const { usage, unmeasured } = measure(agentId, sp.role, outcome, base, wallMs);
-
-  // 17. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
-  const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
-  // The reply's first line is model output, the likeliest place for a known secret to appear: redacted before Forge stores it.
-  const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
-  let ended: ReturnType<typeof endAgent>;
-  try {
-    ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, resumeFailed, env, fence: { epoch: epoch ?? job.lease.epoch } });
   } catch (e) {
-    if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the role's end was not recorded, and its run log is kept at ${log}`, 'stale_epoch');
+    release();
     throw e;
+  } finally {
+    parent?.close();
   }
-  const data = {
-    id: jobId,
-    role: sp.role,
-    rule: sp.rule,
-    agentId,
-    resumed,
-    ...(resumeFailed ? { resumeFailed: true } : {}),
-    ...(sp.resumeSkipped ? { resumeSkipped: sp.resumeSkipped } : {}),
-    status: failure ? ('failed' as const) : ('done' as const),
-    summary: summary ?? null,
-    failure: failure ? { class: failure.class, reason, resetsAt: failure.resetsAt === null ? null : new Date(failure.resetsAt).toISOString() } : null,
-    denied: outcome.denied,
-    wallMs,
-    log,
-    prefix,
-    ...(prefixRefused ? { prefixRefused } : {}),
-    context: mark,
-    usage: ended.usage ? { tokens: ended.usage.tokens, exact: ended.usage.exact } : null,
-    ...(ended.unmeasured ? { unmeasured: true } : {}),
-    jobTokens: ended.jobTokens,
-    jobCostUsd: ended.jobCostUsd,
-    ...(ended.outputMissing !== undefined ? { outputMissing: ended.outputMissing } : {}),
-    ...(ended.secrets ? { secrets: ended.secrets } : {}),
-    ...(ended.budget ? { budget: ended.budget } : {}),
-  };
-  return { data, exitCode: failure ? (EXTERNAL.has(failure.class) ? 5 : 1) : 0 };
+  // The handlers stay until the end is recorded: they only mark the run interrupted, and a signal after the child is gone
+  // (a stop sends one per call) must not kill the runner with its role still `running`.
+  try {
+    const wallMs = Date.now() - t0;
+    const agentId: string = reported ?? sessionId;
+    if (mark) {
+      const firstRead = outcome.firstRequest?.cacheRead ?? null;
+      // A fork whose first request read no more than the context's own first request missed the cache: logged cold, not repeated.
+      mark = fork && cacheMiss(firstRead, fork.startPrefix) === true ? { ...cold('cache miss', fork.id), firstRead } : { ...mark, firstRead };
+    }
+    // 15. Whatever the child did, a trusted or protected file it changed fails the run, as it stops a session's turn.
+    let failure: RoleFailure | null = outcome.failure;
+    if (trustMoved()) failure = { class: 'untrusted', reason: CHANGED, resetsAt: null };
+
+    // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
+    const resumed = resumeId !== null && !resumeFailed;
+    const base = resumed ? baseline : fork && outcome.cost ? forkBase(sidecarCum(roleRunFiles(root, jobId, fork.id).cum), outcome.cost) : ZERO;
+    const { usage, unmeasured } = measure(agentId, sp.role, outcome, base, wallMs);
+
+    // 17. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
+    const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
+    // The reply's first line is model output, the likeliest place for a known secret to appear: redacted before Forge stores it.
+    const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
+    let ended: ReturnType<typeof endAgent>;
+    try {
+      ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, resumeFailed, env, fence: { epoch: epoch ?? job.lease.epoch } });
+    } catch (e) {
+      if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the role's end was not recorded, and its run log is kept at ${log}`, 'stale_epoch');
+      throw e;
+    }
+    const data = {
+      id: jobId,
+      role: sp.role,
+      rule: sp.rule,
+      agentId,
+      resumed,
+      ...(resumeFailed ? { resumeFailed: true } : {}),
+      ...(sp.resumeSkipped ? { resumeSkipped: sp.resumeSkipped } : {}),
+      status: failure ? ('failed' as const) : ('done' as const),
+      summary: summary ?? null,
+      failure: failure ? { class: failure.class, reason, resetsAt: failure.resetsAt === null ? null : new Date(failure.resetsAt).toISOString() } : null,
+      denied: outcome.denied,
+      wallMs,
+      log,
+      prefix,
+      ...(prefixRefused ? { prefixRefused } : {}),
+      context: mark,
+      usage: ended.usage ? { tokens: ended.usage.tokens, exact: ended.usage.exact } : null,
+      ...(ended.unmeasured ? { unmeasured: true } : {}),
+      jobTokens: ended.jobTokens,
+      jobCostUsd: ended.jobCostUsd,
+      ...(ended.outputMissing !== undefined ? { outputMissing: ended.outputMissing } : {}),
+      ...(ended.secrets ? { secrets: ended.secrets } : {}),
+      ...(ended.budget ? { budget: ended.budget } : {}),
+    };
+    return { data, exitCode: failure ? (EXTERNAL.has(failure.class) ? 5 : 1) : 0 };
+  } finally {
+    release();
+  }
 }

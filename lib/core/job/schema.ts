@@ -33,6 +33,9 @@ export const DAEMON_AUTH = ['subscription', 'api-key'] as const;
 /** daemon.keepAwake: whether this project's work in flight holds the machine's sleep assertion. */
 export const KEEP_AWAKE_MODES = ['auto', 'never'] as const;
 
+/** daemon.driver: who drives a job scope's resume turns, a `claude -p` orchestrator session or forge dash's code driver. */
+export const DAEMON_DRIVERS = ['session', 'code'] as const;
+
 /** notify.webhooks[].events: what Forge can notify about, most specific first where two overlap. */
 export const NOTIFY_EVENTS = ['gate', 'pr-opened', 'pr-merged', 'job-failed', 'daemon-stopped', 'budget-exceeded', 'secret-found', 'service-restarted', 'mandate-stalled', 'mandate-budget', 'mandate-closed'] as const;
 

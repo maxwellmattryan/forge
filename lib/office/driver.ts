@@ -32,6 +32,16 @@ export function intakeIdOf(info: any): string | null {
   return typeof id === 'string' && UUID.test(id) ? id : null;
 }
 
+/**
+ * The code driver's own id in a job scope's record (lib/office/code/job-driver.ts), or null: only a uuid counts, since the
+ * record is a local file a session can write. It is no session id, so recordIds never returns it and an inner session's
+ * release never lets the driver's lease go.
+ */
+export function driverIdOf(info: any): string | null {
+  const id = info?.driverId;
+  return typeof id === 'string' && UUID.test(id) ? id : null;
+}
+
 /** Every id of the inbox session's record, and the intake runner's claim id. */
 export function inboxSessionIds(root: string): string[] {
   const rec = sessionRecords(root).find((r) => r.scope === INBOX_SCOPE);
@@ -41,14 +51,18 @@ export function inboxSessionIds(root: string): string[] {
   return [...new Set([...recordIds(info), ...(intake ? [intake] : [])])];
 }
 
-/** Every id of every session record, and the intake runner's: the sessions `forge dash` ran, as opposed to interactive ones. */
+/**
+ * Every id of every session record, the intake runner's, and every code driver's id: the sessions and drivers `forge dash`
+ * ran, as opposed to interactive ones, so a pool boot's release also expires a code turn's lease that a dead dash left.
+ */
 export function daemonSessionIds(root: string): string[] {
   return [
     ...new Set(
       sessionRecords(root).flatMap((r) => {
         const info = readInfo(r.info);
         const intake = r.scope === INBOX_SCOPE ? intakeIdOf(info) : null;
-        return [...recordIds(info), ...(intake ? [intake] : [])];
+        const driver = driverIdOf(info);
+        return [...recordIds(info), ...(intake ? [intake] : []), ...(driver ? [driver] : [])];
       }),
     ),
   ];

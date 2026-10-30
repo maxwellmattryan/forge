@@ -135,6 +135,9 @@ export const API_CHANGES = [
   // DaemonPoolState.office is OfficeRunsState (OfficeRunState, OfficeRunOutcome): forge dash's office runner runs draft
   // and direct requests in code, and the office session is retired; MachineProjectSummary.daemon.office is derived from it.
   { id: 'office-runs' },
+  // DaemonPermissionPrompt.role (string | null, optional): the role whose own child asked, for a code turn's role run
+  // whose prompt the code driver relays; absent or null for a session's prompt.
+  { id: 'prompt-role' },
 ] as const;
 
 /**

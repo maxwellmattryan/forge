@@ -114,17 +114,27 @@ export function createOwned(core: SessionCore) {
    * office and chat close nothing. Never throws.
    */
   function takeUp(ids: readonly string[]): void {
-    if (sharedScope(scope) || !validJobId(scope)) return;
-    const mine = recordIds(core.info);
-    const ours = (r: ForgeRequest) => r.type === 'resume' && r.job === scope && (r.status === 'pending' || (typeof r.session === 'string' && mine.includes(r.session)));
-    const closed: string[] = [];
-    for (const id of ids) {
-      try {
-        if (closeIfOpen(root, id, ours, { status: 'done', result: RESUME_TAKEN_UP })) closed.push(id);
-      } catch {}
-    }
+    const closed = closeResumes(root, scope, ids, recordIds(core.info));
     if (closed.length) core.logEvent('requests-closed', { requests: closed });
   }
 
   return { agents, computeKept, keptBy, facts, release, takeUp };
+}
+
+/**
+ * Closes `done` (RESUME_TAKEN_UP) each of `ids` that is a `resume` for job `scope`, still pending or claimed under one of
+ * `mine`, and returns the ids it closed: a session's working turn (takeUp) or a code turn (lib/office/code/job-driver.ts)
+ * took them up. Read under the requests lock: another type, another driver's claim and an ack already made are left as
+ * they are. The inbox, office and chat scopes close nothing. Never throws.
+ */
+export function closeResumes(root: string, scope: string, ids: readonly string[], mine: readonly string[]): string[] {
+  if (sharedScope(scope) || !validJobId(scope)) return [];
+  const ours = (r: ForgeRequest) => r.type === 'resume' && r.job === scope && (r.status === 'pending' || (typeof r.session === 'string' && mine.includes(r.session)));
+  const closed: string[] = [];
+  for (const id of ids) {
+    try {
+      if (closeIfOpen(root, id, ours, { status: 'done', result: RESUME_TAKEN_UP })) closed.push(id);
+    } catch {}
+  }
+  return closed;
 }

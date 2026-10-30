@@ -108,8 +108,11 @@
     void openFile;
     if (fileView) fileView.scrollTop = 0;
   });
+  /** The role a Thread row's Transcript button named: the Agents tab opens on it. Any other tab change clears it. */
+  let agentFocus = $state<string | null>(null);
   /** The header and the tab strip never scroll away, so a new tab simply starts at its own top. */
-  function selectTab(tab: DrawerTab, focus = false): void {
+  function selectTab(tab: DrawerTab, focus = false, role: string | null = null): void {
+    agentFocus = role;
     setDrawerTab(tab);
     if (panel) panel.scrollTop = 0;
     if (focus) document.getElementById('drawer-tab-' + tab)?.focus();
@@ -161,13 +164,13 @@
       </div>
       <div bind:this={panel} role="tabpanel" id="drawer-panel-{shown.tab}" aria-labelledby="drawer-tab-{shown.tab}" tabindex="0" class="min-h-0 flex-1 overscroll-contain {shown.tab === 'log' || shown.tab === 'files' ? 'overflow-hidden' : 'overflow-y-auto'} p-5 md:p-6 flex flex-col gap-5 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-line-strong focus-visible:-outline-offset-2">
         {#if shown.tab === 'thread'}
-          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} />
+          <ThreadPanel job={j} requests={d.requests ?? []} opening={threadOpening(d)} events={d.events ?? []} baseline={S.drawer.threadAtOpen} transcripts={(d.agents ?? []).filter((a) => a.transcript).map((a) => a.role)} onrole={(role) => selectTab('agents', true, role)} />
         {:else if shown.tab === 'log'}
           <!-- Keyed by job id (and owner transcript), so the drawer's 2 s refresh never re-creates the log or its stream; `active`
                closes the stream as soon as the drawer closes, though its last view stays while it slides out. -->
           {#key logKey}<SessionLog scope={j.id} active={open} transcript={ownerLog} stage={j.stage} controls={false} fill />{/key}
         {:else if shown.tab === 'agents'}
-          {#key j.id}<AgentsTab job={j.id} detail={d} active={open} />{/key}
+          {#key j.id}<AgentsTab job={j.id} detail={d} active={open} focus={agentFocus} />{/key}
         {:else if shown.tab === 'files'}
           {@const file = shown.file}
           {@const content = shown.content}

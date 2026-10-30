@@ -7,9 +7,9 @@
 import fs from 'node:fs';
 import { trustDigest } from '#core/config/load.ts';
 import { confineDigest } from './session/confine.ts';
-import { createSession } from './session/lifecycle.ts';
 import { TRUST_CHANGED } from './session/launch.ts';
 import { CHAT_START, sendChat } from './chat/send.ts';
+import { createScopeSession } from './code/job-driver.ts';
 import { runForgeCall, runPassChild, runSyncChild } from './inbox/children.ts';
 import { createPassScheduler } from './mandates/cadence.ts';
 import { sessionOptions, type DaemonOptions, type Session, type SessionContext, type SessionEvent } from './session/contract.ts';
@@ -162,7 +162,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   function session(scope: string): Session {
     let s = sessions.get(scope);
     if (!s) {
-      s = createSession(root, scope, ctx, o);
+      s = createScopeSession(root, scope, ctx, o);
       sessions.set(scope, s);
     }
     return s;

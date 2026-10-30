@@ -6,7 +6,7 @@ import { ForgeError } from '#core/errors.ts';
 import { inOffice } from '#core/job/requests.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
-import { refuseOutsideOffice } from '#office/owner.ts';
+import { refuseOutsideOffice } from '#office/session/permissions/owner.ts';
 import { cleanReason } from '#office/mandates/contract.ts';
 import { directorTracker, officeBoard, officeNote, officeResume, officeStart, officeSurvey } from '#office/mandates/director.ts';
 import { runOfficePass } from '#office/mandates/pass.ts';

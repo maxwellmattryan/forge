@@ -19,7 +19,7 @@ import type { HelpGroup } from '../types.ts';
  * `forge focus --clear <id>` is refused rather than reading the id as --clear's,
  * `forge dash --quiet` never swallows the argument after it, and `forge job decision --clean <id>` keeps its id.
  */
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run', 'clear', 'no-issue', 'verify-only', 'confirm', 'quiet', 'cold', 'clean']);
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run', 'clear', 'no-issue', 'verify-only', 'confirm', 'quiet', 'cold', 'clean', 'ipc']);
 
 export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
   const pos: string[] = [];

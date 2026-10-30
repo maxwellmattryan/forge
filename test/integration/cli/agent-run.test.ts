@@ -243,6 +243,11 @@ test('agent run refuses before anything is written', async (t) => {
     { name: 'unclaimed', setup: () => s.job({ lease: null }), status: 3, code: 'owned', message: /not claimed by session 1111.*forge job claim/ },
     { name: 'a stale --epoch', args: (id) => ['job', 'agent', 'run', id, '--session', S, '--epoch', '7'], status: 3, code: 'stale_epoch' },
     { name: 'an index past the list', args: (id) => ['job', 'agent', 'run', id, '--session', S, '--spawn-index', '1'], status: 1, code: 'stale_step', message: /returns spawn \(P1\) for planner with 1 spawn/ },
+    { name: 'a role not in the list', args: (id) => ['job', 'agent', 'run', id, '--session', S, '--role', 'builder'], status: 1, code: 'stale_step', message: /returns spawn \(P1\) for planner with 1 spawn, none of them for builder/ },
+    { name: '--role with --spawn-index', args: (id) => ['job', 'agent', 'run', id, '--session', S, '--role', 'planner', '--spawn-index', '0'], status: 2, code: 'usage' },
+    { name: 'a --role that is no role name', args: (id) => ['job', 'agent', 'run', id, '--session', S, '--role', '--x'], status: 2, code: 'usage' },
+    // Only a parent that started the runner with a channel can answer its prompts; without one nothing is read or written.
+    { name: '--ipc with no IPC channel', args: (id) => ['job', 'agent', 'run', id, '--session', S, '--ipc'], status: 2, code: 'usage', message: /--ipc needs an IPC channel/ },
     {
       name: 'a wait action',
       setup: async () => {
@@ -555,4 +560,93 @@ test('agent run stops its child when interrupted', async (t) => {
   const planner = loadJob(s.root, id).agents.planner;
   assert.equal(planner.status, 'failed');
   assert.match(planner.summary ?? '', /^interrupted: /);
+});
+
+test('agent run picks a spawn by role', async (t) => {
+  const s = scratch(t);
+  const { id, dir } = await s.job({ stage: 'review' });
+  updateJob(s.root, id, (x) => {
+    x.round = 1;
+    x.reviewers = ['code', 'tests', 'docs', 'security'];
+    x.verifyRuns = [{ round: 1, attempt: 1, sha: null, ok: true, at: new Date(Date.now() - 60_000).toISOString(), file: 'verify/round-1.md' }];
+  });
+  for (const [rel, text] of [['spec.md', '# Spec\n'], ['build.md', '## Round 1\n'], ['scope.md', '# Scope\n'], ['verify/round-1.md', 'PASS\n']]) {
+    fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(dir, rel), text);
+  }
+  for (const type of ['round', 'panel', 'scope']) logEvent(s.root, id, type, { round: 1 });
+  const step = await s.stepOf(id);
+  assert.deepEqual([step.rule, step.role, (step.spawns ?? []).map((x: any) => x.role)], ['RV4', 'reviewer:code', ['reviewer:tests', 'reviewer:docs', 'reviewer:security']], JSON.stringify(step));
+  // The third spawn of the panel, by its role; --cold keeps the run to its one child.
+  const r = await forgeInProcess(s.root, ['job', 'agent', 'run', id, '--session', S, '--role', 'reviewer:docs', '--cold'], { env: s.env() });
+  assert.equal(r.status, 0, JSON.stringify(r.error ?? r.data));
+  assert.deepEqual([(r.data as any).role, (r.data as any).rule], ['reviewer:docs', 'RV4']);
+  const started = readEvents(s.root, id).filter((e) => e.type === 'agent-start');
+  assert.deepEqual(started.map((e) => e.role), ['reviewer:docs'], 'the start names the role it picked');
+  const [child] = starts(s.records());
+  const brief = stdinLines(s.records())[0].message.content[0].text as string;
+  assert.equal(child.argv[child.argv.indexOf('--agent') + 1], 'forge:reviewer');
+  assert.equal(brief, withPrefixLine(step.spawns[1].brief), "the docs lens's own brief");
+});
+
+test('agent run relays permission asks over IPC', async (t) => {
+  const s = scratch(t);
+  /** One runner started with an IPC channel; `onAsk` gets each ask and the child process, and the messages are collected. */
+  const run = async (onAsk: (m: any, proc: ReturnType<typeof spawn>) => void) => {
+    const { id, dir } = await s.job();
+    const env = cliEnv(s.root, s.env({ FAKE_CLAUDE_ASK: 'cp a b', FAKE_CLAUDE_WRITE: `${path.join(dir, 'plan.md')}=PLAN: SINGLE\n` }));
+    const proc = spawn(process.execPath, [BIN, 'job', 'agent', 'run', id, '--session', S, '--ipc', '--json'], { cwd: s.root, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+    const messages: any[] = [];
+    let stdout = '';
+    proc.stdout!.on('data', (d) => (stdout += d));
+    proc.on('message', (m: any) => {
+      messages.push(m);
+      if (m?.event === 'ask') onAsk(m, proc);
+    });
+    // Not 'close': after the parent's own disconnect() it waits on a channel close that may never come.
+    const ended = new Promise<void>((resolve) => proc.stdout!.on('end', () => resolve()));
+    const code = await new Promise<number | null>((resolve) => proc.on('exit', (c) => resolve(c)));
+    await ended;
+    return { id, code, messages, out: JSON.parse(stdout) };
+  };
+
+  const a = await run((m, proc) => proc.send({ type: 'forge-answer', requestId: m.requestId, decision: 'allow' }));
+  assert.equal(a.code, 0, JSON.stringify(a.out));
+  const [child] = starts(s.records());
+  assert.deepEqual(
+    a.messages.map((m) => [m.type, m.role, m.event]),
+    [
+      ['forge-role', 'planner', 'started'],
+      ['forge-role', 'planner', 'child'],
+      ['forge-role', 'planner', 'reply'],
+      ['forge-role', 'planner', 'ask'],
+    ],
+  );
+  assert.equal(a.messages[1].pid, child.pid, "the role child's pid");
+  const ask = a.messages[3];
+  assert.deepEqual([ask.tool, JSON.parse(ask.input).command, ask.description, ask.rules], ['Bash', 'cp a b', 'Copy the fonts into the worktree', ['Bash(cp a b)']]);
+  const answer = stdinLines(s.records()).find((l) => l.type === 'control_response');
+  assert.equal(answer?.response?.response?.behavior, 'allow', 'the allow reached the role child');
+  assert.deepEqual([a.out.status, a.out.denied, loadJob(s.root, a.id).agents.planner.status], ['done', 0, 'done']);
+  assert.equal(child.nodeChannel, false, "the role child never gets the runner's channel");
+
+  // A parent that goes away while a prompt waits: the prompt is denied, the role is interrupted and its child stopped.
+  fs.rmSync(s.fakeLog);
+  const b = await run((_m, proc) => proc.disconnect());
+  assert.equal(b.code, 1, JSON.stringify(b.out));
+  const [second] = starts(s.records());
+  assert.deepEqual([b.out.status, b.out.failure.class], ['failed', 'interrupted']);
+  const planner = loadJob(s.root, b.id).agents.planner;
+  assert.deepEqual([planner.status, planner.summary?.startsWith('interrupted: ')], ['failed', true]);
+  await waitFor(
+    () => {
+      try {
+        process.kill(second.pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    },
+    { timeoutMs: 5000, what: "the role child's pid to be gone" },
+  );
 });

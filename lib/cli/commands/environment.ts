@@ -2,7 +2,7 @@
 // docs/CONFIG.md "Backing services" › Lifecycle). Forge does the same on its own: teardown when a job
 // finishes or is archived, stop on a park, start on resume, verify, run --background and focus.
 import { currentFocus } from '#engine/workspace/focus-actions.ts';
-import { refuseInboxDrive } from '#office/owner.ts';
+import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { ensureEnvironment, stopEnvironment, teardownEnvironment } from '#engine/environment/lifecycle.ts';
 import { liveJob, readEnvironments } from '#engine/environment/record.ts';
 import { isActive, loadJob } from '#core/job/store.ts';

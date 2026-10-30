@@ -1,5 +1,5 @@
 // The effective config and its sections' shapes, type-only: re-exported by lib/core/types.ts; unions with a runtime list derive from it.
-import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_ESCALATIONS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
+import type { BACKING_DB_ENGINES, BACKING_ISOLATIONS, DAEMON_AUTH, DAEMON_DRIVERS, EFFORT_ROLES, KEEP_AWAKE_MODES, FOREMAN_ESCALATIONS, FOREMAN_SHIP, NOTIFY_EVENTS, NOTIFY_FORMATS } from '../job/schema.ts';
 import type { LINK_ECOSYSTEMS } from './components.ts';
 import type { SINK_FORMATS, SINK_MODES } from './sinks.ts';
 import type { RELEASE_CADENCES, RELEASE_MECHANISMS, RELEASE_PUBLISH, RELEASE_REGISTRIES, RELEASE_VERSIONINGS } from './release-strategy.ts';
@@ -307,6 +307,8 @@ export interface Config {
     dailyUsd: { inbox: number | null; office: number | null; chat: number | null } | null;
     /** auto: an active mandate or a running job at an agent stage holds the machine dashboard's sleep assertion; never: it doesn't. */
     keepAwake: KeepAwakeMode;
+    /** session: a job scope's resume turns run a `claude -p` orchestrator; code: forge dash drives them itself (lib/office/code/job-driver.ts). */
+    driver: DaemonDriver;
   };
   /** The Foreman's authority: docs/CONFIG.md "Foreman". */
   foreman: {
@@ -391,6 +393,9 @@ export type DaemonAuth = (typeof DAEMON_AUTH)[number];
 
 /** daemon.keepAwake: KEEP_AWAKE_MODES in lib/core/job/schema.ts. */
 export type KeepAwakeMode = (typeof KEEP_AWAKE_MODES)[number];
+
+/** daemon.driver: DAEMON_DRIVERS in lib/core/job/schema.ts. */
+export type DaemonDriver = (typeof DAEMON_DRIVERS)[number];
 
 /** What loadConfig in lib/core/config/load.ts returns. */
 export interface LoadedConfig {

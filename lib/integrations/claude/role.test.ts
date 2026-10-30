@@ -113,6 +113,42 @@ test('runRoleChild denies prompts unattended, or sends the callback decision', a
   }
 });
 
+test('runRoleChild reports its start, first reply, withdrawn prompts and a timed-out deny', async () => {
+  type Row = { name: string; answer: Awaited<ReturnType<NonNullable<RoleRunOptions['onPermission']>>>; want: { decision: string; why?: string } };
+  const rows: Row[] = [
+    { name: 'a timeout deny carries its reason', answer: { decision: 'deny', why: 'timeout' }, want: { decision: 'deny', why: 'timeout' } },
+    { name: 'an allow drops a why', answer: { decision: 'allow', why: 'timeout' }, want: { decision: 'allow' } },
+    { name: 'a bare deny', answer: { decision: 'deny' }, want: { decision: 'deny' } },
+    { name: 'an unknown decision is an unattended deny', answer: { decision: 'yes' } as never, want: { decision: 'deny', why: 'unattended' } },
+  ];
+  for (const row of rows) {
+    const fake = fakeClaude();
+    const seen: string[] = [];
+    const { run } = start(fake.adapter, {
+      onPermission: () => row.answer,
+      onCancel: (id) => void seen.push(`cancel ${id}`),
+      onStart: (pid) => void seen.push(`start ${typeof pid}`),
+      onFirstRequest: () => void seen.push('reply'),
+    });
+    const [c] = fake.children;
+    assert.deepEqual(seen, ['start number'], `${row.name}: onStart once the child starts`);
+    init(c);
+    assert.deepEqual(seen, ['start number'], `${row.name}: init is no reply`);
+    c.emit({ kind: 'tool-use', names: ['Read'] });
+    c.emit({ kind: 'first-request', input: 1, cacheRead: 2, cacheWrite: 3 });
+    c.emit({ kind: 'tool-use', names: ['Bash'] });
+    assert.deepEqual(seen, ['start number', 'reply'], `${row.name}: onFirstRequest once, at the first assistant message`);
+    c.emit(ask('r1'));
+    await waitFor(() => c.answers.length === 1, { what: 'the answer' });
+    assert.deepEqual(c.answers, [{ requestId: 'r1', ...row.want }], row.name);
+    c.emit({ kind: 'permission-cancelled', requestId: 'r9' });
+    assert.deepEqual(seen.at(-1), 'cancel r9', `${row.name}: onCancel on permission-cancelled`);
+    c.emit(ok);
+    c.exit(0, null);
+    assert.equal((await run.done).ok, true, row.name);
+  }
+});
+
 test('runRoleChild classifies every failure it can see', async () => {
   const throwing: ClaudeAdapter = {
     start() {
