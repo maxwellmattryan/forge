@@ -1,13 +1,13 @@
 <!-- Project: the configured components by repo, their backing services and dependency edges, with a job's
      components and their downstream consumers highlighted (issue #175). Read-only. -->
 <script lang="ts">
-  import Empty from '../components/Empty.svelte';
-  import Loading from '../components/Loading.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
-  import Select from '../components/Select.svelte';
-  import StateChip from '../components/StateChip.svelte';
-  import ProjectEnvironmentsSkeleton from '../components/skeletons/ProjectEnvironmentsSkeleton.svelte';
-  import ProjectGraphSkeleton from '../components/skeletons/ProjectGraphSkeleton.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import Loading from '../components/ui/feedback/Loading.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
+  import Select from '../components/ui/Select.svelte';
+  import StateChip from '../components/jobs/StateChip.svelte';
+  import ProjectEnvironmentsSkeleton from '../components/skeletons/project/ProjectEnvironmentsSkeleton.svelte';
+  import ProjectGraphSkeleton from '../components/skeletons/project/ProjectGraphSkeleton.svelte';
   import type { ApiState, Job } from '../lib/core/types.ts';
   import { S, openDrawer } from '../lib/core/app.svelte.ts';
   import { projectRows } from '../lib/project/environment.ts';

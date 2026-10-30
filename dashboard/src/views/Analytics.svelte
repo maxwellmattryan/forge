@@ -1,9 +1,9 @@
 <!-- Analytics: how Forge itself is performing over a time window. -->
 <script lang="ts">
-  import PageHeader from '../components/PageHeader.svelte';
-  import PeriodMeter from '../components/PeriodMeter.svelte';
-  import Select from '../components/Select.svelte';
-  import AnalyticsStatsSkeleton from '../components/skeletons/AnalyticsStatsSkeleton.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
+  import PeriodMeter from '../components/metrics/PeriodMeter.svelte';
+  import Select from '../components/ui/Select.svelte';
+  import AnalyticsStatsSkeleton from '../components/skeletons/metrics/AnalyticsStatsSkeleton.svelte';
   import { dur, num, pct, tokensShort, usd } from '../lib/core/util.ts';
   import type { ApiState, UsageRow } from '../lib/core/types.ts';
   import { STATS_WINDOWS, jobMs, jobsSummary, topJobsByUsage, usageBars } from '../lib/metrics/analytics.ts';

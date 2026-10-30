@@ -1,12 +1,12 @@
 <!-- Machine: this machine's dashboard address, its machine cap and its registered projects, from GET /api/projects
      (S.machine). Read-only: each section names the CLI command that changes it. -->
 <script lang="ts">
-  import Banner from '../components/Banner.svelte';
-  import Chip from '../components/Chip.svelte';
-  import Empty from '../components/Empty.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
-  import MachineCapSkeleton from '../components/skeletons/MachineCapSkeleton.svelte';
-  import MachineProjectsSkeleton from '../components/skeletons/MachineProjectsSkeleton.svelte';
+  import Banner from '../components/ui/feedback/Banner.svelte';
+  import Chip from '../components/ui/Chip.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
+  import MachineCapSkeleton from '../components/skeletons/machine/MachineCapSkeleton.svelte';
+  import MachineProjectsSkeleton from '../components/skeletons/machine/MachineProjectsSkeleton.svelte';
   import { S } from '../lib/core/app.svelte.ts';
   import type { MachineProjectSummary } from '../lib/core/types.ts';
   import { t } from '../lib/text/locale.ts';
