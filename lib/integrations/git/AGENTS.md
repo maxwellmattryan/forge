@@ -2,7 +2,7 @@
 
 The one git runner, with its config pins and clean environment, and the offline repo slug.
 
-- Every git call goes through `runner.ts`, so no caller can forget the pins or the clean environment. Put `--` before revisions and paths, and validate any value from `gh` or job state before it reaches argv.
+- Every git call goes through `runner.ts`, so no caller can forget the pins or the clean environment (`test/invariants/security-scan.test.ts`). Put `--` before revisions and paths, and validate any value from `gh` or job state before it reaches argv.
 - `repo-slug.ts` never waits on `gh` or the network: issue refs read it on every job read.
 - Design: [Daemon security](../../../docs/architecture/daemon-security.md), [Untrusted input](../../../docs/architecture/untrusted-input.md).
 
