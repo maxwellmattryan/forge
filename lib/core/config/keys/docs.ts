@@ -184,6 +184,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   approver: { doc: 'what the approver never approves on its own' },
   'approver.alwaysEscalate': { doc: 'plain-language classes the approver must escalate', layout: 'block' },
+  'approver.skipWhenClean': { doc: 'true | false: on a clean pass Forge records the APPROVE and renders pr.md itself, without the approver (see "Clean pass")' },
 
   pr: { doc: 'the pull request each job opens' },
   'pr.enabled': { doc: 'false: no PRs; an approved job finishes on its branch' },

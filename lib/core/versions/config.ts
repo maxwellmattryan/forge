@@ -184,6 +184,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v49 adds pipeline.resumeRework (true), filled from defaults, so no v48 config changes; the bump lets older Forges
   // refuse a config whose resumeRework they would reject as an unknown key.
   { id: 'resume-rework', up: (c) => c },
+  // v50 adds approver.skipWhenClean (false), filled from defaults, so no v49 config changes; the bump lets older Forges
+  // refuse a config whose skipWhenClean they would reject as an unknown key.
+  { id: 'approver-skip-when-clean', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

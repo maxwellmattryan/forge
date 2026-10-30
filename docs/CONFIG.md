@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 49            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 50            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -196,6 +196,7 @@ approver:                    # what the approver never approves on its own
     - new or upgraded dependencies
     - public API or protocol breaking changes
     - anything touching credentials, auth or permissions
+  skipWhenClean: false       # true | false: on a clean pass Forge records the APPROVE and renders pr.md itself, without the approver (see "Clean pass")
 
 pr:                          # the pull request each job opens
   enabled: true              # false: no PRs; an approved job finishes on its branch
@@ -516,6 +517,29 @@ On rounds 2 and later of a job with no open PR and no reviewed member, under `na
 - **A person's CI actions.** `forge pr rerun <id>` (and the dashboard's **Re-run failed checks**) re-runs the failed GitHub Actions runs on the PR head as a person, by the same rules as the CI re-run (the PR's own repo, at most 5 runs, each on that head and completed), and logs a `ci-rerun` with the person's `actor`. It needs the job waiting on `pr-review` at the head the last sync recorded, that head still live and its checks failing, and it changes no job state. Sync treats that event as the head's re-run: while GitHub still lists a job the person re-ran as failing, sync starts no CI rework and queues no gate, and a head the foreman already reworked is never re-run by sync after a person's re-run (it waits, then parks with `still-failing`). Once the rollup shows new failing job ids, the foreman's CI rework starts as before. A person may re-run a head any number of times. The dashboard's **Fix CI** is a person's rework of a red head: the job goes to `build` with a fixed `feedback.md` that also names the failing checks the last sync recorded (each a `CHECK_NAME` name, in backticks, under a data label), and the `human` `rework` event is the person's, so it resets the CI rework count. `forge pr sync` records why a PR waits on `job.pr`: `failingChecks` (`names`, `more`, and `actions`, how many failing checks are GitHub Actions jobs in the PR's repo) and `feedbackSinceRound` (reviews and conversation comments by people with write access since the job's latest round, PR open or PR update), which the dashboard's PR row reads.
 
 Both routes have the same guards. The job is not claimed by a live session (the test `forge next` uses, judged inside the job lock), the PR head is the commit Forge pushed (a human push is left alone), and each head is routed once, so a failed integration doesn't loop. Sync never claims the job: with `daemon.enabled` it queues a `resume` for the job's session, and otherwise `forge sync` lists the job under `integrating` for `/forge continue <id>`. `forge pr merge` syncs without routing.
+
+## Clean pass
+
+**`approver.skipWhenClean`** (`false` by default, locked in the settings, so a person turns it on in `.forge/config.yml`) skips the approver when its outcome is already known. In stage decide, after DC11, DC10 and RC1, rule DC13 runs `forge job decision <id> --clean` on a **clean pass**, when all of these hold; anything else spawns the approver as before (DC1):
+
+1. The key is on; the job is in decide, running, and not an eval.
+2. Auto-merge is off (`merge.auto`, or `foreman.ship: merge|release` with the Foreman on), and the job has no open PR.
+3. The reviewed head is current (no commit after review).
+4. Every lens passed: the round's verdicts are complete, non-empty and all `PASS`, and every lens of the job's full panel that a narrowed round didn't re-run has `PASS` as its latest earlier verdict.
+5. Nothing can escalate, by the gate check (`forge job gate`, a `gate` event): at least one `gate` event lies after the last review and after the job's last entry into decide, and every `gate` event since the review has an empty `reasons` list. Any other `reasons` (not a list, unreadable or with any entry) fails, so the approver runs.
+6. No protected path is touched: `job.protectedPaths` has no hits and no `more`, even when a person approved it.
+7. There is no `runbook.md`.
+8. Every acceptance criterion is proven (`forge job acs`: at least one, all covered, none unmapped or failing).
+9. No instruction file changed on the branch (a diff git can't compute counts as changed), and no recall eval is required.
+10. Since the last review the job has not waited or been blocked, no approver started, and nothing recorded a decision.
+
+`forge job decision <id> --clean` checks the same again on a fresh read, writes `decision.md` and `pr.md` into the job dir (over any earlier ones), and records the `decision` event `{decision: APPROVE, reason: null, autoMerge: false, head, heads?, clean: true}`. A second call after that decision prints it with `recorded: false` and writes nothing; on a job that isn't a clean pass it exits 1 with `job <id> is not a clean pass: <check>` and writes nothing. From there the flow is the `APPROVE` path: the job integrates and opens its PR, with the rendered `pr.md` as the body (attribution stripped and the body scanned for secrets, as for any PR). A later review makes the clean decision stale, and the checks run again; a clean decision counts only while the key is on, and only when it was recorded in decide.
+
+The rendered `decision.md` reads `APPROVE`, `Auto-merge eligible: no`, the panel (each lens `PASS`, sorted by name, with ` (round <n>)` on a pass carried from an earlier round), `Escalation reasons: none` and `Approver: skipped on a clean pass (approver.skipWhenClean)`. The rendered `pr.md` has a Summary (the spec's title, else the job's, and the first paragraph of its Goal), Changes (every `Changes:` bullet of each `## Round <n>` in build.md, at most 30), the latest AC table, and a note that Forge approved it without the approver. Each copied piece of builder or spec text is cleaned first: HTML comments (Forge's markers included) and invisible characters go, line breaks become spaces, and it is cut with `…` (a summary at 1200 characters, a bullet at 400, a proof cell at 300 with `|` escaped, a result cell at 40).
+
+**What it gives up.** The approver's judgement-only checks: the `approver.alwaysEscalate` topics, files outside the spec's scope and verify integrity findings. A clean pass is never auto-merge eligible, so the skip is off with auto-merge on and a person still merges, and the Foreman's policy is unchanged.
+
+**Inert until the gate check ships.** Until `forge job gate` (the escalation reasons as data) is on your Forge, no `gate` event exists, so check 5 fails and the approver always runs.
 
 ## Merge
 

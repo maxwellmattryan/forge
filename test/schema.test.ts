@@ -163,6 +163,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'improve-transcripts', input: { improve: { retroEvery: 5 } }, fields: { improve: { retroEvery: 5 } }, removed: ['improve.transcripts'], note: ONLY_VERSION },
   { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
   { step: 'resume-rework', input: { pipeline: { maxRounds: 4 } }, fields: { pipeline: { maxRounds: 4 } }, removed: ['pipeline.resumeRework'], note: ONLY_VERSION },
+  { step: 'approver-skip-when-clean', input: { approver: { alwaysEscalate: ['x'] } }, fields: { approver: { alwaysEscalate: ['x'] } }, removed: ['approver.skipWhenClean'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [

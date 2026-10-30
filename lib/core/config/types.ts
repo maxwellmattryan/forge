@@ -244,7 +244,7 @@ export interface Config {
     /** Rounds 2+: `narrow` re-runs only the rework panel (forge job panel's `rerun`), `full` every lens. */
     onRework: 'narrow' | 'full';
   };
-  approver: { alwaysEscalate: string[] };
+  approver: { alwaysEscalate: string[]; skipWhenClean: boolean };
   pr: {
     enabled: boolean;
     draft: boolean;
