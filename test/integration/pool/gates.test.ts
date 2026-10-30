@@ -10,7 +10,8 @@ import { execFileSync } from 'node:child_process';
 import { BIN, fakeClaude, jobAt, parkedAt, repoTemplate, waitFor } from '../../helpers.ts';
 import type { FakeClaudeChild } from '../../helpers.ts';
 import * as yaml from '#core/format/yaml.ts';
-import { loadConfig } from '#core/config/load.ts';
+import { defaults, loadConfig } from '#core/config/load.ts';
+import { deepMerge } from '#core/shape.ts';
 import { claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
 import { createJob, loadJob, readEvents } from '#core/job/store.ts';
 import { createPool } from '#office/pool.ts';
@@ -28,7 +29,8 @@ const scratch = repoTemplate((dir) => {
 
 function editConfig(root: string, edit: (c: any) => void): void {
   const file = path.join(root, '.forge', 'config.yml');
-  const c = yaml.parse(fs.readFileSync(file, 'utf8'));
+  // Over the defaults: init write leaves keys at their default out of the file.
+  const c = deepMerge(defaults(), yaml.parse(fs.readFileSync(file, 'utf8')));
   edit(c);
   fs.writeFileSync(file, yaml.stringify(c));
 }

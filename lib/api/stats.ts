@@ -69,6 +69,24 @@ export interface VerifierStats {
   hitRate: number | null;
 }
 
+/** One lane of the daemon sessions' own spend: laneOf in lib/engine/metrics/meter.ts. `turns` counts session-usage records (daemon turns). */
+export interface LaneSpend {
+  tokens: number;
+  estCostUsd: number;
+  turns: number;
+}
+
+/**
+ * The daemon sessions' own spend from each turn's result `usage` (main-loop calls only, never subagents'), priced with
+ * today's table: Stats.cost.orchestrator. The totals are the lanes' sum. Agent spend is apart, and no budget reads it.
+ */
+export interface OrchestratorSpend extends LaneSpend {
+  /** `job` over the stats population's session-usage events; `inbox` and `office` from the runtime ledger since `since` (zeros over a given job list or a mandate). */
+  byLane: { job: LaneSpend; inbox: LaneSpend; office: LaneSpend };
+  /** `jobs` is the population; `withUsage` the jobs with any session-usage event; `agentUsd` their summed agent spend (usage.estCostUsd). */
+  coverage: { jobs: number; withUsage: number; agentUsd: number };
+}
+
 /** GET /api/stats: computeStats in lib/engine/metrics/stats.ts. */
 export interface Stats {
   generatedAt: string;
@@ -144,8 +162,10 @@ export interface Stats {
     reportingCoverage: { agentRuns: number; withUsage: number; exact: number };
     byRole: Record<string, UsageRow>;
     byModel: Record<string, UsageRow>;
-    /** Supervisor-metered spend by session kind (orchestrator, inbox, office, assistant, chat), on or after `since`; {} over a given job list. */
+    /** Supervisor-metered spend by session kind (job-session, inbox, office, assistant, chat), on or after `since`; {} over a given job list. */
     sessions: Record<string, UsageRow>;
+    /** The daemon sessions' own spend per turn, by lane; an older stats.json has none. */
+    orchestrator?: OrchestratorSpend;
   };
   reviewers: Record<string, ReviewerStats>;
   verifiers: Record<string, VerifierStats>;

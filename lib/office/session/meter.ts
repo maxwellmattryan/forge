@@ -3,15 +3,17 @@
 // checkpoint `session-meter`; the inbox, the office and the chats stop at their daemon.dailyUsd cap (forge dash's gate
 // runs share the office's through officeCapRefusal and officeCapLeft, and every chat the project's one chat cap,
 // summed), and when a meter it sums can't be read the cap can't be checked, so they stop too. claude reports its cost
-// itself, so a session's own reporting never moves what is enforced (docs/architecture/daemon-security.md).
+// itself, so a session's own reporting never moves what is enforced (docs/architecture/daemon-security.md). Each result
+// first records the turn's own usage (recordTurnUsage), which nothing enforces.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
+import { logEvent as logJobEvent } from '#core/job/store.ts';
 import { enforceBudget } from '#engine/metrics/budget.ts';
-import { appendMeter, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked } from '#engine/metrics/meter.ts';
+import { SESSION_USAGE_EVENT, appendMeter, appendSessionUsage, lastMeterCum, METER_VERSION, meterDelta, meterTodayUsd, readMeter, readMeterChecked, sessionUsagePayload } from '#engine/metrics/meter.ts';
 import type { MeterCum, MeterRecord } from '#engine/metrics/meter.ts';
-import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, isChatScope, validJobId } from '#core/job/requests.ts';
+import { GATES_SCOPE, INBOX_SCOPE, OFFICE_SCOPE, isChatScope, sharedScope, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import type { SessionCore } from './contract.ts';
 import type { Config } from '#core/types.ts';
@@ -120,6 +122,24 @@ export function officeCapLeft(root: string, c: Config, at: number): number | nul
   return 'problem' in s ? 0 : Math.max(0, cap - s.spent);
 }
 
+/**
+ * Records one result's own usage (its `usage`, main-loop calls only) under the session's own project root: a job
+ * session's as a `session-usage` job event, the inbox's and office's in their session-usage file. A chat or anything
+ * else, and a result without usage, record nothing. Never throws: a write that fails is logged and the session goes on.
+ */
+export function recordTurnUsage(core: SessionCore, e: Extract<ClaudeEvent, { kind: 'turn-ended' }>, turn: number): void {
+  if (!e.usage) return;
+  const { root, scope } = core;
+  try {
+    const payload = sessionUsagePayload(e.usage, core.info?.sessionId ?? null, turn, e.ok);
+    // The same supervisor-event path as permission-timed-out: no CLI command writes session-usage.
+    if (validJobId(scope) && !sharedScope(scope)) logJobEvent(root, scope, SESSION_USAGE_EVENT, payload);
+    else if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) appendSessionUsage(root, scope, payload);
+  } catch (err) {
+    core.logEvent('error', { message: `usage: ${(err as Error).message}` });
+  }
+}
+
 export function createMeter(core: SessionCore, stop: StopSelf) {
   const { root, scope } = core;
   const shared: Family | null = scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : isChatScope(scope) ? 'chat' : null;
@@ -167,6 +187,7 @@ export function createMeter(core: SessionCore, stop: StopSelf) {
 
     /** Meters one result and says whether the session must stop. Never throws: a record that can't be written logs an error. */
     result(e: Extract<ClaudeEvent, { kind: 'turn-ended' }>, turn: number): MeterStop | null {
+      recordTurnUsage(core, e, turn);
       if (!e.cost) return null;
       const at = Date.now();
       let rec: MeterRecord;

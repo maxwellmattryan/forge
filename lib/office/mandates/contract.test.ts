@@ -8,6 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { BIN, forgeInProcess, repoTemplate } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import * as yaml from '#core/format/yaml.ts';
+import { deepMerge } from '#core/shape.ts';
 import { MANDATE_SCHEMA_VERSION } from '#core/versions/mandate.ts';
 import { applyInput, blankMandate, effectiveContract, isReadable, mandateChain, mandateState, mandateSummary } from './contract.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -41,7 +42,8 @@ test('mandate input refusals', async () => {
   try {
     // foreman.reserved with a mis-written class reservation can't be read: every gate stays with a human.
     const cfg = path.join(bad.dir, '.forge', 'config.yml');
-    const parsed = yaml.parse(fs.readFileSync(cfg, 'utf8'));
+    // Over the defaults: init write leaves keys at their default out of the file.
+    const parsed = deepMerge(defaults(), yaml.parse(fs.readFileSync(cfg, 'utf8')));
     parsed.foreman.reserved = ['gate:nope'];
     fs.writeFileSync(cfg, yaml.stringify(parsed));
     await ok(r.dir, ['mandate', 'new', 'a', '--title', 'A', '--milestones', 'M1']);

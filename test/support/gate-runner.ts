@@ -4,6 +4,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as yaml from '#core/format/yaml.ts';
+import { defaults } from '#core/config/load.ts';
+import { deepMerge } from '#core/shape.ts';
 import { fakeClaude, type FakeClaudeChild } from './claude-adapter.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';
 import type { DaemonOptions, SessionContext } from '#office/session/contract.ts';
@@ -72,7 +74,8 @@ export const gateAnswer = (c: FakeClaudeChild, text: string, usd = 0): void => c
 /** Edits config.yml before a harness takes its trust snapshot. */
 export function editConfigFile(root: string, edit: (c: any) => void): void {
   const file = path.join(root, '.forge', 'config.yml');
-  const c = yaml.parse(fs.readFileSync(file, 'utf8'));
+  // Over the defaults: init write leaves keys at their default out of the file.
+  const c = deepMerge(defaults(), yaml.parse(fs.readFileSync(file, 'utf8')));
   edit(c);
   fs.writeFileSync(file, yaml.stringify(c));
 }
