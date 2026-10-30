@@ -1,6 +1,6 @@
 // A goal mandate's milestone draft and its drafting runs' records: the draft rules (draftProblems), the
 // stored `.forge/runtime/mandates/<id>/draft.json` (readDraft, recordDraft), the drafter's staging file
-// under the office session's worktrees root, the draft requests for a mandate, the spend ledger
+// under the office runs' drafts dir, the draft requests for a mandate, the spend ledger
 // (`ledger.jsonl`), and the status `forge mandate draft show` prints. docs/architecture/foreman.md › Intake.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -22,7 +22,7 @@ import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
 import { hasUsage } from '#engine/metrics/spend.ts';
-import { importClaudeCodeTranscript } from '#engine/metrics/usage.ts';
+import { importClaudeCodeTranscript, importSessionTranscript } from '#engine/metrics/usage.ts';
 import { roster } from '#engine/pipeline/roster.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
 import { mandateDir, withMandatesLock } from './store.ts';
@@ -147,7 +147,7 @@ function milestoneProblems(ms: unknown): string[] {
  * on one line or on lines, visible, bounded; 1-30 issues with unique keys; waves 1…max with no gap;
  * dependencies only on earlier waves; repo-relative files that no two issues in one wave share.
  * Every problem names a position (`issues[2].files[0]`) and numbers Forge computed, never a string the
- * drafter wrote: the office session acks with the refusal, so drafter text never reaches its context.
+ * drafter wrote: the office run acks with the refusal, so drafter text never reaches the ack or the dashboard.
  */
 export function draftProblems(raw: unknown, refOf: RefCheck): { problems: string[]; draft: DraftBody | null } {
   if (!isMap(raw)) return { problems: ['the draft must be a JSON object with milestone and issues'], draft: null };
@@ -259,7 +259,7 @@ export function readDraft(root: string, id: string): ReadDraft {
 /** The lowercase hex SHA-256 of `bytes`: a draft's digest. */
 export const sha256 = (bytes: Buffer | string): string => crypto.createHash('sha256').update(bytes).digest('hex');
 
-/** Where the drafter writes: `<worktrees.root>/_office/drafts/<id>.json`, inside the office session's write roots. */
+/** Where the drafter writes: `<worktrees.root>/_office/drafts/<id>.json`, inside the drafts dir, a draft office run's one write root. */
 export const stagingFile = (root: string, config: Config, id: string): string => path.join(worktreeRoot(root, config), '_office', 'drafts', `${id}.json`);
 
 /** The drafts dir's real path, made a level at a time; throws (exit 1) when a link or a file sits on it. */
@@ -353,7 +353,8 @@ export function recordDraft(
   opts: { agentId: string | null; metered: boolean },
 ): { ok: true; mandate: string; request: string; digest: string; draft: { issues: number; waves: number; existing: number }; spend: DraftSpend; file: string } {
   return withMandatesLock(root, () => {
-    const usage = opts.agentId ? importClaudeCodeTranscript(opts.agentId, {}) : null;
+    // A sub-agent's transcript, else a headless drafter's own (an office run's child, whose session id is the agent id).
+    const usage = opts.agentId ? (importClaudeCodeTranscript(opts.agentId, {}) ?? importSessionTranscript(root, opts.agentId)) : null;
     const row = roster(root, config).agents.find((a) => a.role === 'drafter');
     appendSpend(root, m.id, {
       v: EVENT_SCHEMA_VERSION,
@@ -421,8 +422,8 @@ export function draftSpend(root: string, config: Config, id: string): DraftSpend
   return out;
 }
 
-/** The note `draft show` gives while a request waits on an office session that isn't running. */
-export const OFFICE_OFF_NOTE = 'the office session drafts it once daemon.enabled and foreman.enabled are on';
+/** The note `draft show` gives while a request waits on office runs that aren't on. */
+export const OFFICE_OFF_NOTE = 'forge dash drafts it once daemon.enabled and foreman.enabled are on';
 
 /** `forge mandate draft show`'s status, latest request, note, problem and draft for a goal mandate. */
 export function draftStatus(

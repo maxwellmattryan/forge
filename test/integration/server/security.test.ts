@@ -126,6 +126,10 @@ test('POST /api/daemon is token, origin and JSON guarded', async () => {
     assert.equal(kit.children.length, 0);
 
     writeConfig(repo.dir, { enabled: true, command: 'claude {session}' });
+    // A request of a type the intake runner doesn't handle: the inbox session spawns for it (the fallback).
+    const id = `${Date.now()}-fallback`;
+    fs.mkdirSync(path.join(repo.dir, '.forge', 'runtime', 'requests'), { recursive: true });
+    fs.writeFileSync(path.join(repo.dir, '.forge', 'runtime', 'requests', `${id}.json`), JSON.stringify({ id, type: 'future-type', job: null, args: {}, from: 'cli', status: 'pending', createdAt: new Date().toISOString() }));
     const started = await post('{"action":"start"}');
     assert.equal(started.status, 200);
     assert.equal(JSON.parse(started.text).inbox.running, true);

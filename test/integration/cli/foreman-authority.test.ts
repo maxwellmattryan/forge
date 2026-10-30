@@ -26,7 +26,7 @@ const scoped = (scope: string): NodeJS.ProcessEnv => ({ FORGE_DAEMON: '1', FORGE
 const AUTHORITY = "--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions";
 const BROKEN = /FORGE_DAEMON_SCOPE is missing or invalid/;
 const GATES = "forge refuses: a gate run's assistant runs no forge commands";
-const OFFICE_HUMAN = "the office session records no gate decisions: forge dash's gate runner decides gates";
+const OFFICE_HUMAN = "the office records no gate decisions: forge dash's gate runner decides gates";
 
 const events = (root: string, job: string) => fs.readFileSync(path.join(jobDir(root, job), 'events.jsonl'));
 

@@ -2,7 +2,7 @@
 // visibility-aware interval. No DOM access (startTicker takes its document and timers), so node:test can drive it.
 import { asking, obj } from './daemon.ts';
 import type { PoolInput, SessionInput } from './daemon.ts';
-import { INBOX_SCOPE, OFFICE_SCOPE } from '../core/types.ts';
+import { INBOX_SCOPE } from '../core/types.ts';
 
 export type ActivityKind = 'working' | 'asking' | 'waiting' | 'idle' | 'off';
 export interface Activity {
@@ -50,12 +50,11 @@ const active = (s: SessionInput): boolean => {
   return k === 'working' || k === 'asking';
 };
 
-/** The sidebar's heartbeat: sessions working or asking, the inbox first, then the office, then job ids sorted. */
+/** The sidebar's heartbeat: sessions working or asking, the inbox first, then job ids sorted. */
 export function activeSessions(pool: PoolInput): { count: number; ids: string[] } {
   const p = obj(pool);
   const ids = [
     ...(p.inbox && active(p.inbox) ? [INBOX_SCOPE] : []),
-    ...(p.office && active(p.office) ? [OFFICE_SCOPE] : []),
     ...Object.keys(obj(p.jobs)).filter((id) => active(jobSession(pool, id))).sort(),
   ];
   return { count: ids.length, ids };

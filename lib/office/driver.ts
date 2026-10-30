@@ -23,15 +23,35 @@ export function recordIds(info: any): string[] {
   return [...new Set(ids)];
 }
 
-/** Every id of the inbox session's record. */
-export function inboxSessionIds(root: string): string[] {
-  const rec = sessionRecords(root).find((r) => r.scope === INBOX_SCOPE);
-  return rec ? recordIds(readInfo(rec.info)) : [];
+/**
+ * The intake runner's claim id (lib/office/inbox/runner.ts) in the inbox's record, or null when it is not a uuid.
+ * Never one of recordIds: the inbox session's own exit must not let go of what a live intake run holds.
+ */
+export function intakeIdOf(info: any): string | null {
+  const id = info?.intakeSessionId;
+  return typeof id === 'string' && UUID.test(id) ? id : null;
 }
 
-/** Every id of every session record: the sessions `forge dash` ran, as opposed to interactive ones. */
+/** Every id of the inbox session's record, and the intake runner's claim id. */
+export function inboxSessionIds(root: string): string[] {
+  const rec = sessionRecords(root).find((r) => r.scope === INBOX_SCOPE);
+  if (!rec) return [];
+  const info = readInfo(rec.info);
+  const intake = intakeIdOf(info);
+  return [...new Set([...recordIds(info), ...(intake ? [intake] : [])])];
+}
+
+/** Every id of every session record, and the intake runner's: the sessions `forge dash` ran, as opposed to interactive ones. */
 export function daemonSessionIds(root: string): string[] {
-  return [...new Set(sessionRecords(root).flatMap((r) => recordIds(readInfo(r.info))))];
+  return [
+    ...new Set(
+      sessionRecords(root).flatMap((r) => {
+        const info = readInfo(r.info);
+        const intake = r.scope === INBOX_SCOPE ? intakeIdOf(info) : null;
+        return [...recordIds(info), ...(intake ? [intake] : [])];
+      }),
+    ),
+  ];
 }
 
 /** The lease has a driver and it is one of `ids`, live or expired. */

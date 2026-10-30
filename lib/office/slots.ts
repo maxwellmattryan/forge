@@ -30,20 +30,20 @@ export function sessionKind(scope: string): SessionKind {
 /** Counted against daemon.maxConcurrent and the machine cap: job sessions only. */
 export const counted = (scope: string): boolean => sessionKind(scope) === 'job';
 
-/** The office session's --model at its spawn: foreman.model when it is a valid model and not inherit, else null (daemon.command's). */
+/** The `_office` scope's --model (the retired office session's): foreman.model when it is a valid model and not inherit, else null (daemon.command's). */
 export function officeModel(c: Config): string | null {
   const m = validModel(c.foreman?.model);
   return m && m !== 'inherit' ? m : null;
 }
 
-/** The office session's --effort at its spawn: foreman.effort when it is valid, else the default effort (resolveEffort with no job). */
+/** The `_office` scope's --effort (the retired office session's): foreman.effort when it is valid, else the default effort (resolveEffort with no job). */
 export function officeEffort(c: Config): { level: Effort | null; source: EffortSource } {
   const own = validEffort(c.foreman?.effort);
   return own ? { level: own, source: 'role' } : resolveEffort(c, null);
 }
 
 /**
- * The --effort a spawn of `scope` gets: the office session's officeEffort. Any other session runs the
+ * The --effort a spawn of `scope` gets: officeEffort for `_office` (the retired office session's scope). Any other session runs the
  * orchestrator, with no role, so per-role, panel and complexity levels never reach its argv: only its
  * job's effort and runtime.effort do, under an eval job's overlaid config (a tampered overlay falls back
  * to the base, since step and verify refuse that job anyway). A missing or unreadable job falls back to the config's.
@@ -59,7 +59,7 @@ export function sessionEffort(root: string, scope: string, c: Config): { level: 
   return resolveEffort(jc, job);
 }
 
-/** The --model a spawn of `scope` gets: the office session's officeModel; every other session keeps daemon.command's. */
+/** The --model a spawn of `scope` gets: officeModel for `_office` (the retired office session's scope); every other session keeps daemon.command's. */
 export const sessionModel = (scope: string, c: Config): string | null => (scope === OFFICE_SCOPE ? officeModel(c) : null);
 
 /**
@@ -81,7 +81,7 @@ export function sessionBrowser(root: string, scope: string, env: NodeJS.ProcessE
   }
 }
 
-/** Spawns `s` when no child runs, then hands it `eligible` as a turn (none for null: the eager inbox). False when the spawn was refused. */
+/** Spawns `s` when no child runs, then hands it `eligible` as a turn (none for null: a chat, whose owner's message is its turn). False when the spawn was refused. */
 export function startWork(s: Session, c: Config, reason: string, eligible: string[] | null): boolean {
   if (!s.running && !s.spawn(c, reason)) return false;
   if (eligible !== null) s.writeTurn(eligible);

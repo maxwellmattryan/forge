@@ -121,7 +121,7 @@ export async function resumeProject(name: string, root: string, pool: Pick<Daemo
     // The resume reaches its session at once, not at the pool's next poll.
     if (r.resumed.length) pool.poke();
     const jobs = listJobs(root).filter((j) => j.state === 'running').length;
-    // Open Office requests: the office session's draft and direct requests and the gate runner's gate requests.
+    // Open Office requests: the office runner's draft and direct requests and the gate runner's gate requests.
     const office = listRequests(root).filter((q) => {
       if (q.status !== 'pending' && q.status !== 'in-progress') return false;
       const scope = requestScope(root, q);

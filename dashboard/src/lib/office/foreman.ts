@@ -187,7 +187,7 @@ export function mandateGroups(rows: readonly (MandateRow | UnreadableMandateRow)
 /** A mandate state's chip tone: running work is ok, a chain link not yet started info, a pause warn, a closed one muted. */
 export const STATE_TONE: Record<MandateRow['state'], string> = { active: 'ok', waiting: 'info', paused: 'warn', closed: 'muted' };
 
-/** A directive action's chip tone: the office session's choices are neutral or live, the pass's enforcements warn or bad. */
+/** A directive action's chip tone: an office run's choices are neutral or live, the pass's enforcements warn or bad. */
 export const DIRECTIVE_TONE: Record<Directive['action'], string> = { start: 'ok', resume: 'ok', note: 'muted', skip: 'muted', pause: 'warn', close: 'muted', stall: 'warn', park: 'warn', cancel: 'bad', release: 'info', retro: 'info' };
 
 export type MandateAction = 'edit' | 'pause' | 'resume' | 'close';

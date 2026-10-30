@@ -71,7 +71,7 @@ test('gateRunRows drops malformed runs', () => {
 test('gateRunsHeader: off, live of parallel, and paused', () => {
   assert.deepEqual(gateRunsHeader(undefined), { enabled: false, live: 0, parallel: 0, held: null }, 'an older server reads as off');
   assert.deepEqual(gateRunsHeader({ enabled: true, parallel: 2, live: 1, held: null, runs: [] }), { enabled: true, live: 1, parallel: 2, held: null });
-  const cap = { reason: 'daily-cap', until: null, message: 'daemon stopped: the office session and its gate runs spent $1.05 of the $1.00 daily cap' };
+  const cap = { reason: 'daily-cap', until: null, message: 'daemon stopped: the office runs and gate runs spent $1.05 of the $1.00 daily cap' };
   assert.deepEqual(gateRunsHeader({ enabled: true, parallel: 2, live: 0, held: cap }).held, { kind: 'cap', message: cap.message });
   for (const reason of ['retry', 'limit'])
     assert.deepEqual(gateRunsHeader({ enabled: true, parallel: 2, live: 0, held: { reason, until: '2026-10-26T13:00:00.000Z', message: 'x' } }).held, { kind: 'until', until: '2026-10-26T13:00:00.000Z' }, reason);

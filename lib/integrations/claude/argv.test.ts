@@ -74,6 +74,13 @@ test('a system prompt to append goes once, before the deny tail', () => {
   assert.deepEqual([agent[a + 1], agent.filter((w) => w === '--agent').length], ['forge:assistant', 1]);
   assert.ok(a < agent.indexOf('--disallowedTools'), 'before the deny tail');
   assert.deepEqual([...agent.slice(0, a), ...agent.slice(a + 2)], plain, 'nothing else changes');
+  // An office run's children: each listed agent once; anything else appends nothing.
+  for (const name of ['forge:drafter', 'forge:surveyor', 'forge:director'] as const) {
+    const w = buildArgv('claude {session}', { ...vars, agent: name });
+    assert.deepEqual([w[w.indexOf('--agent') + 1], w.filter((x) => x === '--agent').length], [name, 1], name);
+  }
+  for (const other of ['forge:builder', 'forge:director --x', '--agent', 'director'])
+    assert.deepEqual(buildArgv('claude {session}', { ...vars, agent: other as never }), plain, `${other}: not a child agent`);
 });
 
 test("Forge's browser config goes once, before the deny tail", () => {
@@ -180,6 +187,10 @@ test("roleArgv builds a role child's command line", () => {
     { name: 'a fork', vars: { fork: true, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid, '--fork-session'])] },
     { name: 'fork false changes nothing', vars: { fork: false, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid])] },
     { name: 'a fork without a resume', vars: { fork: true }, throws: /--fork-session needs --resume/ },
+    // A one-shot child: nothing resumes it, so claude keeps no transcript of it.
+    { name: 'persist false', vars: { persist: false }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid, '--no-session-persistence'])] },
+    { name: 'persist false after a fork', vars: { persist: false, fork: true, session: { id: uuid, resume: true } }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--resume', uuid, '--fork-session', '--no-session-persistence'])] },
+    { name: 'persist true changes nothing', vars: { persist: true }, want: [...head, '--model', 'haiku', '--effort', 'low', ...tail('default', ['--session-id', uuid])] },
     // The agent's tool list: built-in names only, so none becomes a flag, a second word or an MCP grant.
     { name: "a builder's tools", vars: { agent: 'forge:builder', tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'], effort: null }, want: [...head.slice(0, 10), 'forge:builder', ...head.slice(11, 16), 'Read,Grep,Glob,Bash,Edit,Write', '--model', 'haiku', ...tail('default', ['--session-id', uuid])] },
     { name: 'no tools', vars: { tools: [] }, throws: /tools must be built-in tool names/ },

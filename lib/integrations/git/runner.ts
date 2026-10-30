@@ -37,7 +37,7 @@ export const SESSION_PINS: readonly (readonly [string, string])[] = Object.freez
 ] as const);
 
 /**
- * Pinned for the periodic `forge sync` child of `forge dash` (lib/office/sync-child.ts): the session
+ * Pinned for the periodic `forge sync` child of `forge dash` (lib/office/inbox/children.ts): the session
  * pins, plus the programs a fetch, diff or merge there could start from repo config. gpg.program is
  * git's own default rather than the null device, so a user's signed merges in sync keep working.
  * credential.helper is never pinned: sync's fetches need the user's.

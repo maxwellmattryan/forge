@@ -135,6 +135,8 @@ export const GATES_SCOPE = '_gates';
 export const MAX_GATE_RUNS = 16;
 /** How a gate run ended, as the Foreman popover's activity list shows it; `shelved` is a senior pass that shelved the job. */
 export const GATE_RUN_OUTCOMES = ['approve', 'revise', 'rework', 'no-action', 'escalated', 'reserved', 'refused', 'stale', 'requeued', 'failed', 'shelved'] as const;
+/** How an office run ended, as the Office page's Office runs table shows it (lib/office/foreman/runs/runner.ts). */
+export const OFFICE_RUN_OUTCOMES = ['drafted', 'directed', 'stale', 'refused', 'requeued', 'failed'] as const;
 /** A chat's session scope is this prefix and the chat's id, 12 lowercase hex characters. */
 export const CHAT_SCOPE_PREFIX = '_chat-';
 /** The longest owner message a chat takes, in characters. */

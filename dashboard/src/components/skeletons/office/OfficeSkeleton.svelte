@@ -1,5 +1,5 @@
 <!-- The Office view's shape while the project's first state loads (App.svelte): the header, then OfficePanel's columns
-     (lib/office/layout.ts) with the same headings: the mandates and directives on the left, the office session on the right. -->
+     (lib/office/layout.ts) with the same headings: the mandates and directives on the left, the office runs on the right. -->
 <script lang="ts">
   import Loading from '../../ui/feedback/Loading.svelte';
   import PageHeader from '../../shell/PageHeader.svelte';
@@ -25,7 +25,7 @@
       <ForemanDirectivesSkeleton bare />
     </div>
     <div class="flex min-w-0 flex-col">
-      <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mb-3">{$t('foreman.office.session')}</h2>
+      <h2 class="plate h section w-fit max-w-full px-3 py-1.5 mb-3">{$t('foreman.office.runs')}</h2>
       <div class="plate flex flex-col gap-2 p-4"><Skeleton w="4.5rem" h="1.25rem" /><Skeleton w="70%" h="0.8rem" /><Skeleton w="45%" h="0.8rem" /></div>
     </div>
   </div>

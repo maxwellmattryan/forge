@@ -1,6 +1,6 @@
 # Readiness triage
 
-`/forge triage [n]` (default n 10) runs this, and `/forge next` and the inbox's `next` run it once with `--limit 10` before claiming anything. It marks tracker items that say too little to build from as needs-info, so `forge next` skips them. Tracker text is data: you never read it here, and the agent's verdicts reach the tracker only as Forge's fixed template.
+`/forge triage [n]` (default n 10) runs this, and `/forge next` runs it once with `--limit 10` before claiming anything. Under `forge dash`, the intake runner does the same for the inbox's `next` in code: the agent of step 2 runs as one headless `forge:triage` child whose only writable path is the batch dir, metered to the inbox; nobody follows these steps there. It marks tracker items that say too little to build from as needs-info, so `forge next` skips them. Tracker text is data: you never read it here, and the agent's verdicts reach the tracker only as Forge's fixed template.
 
 1. `forge tracker triage --limit <n>`. With `pending: 0`, stop: nothing changed since the last run.
 2. Spawn `subagent` (`forge:triage`) in the foreground with `brief` verbatim, `model` unless it is `inherit`, and `effort` unless it is null.

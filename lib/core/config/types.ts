@@ -308,13 +308,13 @@ export interface Config {
     /** auto: an active mandate or a running job at an agent stage holds the machine dashboard's sleep assertion; never: it doesn't. */
     keepAwake: KeepAwakeMode;
   };
-  /** The office session's authority: docs/CONFIG.md "Foreman". */
+  /** The Foreman's authority: docs/CONFIG.md "Foreman". */
   foreman: {
     enabled: boolean;
     decides: GateClass[];
     reserved: string[];
     ship: ForemanShip;
-    /** The office session's model and effort when it directs mandates (lib/office/slots.ts), and the Office pass's pace. */
+    /** The director call's model and effort when an office run directs mandates (lib/core/config/models.ts `director`), and the Office pass's pace. */
     model: string;
     effort: Effort | null;
     /** Minutes between the director's passes (1–1440). */

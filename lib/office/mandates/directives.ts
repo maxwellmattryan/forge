@@ -1,4 +1,4 @@
-// Directives: the director loop's record, one `directive` event per choice the office session makes
+// Directives: the director loop's record, one `directive` event per choice a direct office run makes
 // (start, resume, note, skip) and per enforcement the Office pass applies (pause, close, stall, park,
 // cancel, release), plus the retro a mandate's close queues (retro, by the pass or the owner). Each goes
 // to the repo audit log (`.forge/runtime/audit.jsonl`), and one that names a job to that job's events

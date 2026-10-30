@@ -1,6 +1,6 @@
-<!-- The Foreman popover's body. On: a short identity block (and, with the daemon off, how to start it; with an office
-     session error, that error on one line), the office session's permission prompts when it has any, then the gate
-     activity list: forge dash's gate runs, newest first (the 50 kept), under a header that says how many run of
+<!-- The Foreman popover's body. On: a short identity block (and, with the daemon off, how to start it; with the office
+     runs held at the daily cap, that hold on one line), then the gate activity list (no run asks anyone, so there are no
+     prompts here): forge dash's gate runs, newest first (the 50 kept), under a header that says how many run of
      foreman.assistants.parallel and why new runs are paused. Each row is the gate, its job (which opens the drawer) or
      its mandate, an outcome chip, the reason on one line, when it started and its tokens, with the dollars only in a
      title. The list follows /api/state's refreshes. Off: what the Foreman is and how to turn it on by hand.
@@ -10,8 +10,6 @@
 <script lang="ts">
   import Chip from '../../ui/Chip.svelte';
   import Icon from '../../ui/Icon.svelte';
-  import PermissionPrompts from '../../sessions/PermissionPrompts.svelte';
-  import { OFFICE_SCOPE } from '../../../lib/core/types.ts';
   import type { ForemanIndicator } from '../../../lib/shell/statusbar.ts';
   import { gateRunRows, gateRunsHeader, type GateRunShown } from '../../../lib/office/gate-runs.ts';
   import { clock } from '../../../lib/core/util.ts';
@@ -68,11 +66,6 @@
       {#if foreman.officeError}<p class="w-full truncate text-sm text-bad" title={foreman.officeError}>{$t('statusbar.foreman.officeError', { error: foreman.officeError })}</p>{/if}
       {@render openChat()}
     </div>
-    {#if foreman.prompts}
-      <div class="flex max-h-[40%] shrink-0 flex-col gap-2 overflow-y-auto">
-        <PermissionPrompts scope={OFFICE_SCOPE} name={$t('statusbar.foreman.officeLog')} />
-      </div>
-    {/if}
     <section class="flex min-h-0 flex-1 flex-col gap-2 border-t border-line pt-3" aria-labelledby="foreman-gate-runs">
       <div class="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1">
         <h3 id="foreman-gate-runs" class="label">{$t('statusbar.foreman.gates.title')}</h3>

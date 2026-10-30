@@ -21,6 +21,7 @@ import { addProject, removeProject, setMachineSettings } from '#engine/project/m
 import { approveTrust, trustApproved } from '#engine/project/trust-approval.ts';
 import { createPool } from '#office/pool.ts';
 import { startServer } from '../../../lib/server/start.ts';
+import { officeStatus } from '../../../lib/server/machine.ts';
 import type { RunningServer } from '../../../lib/server/types.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 
@@ -51,6 +52,17 @@ function daemonRepo(maxConcurrent = 2): ReturnType<typeof tempRepo> {
   fs.mkdirSync(path.join(r.dir, '.forge'), { recursive: true });
   fs.writeFileSync(path.join(r.dir, '.forge', 'config.yml'), yaml.stringify({ schemaVersion: CONFIG_SCHEMA_VERSION, daemon: { enabled: true, command: 'claude {session}', maxConcurrent } }));
   return r;
+}
+
+/**
+ * A pending request of a type the intake runner doesn't handle: the inbox session spawns for it, as the fallback
+ * does (the runner answers every other inbox request itself, so the inbox spawns nothing at start).
+ */
+function inboxWork(dir: string): void {
+  const id = `${Date.now()}-fallback${Math.random().toString(36).slice(2, 8)}`;
+  const reqs = path.join(dir, '.forge', 'runtime', 'requests');
+  fs.mkdirSync(reqs, { recursive: true });
+  fs.writeFileSync(path.join(reqs, `${id}.json`), JSON.stringify({ id, type: 'future-type', job: null, text: null, args: {}, from: 'cli', status: 'pending', createdAt: new Date().toISOString() }));
 }
 
 /** A running server: every request here signs in with its token as the x-forge-token header. */
@@ -232,6 +244,7 @@ test('the machine cap holds across projects', async () => {
     // Inbox sessions never count: one spawns while the cap is full.
     const inboxes = k.children.filter((c) => c.scope === '_inbox' && c.cwd === a.dir).length;
     await pa.stopSession('_inbox');
+    inboxWork(a.dir);
     pa.startSession('_inbox');
     await waitFor(() => k.children.filter((c) => c.scope === '_inbox' && c.cwd === a.dir).length === inboxes + 1, { what: 'a fresh inbox' });
     assert.equal(k.liveJobs(), 2);
@@ -305,7 +318,8 @@ test('registering and removing a project while the server runs', async () => {
   const s = await serveProjects([{ dir: a.dir, name: 'a' }], { daemon: { ...k.opts, launchPermissionMode: 'auto' } });
   try {
     assert.equal(s.entry('c'), null);
-    // As `forge dash` run in c leaves it: approved, then registered.
+    // As `forge dash` run in c leaves it: approved, then registered, with work for its inbox session.
+    inboxWork(c.dir);
     approveTrust(s.home, c.dir);
     addProject(s.home, c.dir, { name: 'c' });
     // The timed re-read alone: no request names it.
@@ -477,6 +491,7 @@ test('a restart boots a project only while the files a human approved are unchan
 
 test("Start approves the files its pool runs under, never a running session's edit", async () => {
   const a = daemonRepo();
+  inboxWork(a.dir);
   const k = kit();
   const s = await serveProjects([{ dir: a.dir, name: 'a' }], { daemon: k.opts });
   try {
@@ -529,6 +544,12 @@ test('/api/projects and its stream', async () => {
       daemon: ['enabled', 'foreman', 'live', 'maxConcurrent', 'office', 'wanted'],
     });
     assert.equal(pa.daemon.office, 'off');
+    // From the office runs, with no office session: busy while one is live, idle while the pool is wanted with the foreman on.
+    const runs = (live: number) => ({ enabled: true, live, held: null, runs: [] });
+    assert.deepEqual(
+      [officeStatus({ office: runs(1), wanted: true, foreman: true }), officeStatus({ office: runs(0), wanted: true, foreman: true }), officeStatus({ office: runs(0), wanted: true, foreman: false }), officeStatus({ office: runs(0), wanted: false, foreman: true })],
+      ['busy', 'idle', 'off', 'off'],
+    );
     assert.deepEqual(pg, { name: 'gone', path: gone.dir, status: 'missing', loaded: false, jobs: null, latest: null, daemon: null });
 
     const events = stream(s, '/api/projects/events');
@@ -582,6 +603,7 @@ test("/api/projects/stats gives each project's daily shipped jobs and cost", asy
 test("event streams follow one project's session", async () => {
   const a = daemonRepo();
   const b = daemonRepo();
+  for (const r of [a, b]) inboxWork(r.dir);
   const k = kit();
   const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b' }], { daemon: k.opts });
   try {

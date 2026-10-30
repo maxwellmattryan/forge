@@ -1,7 +1,7 @@
 // `forge office pass|survey|board|start|resume|note`: the Office's director loop (lib/office/mandates/pass.ts
 // and director.ts). `pass` is what `forge dash` runs, and no daemon session may run it. The rest run only in
-// the office session, on a `direct` request, or in a person's own terminal: any other daemon scope is
-// refused before anything is read.
+// an office run (scope `_office`, forge dash's children on a `direct` request) or in a person's own terminal:
+// any other daemon scope is refused before anything is read.
 import { ForgeError } from '#core/errors.ts';
 import { inOffice } from '#core/job/requests.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
@@ -20,13 +20,13 @@ const REASON: [string, string] = ['--reason R', 'why, one line of at most 200 ch
 
 const OFFICE: HelpGroup = {
   name: 'office',
-  summary: "the Office's director loop: the pass forge dash runs, and the office session's survey and directives",
+  summary: "the Office's director loop: the pass forge dash runs, and the survey and directives its office runs run",
   commands: [
     {
       command: 'office pass',
       args: '',
       summary:
-        "enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary and one retro request over the mandate's jobs (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; for each closed mandate whose closing summary's card still has an open outcome, rewrite the card once when none is open (finalized); then queue one direct request for the office session when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems, finalized}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes",
+        "enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary and one retro request over the mandate's jobs (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; for each closed mandate whose closing summary's card still has an open outcome, rewrite the card once when none is open (finalized); then queue one direct request, which forge dash runs as an office run, when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems, finalized}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes",
       exits: [[1, 'run in a daemon session (forge dash runs it)']],
       docs: DOCS,
       common: true,
@@ -101,7 +101,7 @@ export async function officeCmd(ctx: CliContext, sub: string | undefined, rest: 
   if (sub === undefined || !(sub in ARITY)) throw usageError(OFFICE);
   refuseOutsideOffice(`office ${sub}`, env);
   if (rest.length !== ARITY[sub]) throw usageError(OFFICE, sub);
-  // The office session acts as the Foreman; a person in their own terminal as themselves.
+  // An office run acts as the Foreman; a person in their own terminal as themselves.
   const actor = () => (inOffice(env) ? FOREMAN_ACTOR : currentActor(root));
   if (sub === 'survey') return { data: officeSurvey(root, config, await directorTracker(() => loadTracker(root, config))), exitCode: 0 };
   if (sub === 'board') return { data: officeBoard(root, config, rest[0]), exitCode: 0 };

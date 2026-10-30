@@ -312,8 +312,8 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'daemon.dailyUsd': {
     doc: 'dollars per UTC day the inbox, office and chat sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)',
   },
-  'daemon.dailyUsd.inbox': { doc: "the inbox session's daily cap in USD (null: none)" },
-  'daemon.dailyUsd.office': { doc: 'the daily cap in USD on the office session and its gate runs, summed: at the cap no gate run starts (null: none)' },
+  'daemon.dailyUsd.inbox': { doc: "the inbox's daily cap in USD, its session and the intake runner's triage child together (null: none)" },
+  'daemon.dailyUsd.office': { doc: 'the daily cap in USD on the office runs and the gate runs, summed: at the cap no office or gate run starts (null: none)' },
   'daemon.dailyUsd.chat': { doc: "the daily cap in USD on every chat session of the project, summed: at the cap a chat refuses the owner's next message, and a running one stops after its reply (null: none)" },
   'daemon.keepAwake': {
     doc: 'auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)',
@@ -329,8 +329,8 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     layout: 'block',
   },
   'foreman.ship': { doc: 'propose | merge | release: merge counts as merge.auto for PRs the approver marks eligible; release does too, and lets a mandate run until released' },
-  'foreman.model': { doc: "the office session's model when it directs work under mandates (inherit: daemon.command's)" },
-  'foreman.effort': { doc: "the office session's effort (null: runtime.effort)" },
+  'foreman.model': { doc: "the director call's model when an office run directs work under mandates (inherit: daemon.command's)" },
+  'foreman.effort': { doc: "the director call's effort (null: runtime.effort)" },
   'foreman.cadence': { doc: "1-1440: minutes between the Office's passes over its mandates" },
   'foreman.assistants': { doc: 'the forge:assistant that judges one gate, and the gate runs that start it' },
   'foreman.assistants.enabled': { doc: "the gate runner takes the Foreman's gate requests (false: every gate waits for a person)" },
