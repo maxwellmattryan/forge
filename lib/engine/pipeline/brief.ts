@@ -7,7 +7,7 @@ import { jobDir, reviewDir } from '#core/job/store.ts';
 import { memberEntry, memberRepos } from '../project/job-repos.ts';
 import { downstreamMembers } from '../project/downstream.ts';
 import { releaseGates, resolveInterim } from '../release/interim.ts';
-import { isLens, reviewFileName, reviewedRepoNames, splitLens } from '#core/job/lens.ts';
+import { reviewFileName, reviewedRepoNames, splitLens } from '#core/job/lens.ts';
 import { lensChecklists } from './member-panel.ts';
 import { repoGraph } from '../project/graph.ts';
 import { paths, exists } from '#core/paths.ts';
@@ -15,6 +15,7 @@ import { releaseFiles } from '../release/files.ts';
 import { SECRET_NAME, secretSourceOf } from '#core/config/validators/secret-refs.ts';
 import { instructionsFor } from '#core/config/validators/instructions.ts';
 import { recallLine } from './step/recall.ts';
+import { reviewHistoryLines, reworkPanelLine } from './step/panel.ts';
 import { parsePromptTimeoutReason } from './step/facts.ts';
 import { lastRun } from '../verify/record.ts';
 import type { Config, GateClass, Job, JobEvent } from '#core/types.ts';
@@ -283,31 +284,6 @@ function releaseGateLine(config: Pick<Config, 'components' | 'repos' | 'release'
 }
 
 /**
- * The approver's `Rework panel:` line when the last review round re-ran only part of the panel:
- * which lenses re-reviewed, and each skipped lens with the latest round it passed in. Lens names
- * only (isLens), so nothing from the event log can start a line of the brief.
- */
-function reworkPanelLine(input: Pick<StepInput, 'job' | 'events'>): string | null {
-  const j = input.job;
-  const ev = input.events.findLast((e) => e.type === 'panel');
-  const rerun: unknown = ev?.rerun;
-  const lenses: unknown = ev?.lenses;
-  if (!ev || typeof ev.round !== 'number' || !Array.isArray(rerun) || !rerun.length || !Array.isArray(lenses)) return null;
-  const names = (v: unknown[]) => v.filter((l): l is string => typeof l === 'string' && isLens(l));
-  const ran = names(rerun);
-  const round = ev.round;
-  const carried = names(lenses)
-    .filter((l) => !ran.includes(l))
-    .map((l) => {
-      let m: number | null = null;
-      for (let r = round; r >= 1 && m === null; r--) if (j.verdicts[String(r)]?.[l] === 'PASS') m = r;
-      return `${l} (round ${m ?? 'none'})`;
-    });
-  if (!ran.length) return null;
-  return `Rework panel: round ${round} re-reviewed ${ran.join(', ')}; carried passes: ${carried.join(', ') || 'none'}`;
-}
-
-/**
  * The declared secrets as names and source kinds, in config order, or null when there are none.
  * Never an env var name, keychain service, op reference or file path: those say where to look.
  */
@@ -415,7 +391,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
       extra.push(...backingLines, ...secretLines);
       // The integration review stays root-only and has its own Diff line below.
       if (!ctx.integration)
-        extra.push(`Diff: ${p('roundDiff')} ${input.paths.scopeDiff ? '(every job repo; member paths are prefixed <repo>/)' : "(stat, then the branch's diff from its merge base)"}`);
+        extra.push(`Diff: ${p('roundDiff')} ${input.paths.scopeDiff ? '(every job repo; member paths are prefixed <repo>/)' : "(stat, then the branch's diff from its merge base)"}`, ...reviewHistoryLines(input, lens));
       if (ctx.integration) {
         // JSON, so a conflicted file name can't start a line of its own in the brief.
         extra.push(`Integration review: conflicted files ${JSON.stringify(ctx.integration.conflicts)}`);

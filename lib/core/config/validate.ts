@@ -173,6 +173,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   const total = c.pipeline.maxTotalRounds;
   if (total !== null && total !== undefined && !(Number.isInteger(total) && total >= 1))
     problems.push(`pipeline.maxTotalRounds must be null or a positive integer (got ${JSON.stringify(total)})`);
+  if (typeof c.pipeline.resumeRework !== 'boolean') problems.push(`pipeline.resumeRework must be true or false (got ${JSON.stringify(c.pipeline.resumeRework)})`);
   const ci = c.pr.maxCiReworks;
   if (ci !== undefined && !(Number.isInteger(ci) && ci >= 0)) problems.push(`pr.maxCiReworks must be an integer >= 0 (got ${JSON.stringify(ci)})`);
   // The label reaches gh's argv: a plain name, never an option, a control character or an empty word.

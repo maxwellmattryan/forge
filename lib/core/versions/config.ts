@@ -181,6 +181,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v48 adds daemon.permissionTimeoutMinutes (null), filled from defaults, so no v47 config changes; the bump lets
   // older Forges refuse a config whose timeout they would reject as an unknown key.
   { id: 'daemon-permission-timeout', up: (c) => c },
+  // v49 adds pipeline.resumeRework (true), filled from defaults, so no v48 config changes; the bump lets older Forges
+  // refuse a config whose resumeRework they would reject as an unknown key.
+  { id: 'resume-rework', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

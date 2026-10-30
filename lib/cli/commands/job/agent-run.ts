@@ -1,7 +1,8 @@
 // `forge job agent run`: one spawn `forge job step` chose, run as its own headless claude child in the job's
 // worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself
-// and its usage taken from the child's own result line. A review lens or rework build forks its round's context
-// session (lib/engine/workspace/context-session.ts), or runs cold. docs/architecture/daemon-runtime.md "Role runs".
+// and its usage taken from the child's own result line. A spawn step gave a `resume` continues that session; any other
+// review lens or rework build forks its round's context session (lib/engine/workspace/context-session.ts), or runs cold.
+// docs/architecture/daemon-runtime.md "Role runs".
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -62,7 +63,7 @@ const staleStep = (msg: string) => new ForgeError(`${msg}; nothing was started: 
 const described = (a: StepAction) => `forge job step returns ${a.action} (${a.rule})${a.action === 'spawn' ? ` for ${a.role}` : ''}`;
 const fin = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 /** The outcome of a launch that never started a child. */
-const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, tools: [], dropped: 0, cost: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
+const notRun = (cls: RoleFailure['class'], reason: string): RoleOutcome => ({ ok: false, started: false, init: false, sessionId: null, summary: null, text: null, firstRequest: null, tools: [], dropped: 0, cost: null, context: null, failure: { class: cls, reason, resetsAt: null }, denied: 0, exit: null, wallMs: 0 });
 const CHANGED = 'a file Forge trusts or protects in the main checkout changed during the run; a human reviews it';
 
 /** A sidecar's cumulative cost, or null for anything the runner did not write (a missing, planted or malformed file). */
@@ -215,7 +216,15 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     const list = again.action === 'spawn' ? [again, ...(again.spawns ?? [])] : [];
     if (j.round !== sp.round || !list.some((s) => s.role === sp.role && s.round === sp.round)) throw staleStep(`${described(again)}, no longer the spawn of ${sp.role} in round ${sp.round}`);
   };
-  startAgent(root, config, jobId, { role: sp.role, model: sp.model, output: sp.output, retry: sp.retry === true, fence: { epoch: epoch ?? job.lease.epoch, session, check } });
+  startAgent(root, config, jobId, {
+    role: sp.role,
+    model: sp.model,
+    output: sp.output,
+    retry: sp.retry === true,
+    resume: resumeId ?? undefined,
+    resumeSkipped: sp.resumeSkipped,
+    fence: { epoch: epoch ?? job.lease.epoch, session, check },
+  });
 
   // 12. The run, with the runner's own interrupts passed to the child first, and to a wait on a context's lock.
   const known = knownValues(root, jobId, config);
@@ -278,14 +287,17 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   /**
    * A child's usage from its result's own cumulative less `base` (the sidecar keeps the new cumulative). A child that ran
    * but sent no cost (a timeout, a kill, an exit before the result), or a resume with no baseline (`base` null), still spent
-   * tokens: its session transcript is the measure, and `unmeasured` when there is none.
+   * tokens: its session transcript is the measure, and `unmeasured` when there is none. The sidecar also names the session's
+   * role (`context` for a context child) and its last context: what binds a session to its role for a later rework resume,
+   * since the sidecar sits outside every write root and job.json's agentId does not.
    */
-  const measure = (sid: string, out: RoleOutcome, base: MeterCum | null, ms: number) => {
+  const measure = (sid: string, sidecarRole: string, out: RoleOutcome, base: MeterCum | null, ms: number) => {
     let usage: (AgentUsage & { through?: string | null }) | null = null;
     let unmeasured = false;
     if (out.cost) {
       try {
-        writeJsonAtomic(roleRunFiles(root, jobId, sid).cum, { v: SIDECAR_VERSION, cum: meterDelta(ZERO, out.cost).cum, at: now() }, { root: paths(root).dir });
+        const rec = { v: SIDECAR_VERSION, cum: meterDelta(ZERO, out.cost).cum, at: now(), role: sidecarRole, ...(out.context !== null ? { context: out.context } : {}) };
+        writeJsonAtomic(roleRunFiles(root, jobId, sid).cum, rec, { root: paths(root).dir });
       } catch {}
       if (base) usage = deltaUsage(base, out.cost, sp.model, ms);
     }
@@ -317,7 +329,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     contextUntrusted = trustMoved();
     const readOnly = out.denied === 0 && out.dropped === 0 && out.tools.every((t) => t === 'Read');
     const ready = out.ok && !contextUntrusted && readOnly && out.text?.trim() === 'READY';
-    const m = measure(id, out, ZERO, Date.now() - c0);
+    const m = measure(id, 'context', out, ZERO, Date.now() - c0);
     const fr = out.firstRequest;
     const reason = ready ? null : out.failure ? out.failure.class : contextUntrusted ? 'untrusted' : 'not ready';
     return { id, status: ready ? 'ready' : 'failed', reason, startPrefix: fr ? fr.input + fr.cacheRead + fr.cacheWrite : null, usage: m.usage, unmeasured: m.unmeasured, startedAt, endedAt: now() };
@@ -329,7 +341,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   let fork: ContextSession | null = null;
   let t0 = Date.now();
   try {
-    // 13. A review lens or rework build forks its round's context session, found or started under the key's lock.
+    // 13. A review lens or rework build forks its round's context session, found or started under the key's lock; a resume never does (contextKind).
     if (contextKind(root, job, sp)) {
       let res: ContextResolution | null = null;
       if (flags.cold === true) mark = cold('cold flag');
@@ -389,7 +401,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   // 16. Usage less the baseline its session had: a resume's sidecar, or for a fork the context's cumulative its result carried over.
   const resumed = resumeId !== null && !resumeFailed;
   const base = resumed ? baseline : fork && outcome.cost ? forkBase(sidecarCum(roleRunFiles(root, jobId, fork.id).cum), outcome.cost) : ZERO;
-  const { usage, unmeasured } = measure(agentId, outcome, base, wallMs);
+  const { usage, unmeasured } = measure(agentId, sp.role, outcome, base, wallMs);
 
   // 17. The end, fenced by epoch: a session that took the job over meanwhile keeps it, and the run log stays.
   const reason = failure ? redactKnown(failure.reason, known).replace(/\s+/g, ' ').trim() : '';
@@ -397,7 +409,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
   const summary = failure ? `${failure.class}: ${reason}` : outcome.summary ? redactKnown(outcome.summary, known) : undefined;
   let ended: ReturnType<typeof endAgent>;
   try {
-    ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, env, fence: { epoch: epoch ?? job.lease.epoch } });
+    ended = endAgent(root, config, jobId, { role: sp.role, model: usage?.model ?? undefined, status: failure ? 'failed' : 'done', summary, agentId, usage, unmeasured, context: mark ?? undefined, resumeFailed, env, fence: { epoch: epoch ?? job.lease.epoch } });
   } catch (e) {
     if (e instanceof ForgeError && e.code === 'stale_epoch') throw new ForgeError(`${e.message}; the role's end was not recorded, and its run log is kept at ${log}`, 'stale_epoch');
     throw e;
@@ -409,6 +421,7 @@ export async function agentRunCmd(ctx: CliContext, rest: string[], flags: Record
     agentId,
     resumed,
     ...(resumeFailed ? { resumeFailed: true } : {}),
+    ...(sp.resumeSkipped ? { resumeSkipped: sp.resumeSkipped } : {}),
     status: failure ? ('failed' as const) : ('done' as const),
     summary: summary ?? null,
     failure: failure ? { class: failure.class, reason, resetsAt: failure.resetsAt === null ? null : new Date(failure.resetsAt).toISOString() } : null,

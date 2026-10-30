@@ -1,5 +1,5 @@
-// Folder maps stay true: every source under lib/ and dashboard/src/lib/ opens with the header comment
-// `npm run docs:map` reads, each AGENTS.md map under those roots is what it writes, and header comments
+// Folder maps stay true: every source under lib/, dashboard/src/lib/ and dashboard/src/components/ opens with the header
+// comment `npm run docs:map` reads, each AGENTS.md map under those roots is what it writes, and header comments
 // under lib/ and dashboard/src/ stay wrapped (docs/TESTING.md › Allowed source-text tests, entries 6 and 14).
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -69,10 +69,10 @@ test('header comment lines stay within 160 columns', () => {
   assert.deepEqual(offenders, [], `rewrap these header comment lines to ${HEADER_WIDTH} columns or fewer`);
 });
 
-test('every lib/ and dashboard/src/lib/ source file opens with a header comment', () => {
+test('every lib/, dashboard/src/lib/ and dashboard/src/components/ source file opens with a header comment', () => {
   const bare = MAP_ROOTS.flatMap((root) => (fs.readdirSync(path.join(REPO, root), { recursive: true }) as string[])
     .map((f) => `${root}/${f.split(path.sep).join('/')}`))
-    .filter((f) => /\.(ts|mjs)$/.test(f) && !f.endsWith('.test.ts'))
+    .filter((f) => /\.(ts|mjs|svelte)$/.test(f) && !f.endsWith('.test.ts'))
     .filter((f) => headerSentence(fs.readFileSync(path.join(REPO, f), 'utf8')) === null);
   assert.deepEqual(bare, [], 'open each with a // comment whose first sentence says what the file holds');
 });
@@ -81,6 +81,7 @@ test('folder maps are what npm run docs:map writes', () => {
   const maps = MAP_ROOTS.flatMap((root) => mapFiles(path.join(REPO, root)));
   assert.ok(maps.includes(path.join(LIB, 'engine', 'pipeline', 'step', 'AGENTS.md')), 'lib/engine/pipeline/step/AGENTS.md is a map');
   assert.ok(maps.includes(path.join(REPO, 'dashboard', 'src', 'lib', 'AGENTS.md')), 'dashboard/src/lib/AGENTS.md is a map');
+  assert.ok(maps.includes(path.join(REPO, 'dashboard', 'src', 'components', 'AGENTS.md')), 'dashboard/src/components/AGENTS.md is a map');
   for (const file of maps) {
     const text = fs.readFileSync(file, 'utf8');
     assert.equal(syncMap(text, renderMap(path.dirname(file))), text, `${path.relative(REPO, file)} is stale: run npm run docs:map`);
@@ -99,6 +100,10 @@ test('docs:map reads header comments and stops at nested maps', () => {
   assert.equal(headerSentence('/// <reference types="vite/client" />\n'), null, 'a /// directive alone is no header');
   assert.equal(headerSentence("import x from './x.ts';\n// Too late."), null, 'a comment after the first import is no header');
   assert.equal(headerSentence(''), null);
+  assert.equal(headerSentence('<!-- An empty state. -->\n<script lang="ts"></script>'), 'An empty state.', 'a one-line <!-- --> header');
+  assert.equal(headerSentence('<!-- The job panel, inside the shell. It renders\n     the snapshot. -->\n'), 'The job panel, inside the shell.', 'a multi-line <!-- --> header');
+  assert.equal(headerSentence('<!-- First paragraph\n\n     Second. -->'), 'First paragraph', 'a <!-- --> header stops at a blank line');
+  assert.equal(headerSentence('<script lang="ts">\n  // Too late.\n</script>'), null, 'a component that opens with <script> has no header');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-docs-map-'));
   try {
@@ -114,6 +119,7 @@ test('docs:map reads header comments and stops at nested maps', () => {
     put('flat/d.ts', '// Nested without a map.\n');
     put('mapped/AGENTS.md', `# mapped/\n\nThe mapped folder. More.\n\n${MAP_START}\n${MAP_END}\n`);
     put('mapped/e.ts', 'export {};\n');
+    put('w.svelte', '<!-- A widget. More. -->\n<p></p>\n');
     assert.equal(renderMap(dir), [
       '| File | What it holds |',
       '|---|---|',
@@ -122,12 +128,14 @@ test('docs:map reads header comments and stops at nested maps', () => {
       '| `c.ts` | Shebang file. |',
       '| `flat/d.ts` | Nested without a map. |',
       '| `mapped/` | The mapped folder. |',
+      '| `w.svelte` | A widget. |',
     ].join('\n'));
     assert.throws(() => renderMap(path.join(dir, 'mapped')), /e\.ts/, 'a mapped file without a header is named');
 
     put('g.ts', 'export {};\n');
     put('flat/h.ts', 'export {};\n');
-    assert.throws(() => renderMap(dir), (err: Error) => /flat\/h\.ts/.test(err.message) && /g\.ts/.test(err.message));
+    put('v.svelte', '<script lang="ts"></script>\n<p></p>\n');
+    assert.throws(() => renderMap(dir), (err: Error) => /flat\/h\.ts/.test(err.message) && /g\.ts/.test(err.message) && /v\.svelte/.test(err.message));
 
     const doc = `# x\n\nIntro.\n\n${MAP_START}\nold\n${MAP_END}\nTail.\n`;
     assert.equal(syncMap(doc, 'new'), `# x\n\nIntro.\n\n${MAP_START}\nnew\n${MAP_END}\nTail.\n`);
