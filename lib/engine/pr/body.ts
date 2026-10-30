@@ -8,8 +8,9 @@ import { MARKER } from '#integrations/github/pull-requests.ts';
 import { isLinkedJob } from '../project/repo-order.ts';
 import { attributionForbidden, stripAttribution } from '../guard/attribution.ts';
 import { sections } from '../pipeline/moves/foreman-gates.ts';
+import { parkReasons } from '../pipeline/moves/escalation.ts';
 import type { MergeGate } from '../pipeline/step/stages/pr.ts';
-import type { ActorSource, Config, Job, JobEvent } from '#core/types.ts';
+import type { ActorSource, Config, GateReason, Job, JobEvent } from '#core/types.ts';
 import { readRegularText, readText } from '#core/os/fs.ts';
 import { safeText } from '#core/text.ts';
 
@@ -49,6 +50,8 @@ export interface EscalationApproval {
   login: string | null;
   source: ActorSource;
   ts: string;
+  /** The position of the park it answered in the events it was read from. */
+  parkAt: number;
 }
 
 /**
@@ -66,7 +69,7 @@ export function escalationApproval(events: JobEvent[]): EscalationApproval | nul
   // The lookbehind lets a match start only where a run of dots and spaces starts, so a long run is
   // scanned once rather than once per character (test/invariants/security-scan.test.ts).
   const reason = safeText(oneLine, 200).replace(/ {2,}/g, ' ').trim().replace(/(?<![.\s])[.\s]+$/, '') || 'no reason recorded';
-  return { reason, login: actor.login, source: actor.source, ts: approve.ts };
+  return { reason, login: actor.login, source: actor.source, ts: approve.ts, parkAt: park };
 }
 
 /**
@@ -88,13 +91,33 @@ export function approvedBy(a: EscalationApproval): string {
 }
 
 /**
- * The escalation approval line, or ''. The reason was written by an agent that read untrusted text, so
- * it goes in a code span: no mention, link, image or HTML in it renders on a public PR (safeText
- * already removed backticks).
+ * One bullet per reason: the rule in a code span, its CLI-composed detail, and its paths (from the
+ * branch) each in a code span, so no mention, link, image or HTML in one renders on a public PR
+ * (safeText removes backticks and control characters).
  */
-function approvalLine(events: JobEvent[]): string {
+function reasonBullets(reasons: readonly GateReason[]): string {
+  const one = (s: string) => safeText(s.replace(BREAKS, ' '), 200);
+  return reasons
+    .map((r) => {
+      const paths = (r.paths ?? []).map((p) => `\`${one(p)}\``);
+      return `- \`${r.rule}\`: ${one(r.detail)}${paths.length ? `: ${paths.join(', ')}` : ''}`;
+    })
+    .join('\n');
+}
+
+/**
+ * The escalation approval line, or ''. At an escalation park whose reason lists rules: `Escalated for:`
+ * each rule, then the reasons as bullets (the park's details, parkReasons). Otherwise the reason, which
+ * an agent may have written after reading untrusted text, so it goes in a code span: no mention, link,
+ * image or HTML in it renders on a public PR (safeText already removed backticks).
+ */
+function approvalLine(events: JobEvent[], flag: Job['protectedPaths'] = null): string {
   const approval = escalationApproval(events);
-  return approval ? `## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.` : '';
+  if (!approval) return '';
+  const reasons = parkReasons(events, approval.parkAt, flag);
+  if (!reasons.length) return `## Decision\n\nEscalated: \`${approval.reason}\`. Approved by ${approvedBy(approval)}.`;
+  const rules = [...new Set(reasons.map((r) => `\`${r.rule}\``))].join(', ');
+  return `## Decision\n\nEscalated for: ${rules}. Approved by ${approvedBy(approval)}.\n\n${reasonBullets(reasons)}`;
 }
 
 /** A gate section in its markers: `text` on lines of its own, or nothing between them. */
@@ -105,7 +128,7 @@ function prBody(root: string, config: Config, job: Job): string {
   const custom = readText(path.join(dir, 'pr.md')).trim();
   const parts = [custom || `## Summary\n\n${firstParagraph(readText(path.join(dir, 'spec.md'))) || job.title}`];
   // Always present, so `forge pr gate` can fill it later; the approval line lives inside it, never twice.
-  parts.push(gateBlock(approvalLine(readEvents(root, job.id))));
+  parts.push(gateBlock(approvalLine(readEvents(root, job.id), job.protectedPaths)));
   if (isLinkedJob(job)) parts.push(`${SIBLINGS_START}\n${SIBLINGS_END}`);
   const issueLines = issueReferences(root, config, job);
   if (issueLines.length) parts.push(issueLines.join('\n'));
@@ -185,16 +208,18 @@ function fileSection(root: string, id: string, file: string, title: string): str
 
 /**
  * What `forge pr gate` puts between the gate markers. With an open merge gate: why the merge waits
- * (the reason in a code span), decision.md's `## For the human` for an escalation and runbook.md's
- * `## Steps` for a runbook, each as a text block, and who decides. Without one: the escalation
- * approval line, or nothing.
+ * (the reason in a code span), one bullet per reason, decision.md's `## For the human` when the
+ * approver escalated and runbook.md's `## Steps` when a runbook is listed, each as a text block, and
+ * who decides. Without one: the escalation approval line, or nothing.
  */
-export function gateSection(root: string, config: Config, job: Pick<Job, 'id'>, gate: MergeGate | null, events: JobEvent[]): string {
-  let text = approvalLine(events);
+export function gateSection(root: string, config: Config, job: Pick<Job, 'id'> & Partial<Pick<Job, 'protectedPaths'>>, gate: MergeGate | null, events: JobEvent[]): string {
+  let text = approvalLine(events, job.protectedPaths ?? null);
   if (gate) {
     const parts = ['## Waiting on a decision before merge', `\`${safeText(gate.reason.replace(BREAKS, ' '), 200)}\``];
-    if (gate.rule === 'PR15') parts.push('### For the human', textBlock(fileSection(root, job.id, 'decision.md', 'For the human')));
-    if (gate.rule === 'PR16') parts.push('### Before merge', textBlock(fileSection(root, job.id, 'runbook.md', 'Steps')));
+    const reasons = gate.reasons ?? [];
+    if (reasons.length) parts.push(reasonBullets(reasons));
+    if (reasons.some((r) => r.rule === 'approver')) parts.push('### For the human', textBlock(fileSection(root, job.id, 'decision.md', 'For the human')));
+    if (reasons.some((r) => r.rule === 'runbook')) parts.push('### Before merge', textBlock(fileSection(root, job.id, 'runbook.md', 'Steps')));
     parts.push('A person approves this gate in Forge before the PR can merge.');
     text = parts.join('\n\n');
   }

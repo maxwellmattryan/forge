@@ -311,16 +311,23 @@ export const JOB: HelpGroup = {
     {
       command: 'job verdicts',
       args: '<id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]',
-      summary: "read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD",
+      summary: "read the current round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and, for each lens whose reviewer ran in the round, whether its Summary says ESCALATE (escalate), which forge job gate reads instead of the files; recording a round again never takes an escalate back",
       flags: [
-        ['--round N', 'the round (default: the current one), or integration'],
+        ['--round N', 'the current round (the default; an earlier or later number is refused), or integration'],
         ['--reviewers a,b', 'the lenses to read (default: the job\'s reviewers)'],
         ['--malformed changes', 'count a malformed review as CHANGES'],
         ['--compact', 'one verdict per lens, and the missing files'],
       ],
-      exits: [[1, 'no such job, or no reviewers selected']],
+      exits: [[1, 'no such job, no reviewers selected, or a numbered --round that is not the current one']],
     },
-    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
+    {
+      command: 'job gate',
+      args: '<id>',
+      summary:
+        'compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that said ESCALATE when forge job verdicts recorded it, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}',
+      exits: [NO_JOB],
+    },
+    { command: 'job decision', args: '<id>', summary: "read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing", exits: [NO_JOB] },
     {
       command: 'job score',
       args: 'record <id>',

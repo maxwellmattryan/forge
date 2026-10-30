@@ -123,7 +123,6 @@ export interface StepInput {
    * review, round ≥ 2, no open PR, no reviewed member, with a worktree; `{}` otherwise.
    */
   reviewedShas: Record<string, string>;
-  runbookBeforeMerge: boolean;
   verdicts: { round: StepVerdicts | null; integration: StepVerdicts | null };
   acs: AcCoverage;
   /**

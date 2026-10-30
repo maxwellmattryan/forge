@@ -5,7 +5,7 @@ import path from 'node:path';
 import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
 import { writeAtomic } from '#core/os/fs.ts';
 import { prLinkNote } from '#core/job/issue-link.ts';
-import type { Config, Job, JobRepoPr } from '#core/types.ts';
+import type { Config, GateReason, Job, JobRepoPr } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
 import { safeText } from '#core/text.ts';
@@ -253,9 +253,9 @@ function freshMerged(root: string, config: Config, github: GitHub, job: Job, key
 /**
  * The protected-paths re-check before anything leaves the machine, `--force` or not. The set is
  * recomputed from the branch (a hand-cleared job.json flag changes nothing) and a refuse path stops
- * the open. An escalate CI path stops it until a human approved its current content (PP1, before the
- * push): pushing it runs it. Other escalate paths are pushed and logged, and wait for the approval
- * before merge (PP1b).
+ * the open. An escalate CI path stops it until a human approved its current content at the escalation
+ * park before the push (PP1): pushing it runs it. Other escalate paths are pushed and logged, and wait
+ * for the approval on the escalation park before merge (PR15).
  */
 function refuseProtected(root: string, config: Config, job: Job, head: string, members: MemberBranch[]): BranchCheck {
   const id = job.id;
@@ -313,7 +313,7 @@ function refusePushHold(root: string, config: Config, job: Job, head: string, pl
 /** What `forge pr gate` did: its `pr-gate` event, or `none` when the job has no open PR. */
 export type PrGateResult =
   | { action: 'none' }
-  | { action: 'set' | 'clear'; rule: MergeGate['rule'] | null; waitingOn: string | null; reason: string | null; number: number; label: string | null; labeled: boolean; body: boolean; error?: string };
+  | { action: 'set' | 'clear'; rule: MergeGate['rule'] | null; waitingOn: string | null; reason: string | null; reasons?: GateReason[]; number: number; label: string | null; labeled: boolean; body: boolean; error?: string };
 
 const LABEL_DESCRIPTION = 'A person decides in Forge before this PR merges';
 
@@ -371,7 +371,8 @@ export function syncPrGate(root: string, config: Config, github: GitHub, id: str
   } catch (e) {
     error = safeText(String((e as Error).message).split('\n')[0], 200);
   }
-  const result: PrGateResult = { action: gate ? 'set' : 'clear', rule: gate?.rule ?? null, waitingOn: gate?.waitingOn ?? null, reason: gate?.reason ?? null, number, label, labeled, body, ...(error ? { error } : {}) };
+  // The reasons the body now shows, so PR14 syncs again when a rule's detail or paths change under the same reason.
+  const result: PrGateResult = { action: gate ? 'set' : 'clear', rule: gate?.rule ?? null, waitingOn: gate?.waitingOn ?? null, reason: gate?.reason ?? null, ...(gate?.reasons ? { reasons: gate.reasons } : {}), number, label, labeled, body, ...(error ? { error } : {}) };
   logEvent(root, id, 'pr-gate', result);
   return result;
 }

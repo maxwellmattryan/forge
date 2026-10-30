@@ -41,7 +41,7 @@ Approve when every acceptance criterion is testable and names its proof (an exis
 Approve when `plan.md`'s child jobs are independent enough to ship one at a time, their dependencies are explicit, and its External list is empty or holds nothing a human must do. `revise` (keep one job) when the split is artificial or the children overlap.
 
 ## escalation
-Read `decision.md` (its `## Why` and `## For the human`), the latest review files and `verify`. Approve only when what is left is cosmetic (naming, wording, a nit) and the acceptance criteria hold. `rework` when the remaining findings are concrete code fixes within the spec. `revise` when the spec itself is wrong. Anything about risk, policy or an `alwaysEscalate` class: `escalate`.
+Read `decision.md` (its `## Why` and `## For the human`), the latest review files and `verify`. Approve only when what is left is cosmetic (naming, wording, a nit) and the acceptance criteria hold. `rework` when the remaining findings are concrete code fixes within the spec. `revise` when the spec itself is wrong. Anything about risk, policy or an `alwaysEscalate` class: `escalate`. The reason lists every rule the job waits on, and the brief's `Gate reasons` line their details: approving accepts every one of them, so approve only when you accept each.
 
 ## rounds-exhausted
 As for escalation: approve when the open findings are cosmetic, `rework` when one more round would clear concrete, in-scope findings, otherwise `escalate`. Past the total-round ceiling (the reason names it) the foreman is refused whatever you answer: `escalate` and leave it to a human. The same holds on a PR whose reason starts `CI rework cap:`.

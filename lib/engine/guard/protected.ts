@@ -1,7 +1,8 @@
 // `policy.protectedPaths`: paths only a human may change. Paths are code, judgement calls are prose:
 // the CLI enforces these rules when a change is staged or committed (`forge git add|commit`), again
 // over the whole branch at `forge verify` and `forge pr open`, and `forge job step` parks a job whose
-// escalate paths no human approved: before the push for CI paths (PP1), after it for the rest (PP1b).
+// escalate paths no human approved on its one escalation park: before the push for CI paths (PP1),
+// after it for the rest (PR15).
 // docs/CONFIG.md "Protected paths" has the user-facing rules.
 // No imports from lib/engine/verify/gate.ts, steps.ts or evals.ts: gate.ts and steps.ts import this module.
 import { createHash } from 'node:crypto';
@@ -13,6 +14,7 @@ import { git, gitSpawnSync, historyEnv } from '#integrations/git/runner.ts';
 import { globToRegExp } from '#core/glob.ts';
 import { isForemanActor, jobDir, loadJob, logEvent, updateJob } from '#core/job/store.ts';
 import { resolveBase } from '../pipeline/scope.ts';
+import { parseEscalationReason } from '../pipeline/moves/escalation.ts';
 import { isMap } from '#core/shape.ts';
 import type { Config, Job, JobEvent, ProtectedHit, ProtectedPaths, ProtectedRule } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
@@ -326,8 +328,10 @@ export function recordProtected(root: string, id: string, gate: ProtectedGate, s
 
 /**
  * Whether a human approved the flag's current content: a `human` approve not recorded by the foreman,
- * after `flag.at`, given while the job was parked on `human` for protected paths, before the push
- * (PP1, `push held: protected paths …`) or after it (PP1b). Pure, so `forge job step` and
+ * after `flag.at`, given while the job was parked on `escalation` (or `human`, before the merge gates
+ * collapsed) with a reason parseEscalationReason reads as listing `protected-paths`: the escalation
+ * park before the push (PP1, `push held: escalation: …`) or after it (PR15), or the legacy
+ * `protected paths: …` and `push held: protected paths: …` parks. Pure, so `forge job step` and
  * `forge pr open` share it.
  */
 export function protectedApproved(flag: ProtectedPaths | null | undefined, events: JobEvent[]): boolean {
@@ -337,14 +341,11 @@ export function protectedApproved(flag: ProtectedPaths | null | undefined, event
     if (e.type !== 'human' || e.action !== 'approve' || isForemanActor(e) || typeof e.ts !== 'string' || !(e.ts > at)) return false;
     const park = events.slice(0, i).findLast((t) => t.type === 'transition');
     const to = (park?.to ?? {}) as { state?: string; waitingOn?: string | null };
-    return to.state === 'waiting' && to.waitingOn === 'human' && typeof park?.reason === 'string' && (park.reason.startsWith('protected paths') || park.reason.startsWith(HELD_PROTECTED));
+    return to.state === 'waiting' && (to.waitingOn === 'escalation' || to.waitingOn === 'human') && parseEscalationReason(park?.reason).includes('protected-paths');
   });
 }
 
-/** PP1's reason prefix when the push itself waits on the approval. */
-const HELD_PROTECTED = 'push held: protected paths';
-
-/** PP1b's reason (PP1 puts `push held: ` before it): at most 3 shell-safe paths, the rest counted, so the reason stays inside shellLine's class. */
+/** A protected-paths reason (PP1 and the escalation park name the rule instead): at most 3 shell-safe paths, the rest counted, so the reason stays inside shellLine's class. */
 export function protectedReason(flag: ProtectedPaths): string {
   const total = flag.hits.length + (Number(flag.more) || 0);
   const shown = flag.hits.map((h) => h.path).filter((p) => typeof p === 'string' && REASON_PATH.test(p) && !p.startsWith('-')).slice(0, 3);
