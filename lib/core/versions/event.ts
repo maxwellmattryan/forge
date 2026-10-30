@@ -67,10 +67,14 @@ export const EVENT_STEPS: readonly Step[] = [
   // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
   // and ignores the field.
   { id: 'context-session-event', up: (e) => e },
-  // v20 adds the `builder-note` event ({ note, actor }): `forge job note --for builder` logs a person's hint for the
+  // v20 adds the `session-usage` event ({session, turn, model, usage, numTurns, durationMs, ok}): the supervisor's record of
+  // a job session's own turn usage from its result line (lib/office/session/meter.ts). An older Forge reads it as generic,
+  // and an older job simply has none.
+  { id: 'session-usage-event', up: (e) => e },
+  // v21 adds the `builder-note` event ({ note, actor }): `forge job note --for builder` logs a person's hint for the
   // job's builder, which approval-notes.md renders. An older Forge reads it as a generic event.
   { id: 'builder-note-event', up: (e) => e },
-  // v21 adds `approvalNote: true` to a `human` approve-spec: `forge job human` marks the event when its note was allowed
+  // v22 adds `approvalNote: true` to a `human` approve-spec: `forge job human` marks the event when its note was allowed
   // into approval-notes.md (the job waited on spec-approval and the session may add a builder hint for it). Only a marked
   // note is rendered; an event without the mark, which an older Forge also writes, never reaches the builder.
   { id: 'approval-note-mark', up: (e) => e },

@@ -2,10 +2,11 @@
 // today's table, and every daemon session's supervisor-metered spend (lib/engine/metrics/meter.ts), each bucketed by
 // UTC day, role and model, across live jobs, archive records and the inbox and office sessions. A job's metered
 // cell is the remainder past the agent ends its own session's meter already holds, so nothing counts twice. The
-// repo budget (lib/engine/metrics/repo-budget.ts) and `forge stats --csv` read it. `.forge/runtime/spend.json`
-// caches each entry's buckets keyed by its events and meter files' size and mtime, so a check re-parses only the
-// entries that changed. It is not in lib/integrations/claude/pricing.ts because jobs.ts imports pricing.ts, and the
-// ledger needs jobs.ts and the archive.
+// sessions' own per-turn usage (session usage, role orchestrator) rides along for `forge stats --csv` only: the meter
+// already counts it, so no total or budget ever adds it. The repo budget (lib/engine/metrics/repo-budget.ts) and
+// `forge stats --csv` read it. `.forge/runtime/spend.json` caches each entry's buckets keyed by its events, meter and
+// session-usage files' size and mtime, so a check re-parses only the entries that changed. It is not in
+// lib/integrations/claude/pricing.ts because jobs.ts imports pricing.ts, and the ledger needs jobs.ts and the archive.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,12 +16,12 @@ import { GATES_SCOPE, INBOX_SCOPE, LEGACY_ASSISTANT_SCOPE, OFFICE_SCOPE, chatIdO
 import { paths, stateFile } from '#core/paths.ts';
 import { estimateCost, pricing, resolveModel } from '#integrations/claude/pricing.ts';
 import type { Config, Job, JobEvent, UsageRow } from '#core/types.ts';
-import { meterFile, readMeter } from './meter.ts';
-import type { MeterRecord } from './meter.ts';
+import { SESSION_USAGE_EVENT, meterFile, readMeter, readSessionUsage, sessionUsageFile, sessionUsageOf } from './meter.ts';
+import type { MeterRecord, SessionUsage } from './meter.ts';
 import type { SpendBucket } from './types.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 
-export const SPEND_CACHE_VERSION = 2;
+export const SPEND_CACHE_VERSION = 3;
 const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 const NONBLOCK = fs.constants.O_NONBLOCK ?? 0;
 /** A cache or events file larger than this is not one Forge wrote at a sane size; it is not read. */
@@ -28,8 +29,10 @@ const MAX_BYTES = 256 * 1024 * 1024;
 
 /**
  * One job's (or daemon session's) ledger entry. Bucket keys are `<YYYY-MM-DD>|<role>|<model>`: `buckets` holds the
- * reported agent-end usage, `metered` the supervisor's (role orchestrator, inbox or office). A `session` entry is the
- * inbox, the office, or the meter of a job with no live job and no archive record.
+ * reported agent-end usage, `metered` the supervisor's (role job-session, inbox or office), and `orchestrator` the
+ * session's own per-turn usage (role orchestrator), which overlaps `metered` and so is never summed with it. A `session`
+ * entry is the inbox, the office, or the meter of a job with no live job and no archive record. `usageSize` and
+ * `usageMtimeMs` fingerprint the inbox's or office's session-usage file (zeros for every other entry).
  */
 export interface SpendJob {
   source: 'live' | 'archive' | 'session';
@@ -37,10 +40,13 @@ export interface SpendJob {
   mtimeMs: number;
   meterSize: number;
   meterMtimeMs: number;
+  usageSize: number;
+  usageMtimeMs: number;
   kind: string | null;
   title: string;
   buckets: Record<string, SpendBucket>;
   metered: Record<string, SpendBucket>;
+  orchestrator: Record<string, SpendBucket>;
 }
 
 export interface SpendCache {
@@ -93,15 +99,35 @@ const addTo = (b: SpendBucket, add: Omit<SpendBucket, 'runs' | 'tokens'>, runs: 
   b.usd = round4(b.usd + add.usd);
 };
 
+/** Adds one session-usage record under `<day>|orchestrator|<model>`, priced and keyed as an agent end is (at or after `sinceMs`). */
+function addOwnUsage(out: Record<string, SpendBucket>, u: SessionUsage, config: Config, sinceMs: number | null): void {
+  const day = utcDay(u.ts);
+  if (!day || (sinceMs !== null && Date.parse(u.ts) < sinceMs)) return;
+  const cost = estimateCost(u, config?.usage?.pricing);
+  const add = { input: u.input, output: u.output, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite, usd: cost.usd };
+  addTo((out[`${day}|orchestrator|${keyPart(cost.model ?? u.model, 'unknown')}`] ??= emptyBucket()), add, 1, u.totalTokens);
+}
+
 /**
  * Buckets of one job's events: each agent-end with usage, on the UTC day of its `ts` (at or after `sinceMs`). And the
  * covered cells (`<day>|<model>`): the same usage of the agent ends marked `metered`, which ended inside the job's own
- * daemon session, so its meter already holds their cost.
+ * daemon session, so its meter already holds their cost. And its session's own turns (`orchestrator`), from its
+ * session-usage events.
  */
-function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = null): { buckets: Record<string, SpendBucket>; covered: Record<string, SpendBucket> } {
+function bucketsOf(
+  events: JobEvent[],
+  config: Config,
+  sinceMs: number | null = null,
+): { buckets: Record<string, SpendBucket>; covered: Record<string, SpendBucket>; orchestrator: Record<string, SpendBucket> } {
   const out: Record<string, SpendBucket> = {};
   const covered: Record<string, SpendBucket> = {};
+  const orchestrator: Record<string, SpendBucket> = {};
   for (const e of events) {
+    if (e.type === SESSION_USAGE_EVENT) {
+      const u = sessionUsageOf(e);
+      if (u) addOwnUsage(orchestrator, u, config, sinceMs);
+      continue;
+    }
     if (!hasUsage(e)) continue;
     const day = utcDay(e.ts);
     if (!day) continue;
@@ -123,7 +149,14 @@ function bucketsOf(events: JobEvent[], config: Config, sinceMs: number | null = 
     addTo((out[key] ??= emptyBucket()), add, 1, total);
     if (e.metered === true) addTo((covered[`${day}|${modelKey}`] ??= emptyBucket()), add, 1, total);
   }
-  return { buckets: out, covered };
+  return { buckets: out, covered, orchestrator };
+}
+
+/** The inbox's or office's own per-turn usage (its session-usage file) as orchestrator buckets; none for any other scope. */
+function sessionOwn(root: string, scope: string, config: Config, sinceMs: number | null): Record<string, SpendBucket> {
+  const out: Record<string, SpendBucket> = {};
+  if (scope === INBOX_SCOPE || scope === OFFICE_SCOPE) for (const u of readSessionUsage(root, scope)) addOwnUsage(out, u, config, sinceMs);
+  return out;
 }
 
 /** Whether a meter scope is a legacy assistant session's (`_assistant-<n>`), metered before gate runs: its past spend stays role `assistant`. */
@@ -131,10 +164,11 @@ const legacyAssistant = (scope: string): boolean => LEGACY_ASSISTANT_SCOPE.test(
 
 /**
  * The ledger role a meter scope's spend is: the inbox, the office, the gate runs (`assistant`, as a legacy assistant
- * scope's past spend is too), a chat, or a job's orchestrator (with every agent it ran).
+ * scope's past spend is too), a chat, or a job's session (`job-session`: its metered spend past its covered agent ends,
+ * so also any agent spend it never reported). Role `orchestrator` is the session-usage figure alone.
  */
 const meterRole = (scope: string): string =>
-  scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : scope === GATES_SCOPE || legacyAssistant(scope) ? 'assistant' : isChatScope(scope) ? 'chat' : 'orchestrator';
+  scope === INBOX_SCOPE ? 'inbox' : scope === OFFICE_SCOPE ? 'office' : scope === GATES_SCOPE || legacyAssistant(scope) ? 'assistant' : isChatScope(scope) ? 'chat' : 'job-session';
 
 /** A shared session's ledger title, or null for a job's meter. */
 function sessionTitle(scope: string): string | null {
@@ -185,13 +219,22 @@ function meteredBuckets(records: readonly MeterRecord[], covered: Record<string,
   return out;
 }
 
-/** A meter file's fingerprint (size and mtime), zeros when it is missing or not a regular file. */
-function meterPrint(root: string, scope: string): { meterSize: number; meterMtimeMs: number } {
+type FilesPrint = Pick<SpendJob, 'meterSize' | 'meterMtimeMs' | 'usageSize' | 'usageMtimeMs'>;
+
+/** A file's size and mtime, zeros when it can't be named or is missing or not a regular file. */
+function statOf(file: () => string): { size: number; mtimeMs: number } {
   try {
-    const st = fs.lstatSync(meterFile(root, scope));
-    if (st.isFile()) return { meterSize: st.size, meterMtimeMs: st.mtimeMs };
+    const st = fs.lstatSync(file());
+    if (st.isFile()) return { size: st.size, mtimeMs: st.mtimeMs };
   } catch {}
-  return { meterSize: 0, meterMtimeMs: 0 };
+  return { size: 0, mtimeMs: 0 };
+}
+
+/** A scope's meter file's fingerprint, and its session-usage file's for the inbox and office (zeros for any other scope). */
+function filesPrint(root: string, scope: string): FilesPrint {
+  const m = statOf(() => meterFile(root, scope));
+  const u = scope === INBOX_SCOPE || scope === OFFICE_SCOPE ? statOf(() => sessionUsageFile(root, scope)) : { size: 0, mtimeMs: 0 };
+  return { meterSize: m.size, meterMtimeMs: m.mtimeMs, usageSize: u.size, usageMtimeMs: u.mtimeMs };
 }
 
 /** A scope's metered buckets, or none for a scope that can't name a meter file. */
@@ -229,18 +272,22 @@ function readSpendCache(root: string, hash: string): SpendCache | null {
   return raw as SpendCache;
 }
 
-const sameFile = (e: SpendJob | undefined, source: SpendJob['source'], size: number, mtimeMs: number, meter: { meterSize: number; meterMtimeMs: number }): e is SpendJob =>
+const sameFile = (e: SpendJob | undefined, source: SpendJob['source'], size: number, mtimeMs: number, print: FilesPrint): e is SpendJob =>
   Boolean(
     e &&
       e.source === source &&
       e.size === size &&
       e.mtimeMs === mtimeMs &&
-      e.meterSize === meter.meterSize &&
-      e.meterMtimeMs === meter.meterMtimeMs &&
+      e.meterSize === print.meterSize &&
+      e.meterMtimeMs === print.meterMtimeMs &&
+      e.usageSize === print.usageSize &&
+      e.usageMtimeMs === print.usageMtimeMs &&
       e.buckets &&
       typeof e.buckets === 'object' &&
       e.metered &&
-      typeof e.metered === 'object',
+      typeof e.metered === 'object' &&
+      e.orchestrator &&
+      typeof e.orchestrator === 'object',
   );
 
 /**
@@ -268,7 +315,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
     const size = st?.isFile() ? st.size : 0;
     const mtimeMs = st?.isFile() ? st.mtimeMs : 0;
     // Taken before the meter is read, so a record appended in between is seen next time.
-    const print = meterPrint(root, job.id);
+    const print = filesPrint(root, job.id);
     const prev = Object.hasOwn(old, job.id) ? old[job.id] : undefined;
     if (sameFile(prev, 'live', size, mtimeMs, print)) {
       jobs[job.id] = { ...prev, kind: job.kind ?? null, title: job.title ?? '' };
@@ -278,7 +325,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
     // The fingerprint comes from the descriptor read, so an append between stat and read is seen next time.
     const r = st?.isFile() ? readNoFollow(file) : null;
     spendCounters.parsed++;
-    const { buckets, covered } = r ? bucketsOf(parseEventLines(r.text), config, sinceMs) : { buckets: {}, covered: {} };
+    const { buckets, covered, orchestrator } = r ? bucketsOf(parseEventLines(r.text), config, sinceMs) : { buckets: {}, covered: {}, orchestrator: {} };
     jobs[job.id] = {
       source: 'live',
       size: r?.size ?? 0,
@@ -288,6 +335,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
       title: job.title ?? '',
       buckets,
       metered: meteredOf(root, job.id, covered, config, sinceMs),
+      orchestrator,
     };
     changed = true;
   }
@@ -307,7 +355,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
       continue;
     }
     if (!st.isFile()) continue;
-    const print = meterPrint(root, id);
+    const print = filesPrint(root, id);
     const prev = Object.hasOwn(old, id) ? old[id] : undefined;
     if (sameFile(prev, 'archive', st.size, st.mtimeMs, print)) {
       jobs[id] = prev;
@@ -317,7 +365,7 @@ export function spendLedger(root: string, config: Config, { write = true, since 
     spendCounters.parsed++;
     changed = true;
     if (!rec) continue;
-    const { buckets, covered } = bucketsOf(rec.events, config, sinceMs);
+    const { buckets, covered, orchestrator } = bucketsOf(rec.events, config, sinceMs);
     const summaryUsd = count(rec.summary?.usage?.estCostUsd);
     // A record whose events lost their usage still carries the job's total; it counts on its finish day.
     const usageless = !rec.events.some(hasUsage);
@@ -326,18 +374,20 @@ export function spendLedger(root: string, config: Config, { write = true, since 
       const day = utcDay(finished);
       if (day) buckets[`${day}|unknown|unknown`] = { ...emptyBucket(), tokens: count(rec.summary?.usage?.totalTokens), usd: round4(summaryUsd) };
     }
-    jobs[id] = { source: 'archive', size: st.size, mtimeMs: st.mtimeMs, ...print, kind: rec.job.kind ?? null, title: rec.job.title ?? '', buckets, metered: meteredOf(root, id, covered, config, sinceMs) };
+    jobs[id] = { source: 'archive', size: st.size, mtimeMs: st.mtimeMs, ...print, kind: rec.job.kind ?? null, title: rec.job.title ?? '', buckets, metered: meteredOf(root, id, covered, config, sinceMs), orchestrator };
   }
-  // The inbox, the office, and the meter of a job that is neither live nor archived (deleted): meter files are never deleted.
+  // The inbox, the office, and the meter of a job that is neither live nor archived (deleted): meter files are never
+  // deleted. The inbox and office also count with a session-usage file and no meter yet.
   const meterDir = path.join(paths(root).runtime, 'meter');
   let meters: fs.Dirent[] = [];
   try {
     if (fs.lstatSync(meterDir).isDirectory()) meters = fs.readdirSync(meterDir, { withFileTypes: true });
   } catch {}
-  for (const e of meters) {
-    const scope = e.name.slice(0, -'.jsonl'.length);
-    if (!e.isFile() || !e.name.endsWith('.jsonl') || !validRuntimeScope(scope) || Object.hasOwn(jobs, scope)) continue;
-    const print = meterPrint(root, scope);
+  const scopes = meters.filter((e) => e.isFile() && e.name.endsWith('.jsonl')).map((e) => e.name.slice(0, -'.jsonl'.length)).filter((s) => validRuntimeScope(s));
+  for (const s of [INBOX_SCOPE, OFFICE_SCOPE]) if (!scopes.includes(s) && filesPrint(root, s).usageSize > 0) scopes.push(s);
+  for (const scope of scopes) {
+    if (Object.hasOwn(jobs, scope)) continue;
+    const print = filesPrint(root, scope);
     const prev = Object.hasOwn(old, scope) ? old[scope] : undefined;
     if (sameFile(prev, 'session', 0, 0, print)) {
       jobs[scope] = prev;
@@ -346,7 +396,17 @@ export function spendLedger(root: string, config: Config, { write = true, since 
     spendCounters.parsed++;
     changed = true;
     const shared = sessionTitle(scope);
-    jobs[scope] = { source: 'session', size: 0, mtimeMs: 0, ...print, kind: shared ? 'session' : null, title: shared ?? '', buckets: {}, metered: meteredOf(root, scope, {}, config, sinceMs) };
+    jobs[scope] = {
+      source: 'session',
+      size: 0,
+      mtimeMs: 0,
+      ...print,
+      kind: shared ? 'session' : null,
+      title: shared ?? '',
+      buckets: {},
+      metered: meteredOf(root, scope, {}, config, sinceMs),
+      orchestrator: sessionOwn(root, scope, config, sinceMs),
+    };
   }
   if (Object.keys(old).some((id) => !Object.hasOwn(jobs, id))) changed = true;
   if (write && changed) {
@@ -387,8 +447,9 @@ export interface LedgerRow {
 }
 
 /**
- * The ledger summed by job, role, model or day, and by source (`reported` agent ends, `supervisor` meter), sorted by
- * key. Filter by time when building the ledger (`since`).
+ * The ledger summed by job, role, model or day, and by source (`reported` agent ends, `supervisor` meter,
+ * `session-usage` the sessions' own turns, which the meter already counts), sorted by key. Filter by time when
+ * building the ledger (`since`).
  */
 export function ledgerRows(ledger: Record<string, SpendJob>, { by }: { by: LedgerBy }): LedgerRow[] {
   const rows = new Map<string, LedgerRow>();
@@ -396,6 +457,7 @@ export function ledgerRows(ledger: Record<string, SpendJob>, { by }: { by: Ledge
     const sources: [string, Record<string, SpendBucket>][] = [
       ['reported', j.buckets],
       ['supervisor', j.metered ?? {}],
+      ['session-usage', j.orchestrator ?? {}],
     ];
     for (const [source, bucketKey, b] of sources.flatMap(([s, buckets]) => Object.entries(buckets).map(([k, v]) => [s, k, v] as const))) {
       const [day, role, model] = bucketKey.split('|');
@@ -417,9 +479,9 @@ export function ledgerRows(ledger: Record<string, SpendJob>, { by }: { by: Ledge
 }
 
 /** The roles meterRole gives: the only keys sessionRows writes. */
-const SESSION_ROLES: ReadonlySet<string> = new Set(['orchestrator', 'inbox', 'office', 'assistant', 'chat']);
+const SESSION_ROLES: ReadonlySet<string> = new Set(['job-session', 'inbox', 'office', 'assistant', 'chat']);
 
-/** The supervisor's buckets summed by role (orchestrator, inbox, office, assistant): Stats.cost.sessions. `runs` counts metered turns. */
+/** The supervisor's buckets summed by role (job-session, inbox, office, assistant, chat): Stats.cost.sessions. `runs` counts metered turns. */
 export function sessionRows(ledger: Record<string, SpendJob>): Record<string, UsageRow> {
   const out: Record<string, UsageRow> = {};
   for (const j of Object.values(ledger)) {

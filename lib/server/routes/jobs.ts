@@ -20,6 +20,7 @@ import { parseIssueRef } from '#core/job/issue-ref.ts';
 import { exists } from '#core/paths.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { withoutRunHistory } from '#engine/metrics/runs.ts';
+import { isSessionUsageEvent } from '#engine/metrics/meter.ts';
 import { enqueue, isMandateIdArg, listRequests, validJobId } from '#core/job/requests.ts';
 import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
 import { isMap } from '#core/shape.ts';
@@ -513,7 +514,8 @@ function jobDetail(root: string, id: string, projects: string, drive: ServerCtx[
   return redactDeep<JobDetail>({
     // Runs reach the dashboard only through `agents[].runs`.
     job: { ...job, agents: withoutRunHistory(job.agents), progress: progress(root, id), ownerStatus: { ...leaseStatus(job), jobSession: drive(job).jobSession } },
-    events: events.slice(-400),
+    // Session-usage events are accounting records, one per session turn: they would crowd the activity out of the last 400.
+    events: events.filter((e) => !isSessionUsageEvent(e)).slice(-400),
     files,
     screenshots: listScreenshots(dir),
     requests: listRequests(root).filter((r) => r.job === id).slice(-MAX_JOB_REQUESTS),
