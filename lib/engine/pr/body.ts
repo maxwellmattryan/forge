@@ -66,7 +66,9 @@ export function escalationApproval(events: JobEvent[]): EscalationApproval | nul
   const actor = approve.actor && typeof approve.actor === 'object' ? approve.actor : { login: null, source: 'unknown' as const };
   // One line: breaks become spaces before safeText drops the remaining control characters and backticks.
   const oneLine = String(events[park].reason ?? '').replace(BREAKS, ' ');
-  const reason = safeText(oneLine, 200).replace(/ {2,}/g, ' ').trim().replace(/[.\s]+$/, '') || 'no reason recorded';
+  // The lookbehind lets a match start only where a run of dots and spaces starts, so a long run is
+  // scanned once rather than once per character (test/invariants/security-scan.test.ts).
+  const reason = safeText(oneLine, 200).replace(/ {2,}/g, ' ').trim().replace(/(?<![.\s])[.\s]+$/, '') || 'no reason recorded';
   return { reason, login: actor.login, source: actor.source, ts: approve.ts, parkAt: park };
 }
 

@@ -290,7 +290,7 @@ const BROAD_BASH = [
 function broadBash(tool: string): boolean {
   const m = /^Bash(?:\((.*)\))?$/.exec(tool.trim());
   if (!m) return false;
-  const spec = (m[1] ?? '').trim().replace(/(:\*|\s*\*)$/, '').trim();
+  const spec = (m[1] ?? '').trim().replace(/:?\*$/, '').trim();
   return BROAD_BASH.some((re) => re.test(spec));
 }
 

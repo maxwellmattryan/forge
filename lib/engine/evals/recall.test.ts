@@ -53,7 +53,10 @@ const TWO_FILES = [
   '+new b',
 ].join('\n');
 
-const NO_COUNTS = ['diff --git a/c.ts b/c.ts', '--- a/c.ts', '+++ b/c.ts', '@@ -1 +1 @@', '-x', '+y'].join('\n');
+/** git ends a ---/+++ path that holds a space with a tab. */
+const TAB_END = ['diff --git a/a b b/a b', '--- a/a b\t', '+++ b/a b\t', '@@ -0,0 +1,1 @@', '+x'].join('\n');
+
+const NO_COUNTS =['diff --git a/c.ts b/c.ts', '--- a/c.ts', '+++ b/c.ts', '@@ -1 +1 @@', '-x', '+y'].join('\n');
 
 const EVIL = [
   'diff --git a/a.ts b/a.ts',
@@ -85,6 +88,7 @@ test('patchLineFor maps a new-file line to its diff.patch line', () => {
     ['two files: line 5 of b.ts (header ends in \\r)', TWO_FILES, 'b.ts', 5, 12],
     ['two files: line 4 of b.ts', TWO_FILES, 'b.ts', 4, 11],
     ['a path no header names', TWO_FILES, 'c.ts', 5, null],
+    ['+++ b/a b\\t names a b', TAB_END, 'a b', 1, 5],
     ['@@ -1 +1 @@ with no counts', NO_COUNTS, 'c.ts', 1, 6],
     ['an added +++ b/evil.ts line keeps the file', EVIL, 'a.ts', 3, 7],
     ['an added +++ b/evil.ts line is not a header', EVIL, 'evil.ts', 3, null],
