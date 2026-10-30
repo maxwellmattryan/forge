@@ -21,6 +21,6 @@ test("escalationApproval trims the reason's trailing dots and spaces", () => {
     [`x${' .'.repeat(5000)}`, 'x'],
   ];
   for (const [reason, want] of rows) {
-    assert.deepEqual(escalationApproval(parkedThenApproved(reason)), { reason: want, login: 'octo', source: 'gh', ts: '2026-10-29T11:00:00Z' }, JSON.stringify(reason.slice(0, 40)));
+    assert.deepEqual(escalationApproval(parkedThenApproved(reason)), { reason: want, login: 'octo', source: 'gh', ts: '2026-10-29T11:00:00Z', parkAt: 0 }, JSON.stringify(reason.slice(0, 40)));
   }
 });
