@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { shellLine, step } from '#engine/pipeline/step.ts';
-import type { Config, Job, VerifyRun } from '#core/types.ts';
+import type { Config, Job, JobAgent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '#engine/pipeline/types.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
@@ -149,6 +149,39 @@ const inRework = (agents: Job['agents'] = {}, more: Partial<Job> = {}): Partial<
   job({ stage: 'review', round: 2, reviewers: R2_LENSES, verifyRuns: [vr(1, 10, true), vr(2, 30, true)], verdicts: { 1: { code: 'PASS', security: 'PASS', docs: 'CHANGES' } }, agents: { builder: ag(2, 25, 29), ...agents }, ...more });
 const reworkScoped = (rerun: unknown, at = 31) => [ev('round', 20, { round: 2 }), ev('panel', at, { round: 2, lenses: R2_LENSES, rerun }), ev('scope', 31, { round: 2 })];
 const withDocsLens = (c: Config) => c.review.panel.push({ name: 'docs', paths: ['docs/**'] });
+/** Role-run session ids: uuids, as a runner-started session's are. */
+const BUILDER_SID = '0b0b0b0b-0000-4000-8000-000000000001';
+const CODE_SID = '0c0c0c0c-0000-4000-8000-000000000002';
+const CODE2_SID = '0c0c0c0c-0000-4000-8000-000000000003';
+const DOCS_SID = '0d0d0d0d-0000-4000-8000-000000000004';
+const SEC_SID = '05050505-0000-4000-8000-000000000005';
+/** loadStepInput's lastSessions entry for a session with a transcript and a known context. */
+const resumable = (session: string, context: number | null = 50_000, transcript = true) => ({ session, transcript, context });
+/** The round-1 builder's start, then round 2. */
+const BUILDER_EVENTS = [ev('agent-start', 5, { role: 'builder', model: 'opus' }), ev('round', 7)];
+/** Round 2 after a review that asked for changes: the round-1 builder was a role run that left a resumable session. */
+const resumableBuilder = (agent: Partial<JobAgent> = {}, more: Partial<FixtureOpts> = {}): FixtureOpts => ({
+  files: ['spec', 'tasks', 'build'],
+  present: [path.join(JOB_DIR, 'review', 'round-1', 'code.md')],
+  job: job({ stage: 'build', round: 2, verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: BUILDER_SID, ...agent }) } }),
+  events: BUILDER_EVENTS,
+  lastSessions: { builder: resumable(BUILDER_SID) },
+  ...more,
+});
+/** AC5: each reason a rework builder does not resume, in reworkResume's order, and the fixture that gives it. */
+const RESUME_SKIP_ROWS: [string, FixtureOpts][] = [
+  ['off', resumableBuilder({}, { config: (c) => (c.pipeline.resumeRework = false) })],
+  ['last run failed', resumableBuilder({ status: 'failed' })],
+  ['no session', resumableBuilder({ agentId: 'b1' }, { lastSessions: { builder: resumable('b1') } })],
+  ['no session (no runner sidecar names it)', resumableBuilder({}, { lastSessions: {} })],
+  ['no session (the sidecar names another session)', resumableBuilder({}, { lastSessions: { builder: resumable(CODE_SID) } })],
+  ['model changed', resumableBuilder({}, { config: (c) => (c.runtime.reworkModel = 'haiku') })],
+  ['spec changed', resumableBuilder({}, { events: [BUILDER_EVENTS[0], ev('human', 6, { action: 'revise-spec' }), BUILDER_EVENTS[1]] })],
+  ['spec changed (a spec-writer ended after the run started)', resumableBuilder({}, { job: { ...resumableBuilder().job, agents: { builder: ag(1, 5, 6, { agentId: BUILDER_SID }), 'spec-writer': ag(1, 6, 6) } } })],
+  ['no transcript', resumableBuilder({}, { lastSessions: { builder: resumable(BUILDER_SID, 50_000, false) } })],
+  ['context unknown', resumableBuilder({}, { lastSessions: { builder: resumable(BUILDER_SID, null) } })],
+  ['context over ceiling', resumableBuilder({}, { lastSessions: { builder: resumable(BUILDER_SID, 120_001) } })],
+];
 /** n verifier questions, named v00, v01, … in loadVerifiers' order. */
 const QUESTIONS = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `v${String(i).padStart(2, '0')}`, question: `Does change ${i} hold?` }));
 /** The panel's checklists: code from the plugin, docs from the repo, tests without one. */
@@ -748,6 +781,8 @@ export const rows: Row[] = [
     check: (a) => {
       assert.equal(a.output, undefined);
       assert.equal(a.resume, undefined);
+      assert.ok(!('resumeSkipped' in a), "a role's first run is no resume candidate");
+      assert.ok(!a.start.includes('--resume') && !a.start.includes('--resume-skipped'));
       assert.ok(!a.brief.includes('Rework:'));
       assert.ok(!a.brief.includes('Rework scope:'));
       assert.ok(!a.brief.includes('Reference:'));
@@ -822,10 +857,11 @@ export const rows: Row[] = [
       job: job({ stage: 'build', round: 2, reviewers: ['code', 'tests', 'docs'], verdicts: { 1: { code: 'CHANGES', tests: 'PASS' } }, agents: { builder: ag(1, 5, 6, { agentId: 'b1' }) } }),
       events: [ev('round', 7)],
     },
-    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    want: { action: 'spawn', rule: 'B4', role: 'builder', resumeSkipped: 'no session' },
     check: (a) => {
       assert.equal(a.resume, undefined);
       assert.ok(!('resume' in a));
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--resume-skipped', 'no session'], 'start');
       const lines = a.brief.split('\n');
       assert.ok(lines.includes(`Inputs: ${[path.join(JOB_DIR, 'review', 'round-1', 'code.md'), path.join(JOB_DIR, 'feedback.md'), path.join(JOB_DIR, 'tasks.md'), path.join(JOB_DIR, 'build.md')].join(', ')}`));
       assert.ok(lines.includes('Rework: review, feedback'));
@@ -901,6 +937,8 @@ export const rows: Row[] = [
     fx: { files: ['spec', 'questions'], job: job({ stage: 'build', round: 2, agents: { builder: ag(2, 8, 9, { summary: 'NEEDS-INPUT', agentId: 'b9' }) } }), events: [ev('round', 7), ev('human', 10, { action: 'answer', note: 'x' })] },
     want: { action: 'spawn', rule: 'N2', role: 'builder', resume: 'b9' },
     check: (a) => {
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--resume', 'b9'], 'start');
+      assert.ok(!('resumeSkipped' in a));
       assert.ok(a.brief.includes(path.join(JOB_DIR, 'questions.md')));
       assert.ok(a.brief.split('\n').includes('Rework: answer'));
       assert.ok(!a.brief.includes('Rework scope:'));
@@ -921,6 +959,41 @@ export const rows: Row[] = [
       assert.ok(lines.find((l: string) => l.startsWith('Inputs: '))?.includes(path.join(JOB_DIR, 'questions.md')));
     },
   },
+  {
+    name: 'B4 a rework builder resumes its last session',
+    fx: resumableBuilder(),
+    want: { action: 'spawn', rule: 'B4', role: 'builder', resume: BUILDER_SID },
+    check: (a) => {
+      assert.ok(!('resumeSkipped' in a));
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--resume', BUILDER_SID], 'start');
+      assert.ok(!a.start.includes('--resume-skipped'));
+      // The brief is the normal rework brief: the same as a cold run's.
+      const off = step(fixture(resumableBuilder({}, { config: (c) => (c.pipeline.resumeRework = false) }))) as any;
+      assert.equal(off.resumeSkipped, 'off');
+      assert.equal(a.brief, off.brief);
+      // Exactly the ceiling still resumes.
+      const atCeiling = step(fixture(resumableBuilder({}, { lastSessions: { builder: resumable(BUILDER_SID, 120_000) } }))) as any;
+      assert.equal(atCeiling.resume, BUILDER_SID);
+    },
+  },
+  {
+    name: 'B4 a builder re-run after a failed verify in the same round resumes its last session',
+    fx: { ...resumableBuilder(), job: job({ stage: 'build', round: 1, verifyRuns: [vr(1, 10, false)], agents: { builder: ag(1, 5, 6, { agentId: BUILDER_SID }) } }), events: [ev('round', 4), ev('agent-start', 5, { role: 'builder', model: 'opus' })] },
+    want: { action: 'spawn', rule: 'B4', role: 'builder', resume: BUILDER_SID },
+  },
+  ...RESUME_SKIP_ROWS.map(([reason, fx]): Row => {
+    const skipped = reason.replace(/ \(.*\)$/, '');
+    return {
+      name: `B4 rework resume skipped: ${reason}`,
+      fx,
+      want: { action: 'spawn', rule: 'B4', role: 'builder', resumeSkipped: skipped },
+      check: (a) => {
+        assert.ok(!('resume' in a));
+        argvMatch(a.start, ['job', 'agent', 'j', 'start', '--resume-skipped', skipped], 'start');
+        assert.ok(!a.start.includes('--resume'));
+      },
+    };
+  }),
   {
     name: 'hostile: a malformed lens name is never a rework input',
     fx: {
@@ -1078,6 +1151,60 @@ export const rows: Row[] = [
       const later = step(fixture({ config: withDocsLens, job: inRework({ 'reviewer:code': ag(2, 32), 'reviewer:docs': ag(2, 32) }), events: reworkScoped(['code', 'docs']) }));
       assert.equal(later.action, 'wait', 'security is never spawned');
     },
+  },
+  {
+    name: 'RV10 each re-run lens resumes its own last session',
+    fx: {
+      config: withDocsLens,
+      job: inRework({ 'reviewer:code': ag(1, 12, 13, { agentId: CODE_SID, model: 'sonnet' }), 'reviewer:docs': ag(1, 12, 13, { agentId: DOCS_SID, model: 'sonnet' }) }),
+      events: reworkScoped(['code', 'docs']),
+      lastSessions: { 'reviewer:code': resumable(CODE_SID), 'reviewer:docs': resumable(DOCS_SID) },
+    },
+    want: { action: 'spawn', rule: 'RV10', role: 'reviewer:code', resume: CODE_SID },
+    check: (a) => {
+      argvMatch(a.start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:code', '--resume', CODE_SID], 'start');
+      assert.deepEqual(a.spawns.map((s: any) => [s.lens, s.resume, s.resumeSkipped]), [['docs', DOCS_SID, undefined]]);
+      argvMatch(a.spawns[0].start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:docs', '--resume', DOCS_SID], 'docs start');
+    },
+  },
+  {
+    name: 'RV4 under onRework full resumes each lens',
+    fx: {
+      config: (c) => (withDocsLens(c), (c.review.onRework = 'full')),
+      job: inRework({
+        'reviewer:code': ag(1, 12, 13, { agentId: CODE_SID, model: 'sonnet' }),
+        'reviewer:security': ag(1, 12, 13, { agentId: SEC_SID }),
+        'reviewer:docs': ag(1, 12, 13, { agentId: DOCS_SID, model: 'sonnet' }),
+      }),
+      events: reworkScoped(['code', 'docs']),
+      // docs ran, but no runner sidecar names its session: it carries its own reason.
+      lastSessions: { 'reviewer:code': resumable(CODE_SID), 'reviewer:security': resumable(SEC_SID) },
+    },
+    want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code', resume: CODE_SID },
+    check: (a) => {
+      assert.ok(!('resumeSkipped' in a));
+      assert.deepEqual(a.spawns.map((s: any) => [s.lens, s.resume, s.resumeSkipped]), [['security', SEC_SID, undefined], ['docs', undefined, 'no session']]);
+      argvMatch(a.spawns[1].start, ['job', 'agent', 'j', 'start', '--role', 'reviewer:docs', '--resume-skipped', 'no session'], 'docs start');
+    },
+  },
+  {
+    name: 'RV10 a lens back after a narrow skip resumes its own last run',
+    fx: {
+      config: withDocsLens,
+      job: job({
+        stage: 'review',
+        round: 3,
+        reviewers: R2_LENSES,
+        verifyRuns: [vr(1, 10, true), vr(2, 30, true), vr(3, 50, true)],
+        verdicts: { 1: { code: 'PASS', security: 'PASS', docs: 'CHANGES' }, 2: { code: 'CHANGES' } },
+        // docs last reviewed in round 1 (round 2's narrow panel skipped it); code reviewed round 2.
+        agents: { builder: ag(3, 45, 49), 'reviewer:code': ag(2, 32, 33, { agentId: CODE2_SID, model: 'sonnet' }), 'reviewer:docs': ag(1, 12, 13, { agentId: DOCS_SID, model: 'sonnet' }) },
+      }),
+      events: [ev('round', 40, { round: 3 }), ev('panel', 51, { round: 3, lenses: R2_LENSES, rerun: ['code', 'docs'] }), ev('scope', 51, { round: 3 })],
+      lastSessions: { 'reviewer:code': resumable(CODE2_SID), 'reviewer:docs': resumable(DOCS_SID) },
+    },
+    want: { action: 'spawn', rule: 'RV10', role: 'reviewer:code', resume: CODE2_SID },
+    check: (a) => assert.deepEqual(a.spawns.map((s: any) => [s.lens, s.resume]), [['docs', DOCS_SID]]),
   },
   {
     // The spec called this row "RV10 records…", but RV6 decides it; the harness checks the prefix.

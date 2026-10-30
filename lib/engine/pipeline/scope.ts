@@ -8,7 +8,7 @@ import { ensureReviewDir, loadJob, jobDir, logEvent } from '#core/job/store.ts';
 import { memberWorktree } from '../project/job-repos.ts';
 import { reviewedRepoNames } from '#core/job/lens.ts';
 import { exists } from '#core/paths.ts';
-import type { Config, Job } from '#core/types.ts';
+import type { Config, Job, JobEvent } from '#core/types.ts';
 import { matchPolicy, policyRules } from '#core/config/validators/policy-check.ts';
 import { ForgeError } from '#core/errors.ts';
 import { now } from '#core/utils.ts';
@@ -131,6 +131,18 @@ export function approachPaths(specText: string): string[] {
 const git = (cwd: string, args: string[]): string => runGit(cwd, args).stdout.trim();
 
 const FULL_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
+
+// A `verdicts` event's sha is agent-reachable job state: only a full object name ever reaches git's argv.
+// Looser than FULL_SHA on purpose: rework narrowing keeps accepting what it always has.
+export const REVIEWED_SHA = /^[0-9a-f]{40,64}$/;
+
+/** The sha round `round`'s review saw (the last `verdicts` event of the round), when it is 40–64 lowercase hex and an ancestor of `cwd`'s HEAD; null otherwise. */
+export function reviewedSha(events: readonly JobEvent[], round: number, cwd: string): string | null {
+  const sha = events.findLast((e) => e.type === 'verdicts' && e.round === round)?.sha;
+  if (typeof sha !== 'string' || !REVIEWED_SHA.test(sha)) return null;
+  // Not an ancestor: history was rewritten, so a small diff could hide work the passed lenses never saw.
+  return runGit(cwd, ['merge-base', '--is-ancestor', sha, 'HEAD'], { env: historyEnv(), allowFail: true }).ok ? sha : null;
+}
 
 /**
  * The paths whose content at `sha` differs from git's own merge of `head` and `upstream`: what a

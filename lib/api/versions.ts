@@ -124,6 +124,9 @@ export const API_CHANGES = [
   // Stats.cost.orchestrator (OrchestratorSpend, LaneSpend); Stats.cost.sessions' job key is job-session (was orchestrator);
   // StateJob.lastEvent and JobDetail.events leave out session-usage events.
   { id: 'orchestrator-spend' },
+  // PipelineConfig.resumeRework; `resume` and `resumeSkipped` on the agent-start event and `resumeFailed` on a role
+  // run's agent-end.
+  { id: 'resume-rework' },
 ] as const;
 
 /**

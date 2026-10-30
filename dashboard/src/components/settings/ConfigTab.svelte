@@ -1,8 +1,8 @@
 <!-- Settings › a config section: its fields from GET /api/config, and the Save bar that writes them through POST /api/config. -->
 <script lang="ts">
   import { tick } from 'svelte';
-  import Banner from '../Banner.svelte';
-  import Chip from '../Chip.svelte';
+  import Banner from '../ui/feedback/Banner.svelte';
+  import Chip from '../ui/Chip.svelte';
   import ConfigFieldRow from './ConfigFieldRow.svelte';
   import { S, refresh } from '../../lib/core/app.svelte.ts';
   import { fieldsFor } from '../../lib/settings/config-form.ts';

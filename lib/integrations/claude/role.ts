@@ -43,6 +43,8 @@ export interface RoleOutcome {
   dropped: number;
   /** The result line's cumulative cost, null without a result or a cost on it. */
   cost: SessionCost | null;
+  /** The input, cache-read and cache-write tokens of the turn's last main-loop request (the result's `context`), null without one. */
+  context: number | null;
   failure: RoleFailure | null;
   /** How many permission prompts were answered deny. */
   denied: number;
@@ -154,6 +156,7 @@ export function runRoleChild(adapter: ClaudeAdapter, o: RoleRunOptions): RoleRun
       tools: [...tools],
       dropped,
       cost: r?.cost ?? null,
+      context: r?.context ?? null,
       failure,
       denied,
       exit,

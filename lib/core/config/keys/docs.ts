@@ -147,6 +147,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'pipeline.maxTotalRounds': {
     doc: "the total-round ceiling: rounds of any kind, reworks included; past it each round needs a person's rework (null: twice maxRounds; see \"Total-round ceiling\")",
   },
+  'pipeline.resumeRework': { doc: "true | false: a rework round's builder and each re-run lens resume their role's last session (see docs/architecture/daemon-runtime.md › Role runs)" },
   'pipeline.budget': {
     doc: 'per-job limits; null = unlimited. Over budget → waiting on "budget"',
     more: [

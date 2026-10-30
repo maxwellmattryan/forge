@@ -2,8 +2,8 @@
      support bundle (GET /api/doctor/bundle). -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import Banner from '../Banner.svelte';
-  import Chip from '../Chip.svelte';
+  import Banner from '../ui/feedback/Banner.svelte';
+  import Chip from '../ui/Chip.svelte';
   import { fetchBundle } from '../../lib/core/app.svelte.ts';
   import { doctorReport, failedCount, warnCount } from '../../lib/settings/diagnostics.ts';
   import { t } from '../../lib/text/locale.ts';

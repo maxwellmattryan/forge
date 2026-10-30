@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 48            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 49            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -159,6 +159,7 @@ pipeline:                    # how a job moves from request to PR
   design: none               # none | reference | mockup
   maxRounds: 3               # build→review rounds before asking a human (eval jobs are graded instead); twice this while the security review isn't PASS
   maxTotalRounds: null       # the total-round ceiling: rounds of any kind, reworks included; past it each round needs a person's rework (null: twice maxRounds; see "Total-round ceiling")
+  resumeRework: true         # true | false: a rework round's builder and each re-run lens resume their role's last session (see docs/architecture/daemon-runtime.md › Role runs)
   budget:                    # per-job limits; null = unlimited. Over budget → waiting on "budget"
     tokens: null             # job.usage.totalTokens
     usd: null                # estimated cost (job.usage.estCostUsd)
@@ -501,6 +502,8 @@ worktrees:
 Under `review.onRework: narrow`, `forge job panel` on round N ≥ 2 still records the full panel on `job.reviewers` (a lens never drops), and also computes the lenses that re-run this round. In panel order, a lens re-runs when it is `always: true` (reason `always`) or always-on-rework (`always on rework`), its round N−1 verdict is missing (`new this round`) or not `PASS` (`changes requested in round <N−1>`), or one of its `paths` globs matches a file changed between the commit the round N−1 review saw (the sha on that round's `verdicts` event) and HEAD (`paths <glob>: <file>`). Every other lens is skipped and keeps its last `PASS`; the approver's brief lists those carried passes with the round each passed in. A panel entry's **`alwaysOnRework`** makes a lens re-run on every rework round; absent, it defaults to `true` for `security` and `false` for every other name, so a security lens re-reviews each fix even with no `paths` (`alwaysOnRework: false` lets it narrow like the rest). `forge config validate` reports a value that isn't `true` or `false`. Any other lens with only a prose `when` and no `paths` re-runs only when it asked for changes, so give a lens `paths` or `alwaysOnRework: true` if a fix in its area must always bring it back.
 
 There is no narrowing (every lens re-runs) when `onRework` is `full` or any other value, round N−1 has no verdicts or all of them are `PASS` (a human rework), the round N−1 `verdicts` event has no sha, the sha isn't 40 to 64 hex characters or isn't an ancestor of HEAD (history was rewritten), the job has an open PR (`review.onPrFeedback` decides), a reviewed member repo or is a retro job, or the rework panel would be empty or every lens. When it narrows, `forge job panel` returns `rerun` and `skipped`, the `panel` event records `rerun` and `rerunReasons`, and `forge job step` spawns only `rerun` (rule RV10) and records verdicts for those lenses only.
+
+On rounds 2 and later of a job with no open PR and no reviewed member, under `narrow` or `full`, each lens that re-runs is told its latest earlier review (`Previous review:`) and the commit that review saw (`Changed since:`, the sha on that round's `verdicts` event when it is 40 to 64 lowercase hex and an ancestor of HEAD, else `none`), so it re-reviews the fix first. A lens back after a skipped round gets the review and sha of the latest round it reviewed.
 
 ## Open PRs
 

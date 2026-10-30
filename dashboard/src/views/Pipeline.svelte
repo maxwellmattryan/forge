@@ -1,11 +1,11 @@
 <!-- Pipeline: filters, the board/table toggle, and every job in one of four stage groups (plus Done when the filter
      holds finished jobs), so the whole board fits a desktop without scrolling sideways. -->
 <script lang="ts">
-  import Empty from '../components/Empty.svelte';
-  import Icon from '../components/Icon.svelte';
-  import JobCard from '../components/JobCard.svelte';
-  import JobsTable from '../components/JobsTable.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
+  import Empty from '../components/ui/feedback/Empty.svelte';
+  import Icon from '../components/ui/Icon.svelte';
+  import JobCard from '../components/jobs/JobCard.svelte';
+  import JobsTable from '../components/jobs/JobsTable.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
   import type { ApiState } from '../lib/core/types.ts';
   import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/jobs/board.ts';
   import { workingCount } from '../lib/sessions/live.ts';

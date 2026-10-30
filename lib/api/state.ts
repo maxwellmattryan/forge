@@ -54,6 +54,8 @@ export interface PipelineConfig {
   maxRounds: number;
   /** The total-round ceiling (B7); null means twice the job's maxRounds. */
   maxTotalRounds: number | null;
+  /** A rework round's builder and each re-run lens resume their role's last session when it is safe and cheap. */
+  resumeRework: boolean;
   budget: BudgetLimits;
 }
 

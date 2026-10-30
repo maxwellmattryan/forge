@@ -1,5 +1,5 @@
 // One open of the settings modal: the config form's data and drafts, and the Diagnostics and
-// About fetches. Settings.svelte creates one per open, so drafts survive tab switches and are
+// About fetches. settings/SettingsModal.svelte creates one per open, so drafts survive tab switches and are
 // gone once the modal closes.
 import { fetchAbout, fetchConfig, fetchDoctor, postConfig } from '../core/app.svelte.ts';
 import { changedKeys, invalidKeys, parseDraft, type Draft } from './config-form.ts';

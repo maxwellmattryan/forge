@@ -1,7 +1,7 @@
 <!-- Settings › About: versions from GET /api/about, and links to the repository and docs. -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Banner from '../Banner.svelte';
+  import Banner from '../ui/feedback/Banner.svelte';
   import { t } from '../../lib/text/locale.ts';
   import { safeUrl } from '../../lib/text/markdown.ts';
   import type { SettingsSession } from '../../lib/settings/session.svelte.ts';
