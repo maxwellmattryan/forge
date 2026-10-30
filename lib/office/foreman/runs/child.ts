@@ -15,7 +15,7 @@ import { buildArgv, sessionEnv, type ChildAgent } from '#integrations/claude/arg
 import { runRoleChild, type RoleOutcome, type RoleRun } from '#integrations/claude/role.ts';
 import type { ClaudeAdapter } from '#integrations/claude/types.ts';
 import { checkLaunch } from '../../session/launch.ts';
-import { confineDigest, spawnConfinement } from '../../session/confine.ts';
+import { WRITE_ROOTS_ENV, confineDigest, spawnConfinement } from '../../session/confine.ts';
 import { officeCapLeft } from '../../session/meter.ts';
 import type { SessionContext, SessionOptions } from '../../session/contract.ts';
 import type { Config, Effort } from '#core/types.ts';
@@ -129,8 +129,10 @@ export function startOfficeChild(root: string, ctx: SessionContext, o: SessionOp
         maxBudgetUsd: officeCapLeft(root, c, Date.now()),
         agent: input.agent,
       });
-      // The scope reaches the child only through its environment: `_office` keeps the CLI's office refusals.
-      const env = { ...sessionEnv(o.env, c.daemon.auth), ...confined.env, [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: OFFICE_SCOPE };
+      // The scope reaches the child only through its environment: `_office` keeps the CLI's office refusals. The write
+      // guard (hooks/write-guard.ts) gets this child's own roots in place of every worktrees root, as its rules do.
+      const guard = { [WRITE_ROOTS_ENV]: JSON.stringify({ jobs: confined.roots.jobs, worktrees: input.writeRoots }) };
+      const env = { ...sessionEnv(o.env, c.daemon.auth), ...confined.env, ...guard, [TRUST_ENV]: launch.trusted, [SCOPE_ENV]: OFFICE_SCOPE };
       let timeoutMs = o.turnTimeoutMs;
       if (timeoutMs === null) {
         const minutes = c.daemon?.turnTimeoutMinutes;

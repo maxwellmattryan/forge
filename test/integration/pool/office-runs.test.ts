@@ -136,6 +136,7 @@ test('a draft request ends with a stored draft and an acked request', async (t) 
   assert.ok(!allowed.some((r) => r.includes('/.forge/jobs')), 'no rule for the jobs dir');
   assert.ok(after(c.argv, '--disallowedTools').split(',').includes('Bash'));
   assert.equal(c.env.FORGE_DAEMON_SCOPE, '_office');
+  assert.deepEqual(JSON.parse(c.env.FORGE_DAEMON_WRITE_ROOTS ?? '{}').worktrees, [drafts], "the write guard's worktrees root is the drafts dir alone");
   assert.equal(c.briefs.length, 1, 'one brief, its only message');
   assert.match(c.briefs[0], /^Draft the milestone for goal mandate g1\. Read the survey at `/);
   assert.equal(path.dirname(stagingOf(c)), drafts, "prepare's brief names the staging file in the drafts dir");
