@@ -3,6 +3,7 @@
 import { STAGES, WAITING_ON } from '#core/job/schema.ts';
 import { busyMs, timeline } from '../evals/stats.ts';
 import type { TimelineSegment } from '../evals/stats.ts';
+import { isSessionUsageEvent } from './meter.ts';
 import type { Job, JobEvent, Stage, Stats, TimeSpread, WaitingOn } from '#core/types.ts';
 
 /** The shortest stretch with no agent, no command and no event that counts as a stall. */
@@ -100,7 +101,8 @@ export function jobSpeed(job: Job, events: JobEvent[]): JobSpeed | null {
     quiet.push(...uncovered(s.from, s.to, covered));
   }
   // An event of any kind is a sign of life, so it splits a quiet stretch; `ordered` is sorted, so one pointer walks both.
-  const cuts = tl.ordered.map(ts);
+  // Except a session-usage record, which the supervisor writes per session turn: skipping it keeps stalls comparable with jobs from before it.
+  const cuts = tl.ordered.filter((e) => !isSessionUsageEvent(e)).map(ts);
   let k = 0;
   for (const [a, b] of quiet) {
     while (k < cuts.length && cuts[k] <= a) k++;

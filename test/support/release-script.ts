@@ -48,12 +48,16 @@ if (argv[0] === '--check') {
 }
 `;
 
-/** Replaces the top-level `release:` block of the project's config.yml with `lines`. */
+/**
+ * Replaces the top-level `release:` block of the project's config.yml with `lines`, or appends it when the
+ * file has none (init write leaves a release block at its defaults out).
+ */
 export function setReleaseBlock(dir: string, lines: string[]): void {
   const file = path.join(dir, '.forge', 'config.yml');
   const text = fs.readFileSync(file, 'utf8');
-  const next = text.replace(/^release:\n(?: {2}.*\n)*/m, `${lines.join('\n')}\n`);
-  if (next === text) throw new Error('no release: block in config.yml');
+  const block = `${lines.join('\n')}\n`;
+  const next = /^release:\n/m.test(text) ? text.replace(/^release:\n(?: {2}.*\n)*/m, block) : `${text}${text.endsWith('\n') ? '' : '\n'}${block}`;
+  if (next === text) throw new Error('the release: block in config.yml did not change');
   fs.writeFileSync(file, next);
 }
 

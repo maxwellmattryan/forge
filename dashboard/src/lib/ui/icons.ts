@@ -1,4 +1,4 @@
-// The Smithy icon set (24x24 viewBox, machined: 1.5px strokes, round caps and joins), rendered by components/Icon.svelte.
+// The Smithy icon set (24x24 viewBox, machined: 1.5px strokes, round caps and joins), rendered by components/ui/Icon.svelte.
 // This file is the source of the set. Geometry is kept as SVG attribute strings.
 export type IconShape =
   | { readonly el: 'path'; readonly d: string }

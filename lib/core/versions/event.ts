@@ -67,6 +67,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // `context` ({mode, session, reason, firstRead}) on a role run's `agent-end`; an older Forge reads the event as generic
   // and ignores the field.
   { id: 'context-session-event', up: (e) => e },
+  // v20 adds the `session-usage` event ({session, turn, model, usage, numTurns, durationMs, ok}): the supervisor's record of
+  // a job session's own turn usage from its result line (lib/office/session/meter.ts). An older Forge reads it as generic,
+  // and an older job simply has none.
+  { id: 'session-usage-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

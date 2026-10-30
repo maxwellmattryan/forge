@@ -11,6 +11,8 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { forgeAsync, scratchGitConfig } from './helpers.ts';
 import * as yaml from '#core/format/yaml.ts';
+import { defaults } from '#core/config/load.ts';
+import { deepMerge } from '#core/shape.ts';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, stdio: 'pipe', encoding: 'utf8' });
 
@@ -84,7 +86,8 @@ export async function downstreamProject(): Promise<DownstreamProject> {
   }
   const configFile = path.join(root, '.forge', 'config.yml');
   const config = (edit: (c: any) => void) => {
-    const c = yaml.parse(fs.readFileSync(configFile, 'utf8'));
+    // Over the defaults: init write leaves keys at their default out of the file.
+    const c = deepMerge(defaults(), yaml.parse(fs.readFileSync(configFile, 'utf8')));
     edit(c);
     fs.writeFileSync(configFile, yaml.stringify(c));
   };

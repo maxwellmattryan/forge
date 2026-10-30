@@ -10,7 +10,7 @@ import path from 'node:path';
 import { CHAT_MESSAGE_MAX } from '#api/constants.ts';
 import { now } from '#core/utils.ts';
 import { PERMISSION_MODES } from './argv.ts';
-import type { ClaudeEvent, DenyWhy, ModelCost, SessionCost } from './types.ts';
+import type { ClaudeEvent, DenyWhy, ModelCost, SessionCost, TurnUsage } from './types.ts';
 import type { DaemonPermissionMode, PermissionDecision } from '#core/types.ts';
 
 /**
@@ -213,6 +213,38 @@ export function resultCost(ev: Record<string, any>): SessionCost | null {
   return { usd, models: Object.fromEntries(entries) };
 }
 
+/** A model id the session-usage record keeps: a trailing context tag (`[1m]`) dropped, then 1-100 safe characters, never `__proto__`. */
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/;
+export function initModel(v: unknown): string | null {
+  // The length cap comes first, so the tag strip never scans a long hostile string.
+  if (typeof v !== 'string' || v.length > 200) return null;
+  const id = v.replace(/\[[^\]]*\]$/, '');
+  return id.length >= 1 && id.length <= 100 && id !== '__proto__' && MODEL_ID.test(id) ? id : null;
+}
+
+const finiteOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
+
+/**
+ * A turn's own usage from its result line: `usage`'s four token counts (each finite and >= 0 or else 0), `num_turns` and
+ * `duration_ms` (null when unusable), and `model`, the latest init's. Null when the line has no `usage` object.
+ * `usage` covers the session's own main-loop calls of this turn only. `modelUsage` and `total_cost_usd` are never read
+ * here: both add up over the whole session process and include its subagents, whose spend the agent ends already
+ * report, so summing them per turn would count agent spend twice (resultCost keeps them for the meter alone).
+ */
+export function resultUsage(ev: Record<string, any>, model: string | null): TurnUsage | null {
+  const u = ev.usage;
+  if (!u || typeof u !== 'object' || Array.isArray(u)) return null;
+  return {
+    model,
+    input: costCount(u.input_tokens),
+    output: costCount(u.output_tokens),
+    cacheRead: costCount(u.cache_read_input_tokens),
+    cacheWrite: costCount(u.cache_creation_input_tokens),
+    numTurns: finiteOrNull(ev.num_turns),
+    durationMs: finiteOrNull(ev.duration_ms),
+  };
+}
+
 /**
  * claude stamps only its assistant and user lines (`timestamp`); its system, result and
  * progress events carry no time at all. Those get the receipt time as `at`, the key the
@@ -297,6 +329,8 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
   let context: number | null = null;
   /** Whether this stream's `first-request` event is out: once per stream, never per turn. */
   let firstSent = false;
+  /** The model the latest system/init named (initModel), for the turn's session usage. */
+  let model: string | null = null;
 
   function onLine(line: string): void {
     let ev: any = null;
@@ -350,6 +384,7 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
 
   function onSystem(ev: Record<string, any>): void {
     if (ev.subtype === 'init') {
+      model = initModel(ev.model);
       emit({ kind: 'turn-started' });
       if (typeof ev.session_id === 'string' && ev.session_id) emit({ kind: 'session-id', id: ev.session_id });
     }
@@ -410,11 +445,12 @@ export function createStream(write: (line: string) => void, emit: (e: ClaudeEven
    * often with subtype "success". It is a quota limit when a rate_limit_event since the last written
    * turn said `rejected`, or when its text reads like one; a login failure when it is neither that nor
    * the dollar cap and its text reads like AUTH_TEXT. Either carries the turn's context when it had one,
-   * and the next turn starts unmeasured.
+   * and the next turn starts unmeasured. Either carries the turn's own usage (resultUsage) when the line has one.
    */
   function onResult(ev: Record<string, any>): void {
     const cost = resultCost(ev);
-    const measured = context !== null ? { context } : {};
+    const usage = resultUsage(ev, model);
+    const measured = { ...(context !== null ? { context } : {}), ...(usage ? { usage } : {}) };
     context = null;
     // The --max-budget-usd stop is a failed turn whatever is_error says, and never a quota limit to wait out.
     const budget = ev.subtype === 'error_max_budget_usd';

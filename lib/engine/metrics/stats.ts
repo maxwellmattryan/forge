@@ -8,6 +8,8 @@ import { jobFindings } from '../pipeline/findings.ts';
 import { isForemanActor, listJobs, readEvents } from '#core/job/store.ts';
 import { csvCell, parseAuditDate } from '../ops/audit.ts';
 import { LEDGER_BY, ledgerRows, sessionRows, spendLedger } from './spend.ts';
+import { SESSION_USAGE_EVENT, addToLane, emptyLane, laneOf, orchestratorSpend, priceSessionUsage, readSessionUsage, sessionUsageOf } from './meter.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE } from '#core/job/requests.ts';
 import type { LedgerBy } from './spend.ts';
 import { LENS_NAME } from '#core/job/lens.ts';
 import { agentRoles } from '../evals/provenance.ts';
@@ -139,7 +141,13 @@ export function computeStats(root: string, opts: StatsOpts = {}): Stats {
   const stats = statsFrom(sources, opts);
   // Jobs passed in are the whole population (tests, evals): no daemon session spent for them. Session
   // rows aren't per mandate, so a mandate's stats carry none either.
-  if (!opts.jobs && !opts.mandate && opts.config) stats.cost.sessions = sessionRows(spendLedger(root, opts.config, { write: false, since: opts.since ?? null }));
+  if (!opts.jobs && !opts.mandate && opts.config) {
+    stats.cost.sessions = sessionRows(spendLedger(root, opts.config, { write: false, since: opts.since ?? null }));
+    const since = opts.since ? Date.parse(opts.since) : null;
+    const lane = (scope: string) => laneOf(readSessionUsage(root, scope), opts.config?.usage?.pricing, since);
+    const o = stats.cost.orchestrator!;
+    stats.cost.orchestrator = orchestratorSpend({ job: o.byLane.job, inbox: lane(INBOX_SCOPE), office: lane(OFFICE_SCOPE) }, o.coverage);
+  }
   // Only the repo's real population reads transcripts (experiments, cohorts and report cards call statsFrom),
   // and not for the callers that opt out: mandate intake and the retro never read the figure.
   if (!opts.jobs && opts.agentStart !== false) stats.speed.agentStartSeconds = agentStartSeconds(root, sources);
@@ -193,6 +201,8 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
   const byRole: Record<string, UsageRow> = {};
   const byModel: Record<string, UsageRow> = {};
   let tokens = 0, cost = 0, agentRuns = 0, agentRunsWithUsage = 0, exactRuns = 0;
+  const jobLane = emptyLane();
+  const sessionCoverage = { jobs: jobs.length, withUsage: 0, agentUsd: 0 };
   const waitingOn: Record<string, number> = {};
 
   for (const src of sources) {
@@ -339,11 +349,22 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       }
     }
     addVerifierStats(verifiers, events);
+    let ownTurns = 0;
     for (const e of events) {
+      // The job session's own turns, priced apart from the agent spend: never in the totals below.
+      const own = e.type === SESSION_USAGE_EVENT ? sessionUsageOf(e) : null;
+      if (own) {
+        addToLane(jobLane, priceSessionUsage(own, opts.config?.usage?.pricing));
+        ownTurns++;
+      }
       if (e.type !== 'agent-end') continue;
       agentRuns++;
       if (e.usage && (e.usage.totalTokens || e.usage.input || e.usage.output)) agentRunsWithUsage++;
       if (e.usage?.exact) exactRuns++;
+    }
+    if (ownTurns) {
+      sessionCoverage.withUsage++;
+      sessionCoverage.agentUsd += j.usage?.estCostUsd ?? 0;
     }
     // An event without a foreman actor was a person's (v1 events without one read as `unknown`).
     const foreman = events.filter((e) => e.type === 'human' && isForemanActor(e));
@@ -448,6 +469,8 @@ export function statsFrom(sources: StatsSource[], opts: Pick<StatsOpts, 'since' 
       byRole,
       byModel,
       sessions: {},
+      // computeStats fills the inbox and office lanes for the repo's own population.
+      orchestrator: orchestratorSpend({ job: jobLane, inbox: emptyLane(), office: emptyLane() }, sessionCoverage),
     },
     reviewers,
     verifiers,
@@ -515,8 +538,9 @@ const CSV_TOTALS = ['runs', 'tokens', 'input', 'output', 'cache_read', 'cache_wr
 
 /**
  * `forge stats --csv`: the spend ledger (lib/engine/metrics/spend.ts) by job, role, model or day, each split by source
- * (`reported` agent ends, `supervisor` meter), for finance. Every job and daemon session counts, evals and retros
- * included, so the totals match `forge budget`.
+ * (`reported` agent ends, `supervisor` meter, `session-usage` the sessions' own turns), for finance. Every job and daemon
+ * session counts, evals and retros included, so the `reported` and `supervisor` rows add up to `forge budget`; the
+ * `session-usage` rows are already inside the `supervisor` ones.
  */
 export function statsCsv(root: string, config: Config, flags: Record<string, unknown>): string {
   const usage = (why: string) => new ForgeError(`${why}; usage: forge stats --csv [--since DATE] [--by job|role|model|day]`, 'usage', 'forge help stats');

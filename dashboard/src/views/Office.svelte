@@ -3,8 +3,8 @@
      scrolls the page: the left column and the office log scroll on their own. Narrower, the columns stack and the page
      scrolls as any other. The page is project-owned: App's {#key} remounts it. -->
 <script lang="ts">
-  import OfficePanel from '../components/OfficePanel.svelte';
-  import PageHeader from '../components/PageHeader.svelte';
+  import OfficePanel from '../components/office/OfficePanel.svelte';
+  import PageHeader from '../components/shell/PageHeader.svelte';
   import { OFFICE_PAGE } from '../lib/office/layout.ts';
   import { t } from '../lib/text/locale.ts';
 </script>

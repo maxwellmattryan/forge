@@ -1,4 +1,4 @@
-// Where an icon button's tooltip (components/Tooltip.svelte) opens, as a plain function node:test can pin. Modelled on
+// Where an icon button's tooltip (components/ui/overlay/Tooltip.svelte) opens, as a plain function node:test can pin. Modelled on
 // placeMenu in menu.ts.
 
 /** Hover waits this long before the tip shows; keyboard focus shows it at once. */

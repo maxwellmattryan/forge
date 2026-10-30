@@ -5,20 +5,20 @@
      the project changes. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
-  import AddProject from './components/AddProject.svelte';
-  import Banner from './components/Banner.svelte';
-  import CommandBar from './components/CommandBar.svelte';
-  import Drawer from './components/Drawer.svelte';
-  import DrawerShell from './components/DrawerShell.svelte';
-  import IssueDrawer from './components/IssueDrawer.svelte';
-  import GitHubCard from './components/GitHubCard.svelte';
-  import Icon from './components/Icon.svelte';
-  import Nav from './components/Nav.svelte';
-  import RailTip from './components/RailTip.svelte';
-  import Settings from './components/Settings.svelte';
-  import StatusBar from './components/StatusBar.svelte';
-  import Toast from './components/Toast.svelte';
-  import Tooltip from './components/Tooltip.svelte';
+  import AddProject from './components/shell/AddProject.svelte';
+  import Banner from './components/ui/feedback/Banner.svelte';
+  import CommandBar from './components/shell/CommandBar.svelte';
+  import JobPanel from './components/drawer/JobPanel.svelte';
+  import DrawerShell from './components/drawer/DrawerShell.svelte';
+  import IssuePanel from './components/drawer/IssuePanel.svelte';
+  import GitHubCard from './components/ui/overlay/GitHubCard.svelte';
+  import Icon from './components/ui/Icon.svelte';
+  import Nav from './components/shell/Nav.svelte';
+  import RailTip from './components/shell/RailTip.svelte';
+  import SettingsModal from './components/settings/SettingsModal.svelte';
+  import StatusBar from './components/shell/StatusBar.svelte';
+  import Toast from './components/ui/overlay/Toast.svelte';
+  import Tooltip from './components/ui/overlay/Tooltip.svelte';
   import Pipeline from './views/Pipeline.svelte';
   import Issues from './views/Issues.svelte';
   import Agents from './views/Agents.svelte';
@@ -29,14 +29,14 @@
   import Project from './views/Project.svelte';
   import Overview from './views/Overview.svelte';
   import Machine from './views/Machine.svelte';
-  import PipelineSkeleton from './components/skeletons/PipelineSkeleton.svelte';
-  import IssuesSkeleton from './components/skeletons/IssuesSkeleton.svelte';
-  import AgentsSkeleton from './components/skeletons/AgentsSkeleton.svelte';
-  import OfficeSkeleton from './components/skeletons/OfficeSkeleton.svelte';
-  import ForemanSkeleton from './components/skeletons/ForemanSkeleton.svelte';
-  import AnalyticsSkeleton from './components/skeletons/AnalyticsSkeleton.svelte';
-  import EvalsSkeleton from './components/skeletons/EvalsSkeleton.svelte';
-  import ProjectSkeleton from './components/skeletons/ProjectSkeleton.svelte';
+  import PipelineSkeleton from './components/skeletons/project/PipelineSkeleton.svelte';
+  import IssuesSkeleton from './components/skeletons/project/IssuesSkeleton.svelte';
+  import AgentsSkeleton from './components/skeletons/project/AgentsSkeleton.svelte';
+  import OfficeSkeleton from './components/skeletons/office/OfficeSkeleton.svelte';
+  import ForemanSkeleton from './components/skeletons/office/ForemanSkeleton.svelte';
+  import AnalyticsSkeleton from './components/skeletons/metrics/AnalyticsSkeleton.svelte';
+  import EvalsSkeleton from './components/skeletons/metrics/EvalsSkeleton.svelte';
+  import ProjectSkeleton from './components/skeletons/project/ProjectSkeleton.svelte';
   import { S, checkSelection, closeDrawer, loadOverview, loadView, refresh, refreshMachine, route, setSidebar } from './lib/core/app.svelte.ts';
   import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_RAIL, sidebarDrag, sidebarKey, sidebarShown } from './lib/shell/sidebar.ts';
   import { hideTip, railTipOn } from './lib/shell/rail-tip.svelte.ts';
@@ -55,7 +55,7 @@
   let settingsOpen = $state(false);
   /** The tab Settings opens on; unset opens the saved tab. */
   let settingsStart = $state<SettingsTabId | undefined>();
-  let settings = $state<ReturnType<typeof Settings>>();
+  let settings = $state<ReturnType<typeof SettingsModal>>();
   let command = $state<ReturnType<typeof CommandBar>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
@@ -366,8 +366,8 @@
 </div>
 <!-- Outside main as well: inside main.falloff's stacking context, the sidebar's z-10 would sit above the backdrop. -->
 <!-- One shell for both panels; `kind` outlives a close, so the drawer slides out with the panel it showed. -->
-<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<DrawerShell open={S.drawer.open} label={S.drawer.kind === 'issue' ? $t('issues.view.label') : $t('drawer.label')}>{#snippet children(focusTitle)}{#if S.drawer.kind === 'issue'}<IssueDrawer {focusTitle} />{:else}<Drawer {focusTitle} />{/if}{/snippet}</DrawerShell>{/key}</div>
-{#if settingsOpen}{#key project}<Settings bind:this={settings} start={settingsStart} onclose={closeSettings} />{/key}{/if}
+<div inert={settingsOpen || palette.open || addProjectDialog.open}>{#key project}<DrawerShell open={S.drawer.open} label={S.drawer.kind === 'issue' ? $t('issues.view.label') : $t('drawer.label')}>{#snippet children(focusTitle)}{#if S.drawer.kind === 'issue'}<IssuePanel {focusTitle} />{:else}<JobPanel {focusTitle} />{/if}{/snippet}</DrawerShell>{/key}</div>
+{#if settingsOpen}{#key project}<SettingsModal bind:this={settings} start={settingsStart} onclose={closeSettings} />{/key}{/if}
 {#if addProjectDialog.open}<AddProject />{/if}
 {#if palette.open}{#key project}<CommandBar bind:this={command} onclose={closePalette} />{/key}{/if}
 <Toast />

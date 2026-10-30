@@ -84,8 +84,10 @@ test("a mandate's jobs, spend and candidates", async (t) => {
     archiveJob(root, gone.id, 'cli', { config });
     const other = jobAt(root, 'build', { create: { mandate: 'm2' } });
     const bucket = (usd: number) => ({ runs: 1, tokens: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, usd });
-    const entry = (b: number, m: number) => ({ source: 'live', size: 0, mtimeMs: 0, meterSize: 0, meterMtimeMs: 0, kind: null, title: '', buckets: { k: bucket(b) }, metered: { k: bucket(m) } }) as ProgressCtx['ledger'][string];
-    const ledger = { [live.id]: entry(1.5, 0.5), [gone.id]: entry(2, 0), [other.id]: entry(100, 0) };
+    const entry = (b: number, m: number, own = 0) =>
+      ({ source: 'live', size: 0, mtimeMs: 0, meterSize: 0, meterMtimeMs: 0, usageSize: 0, usageMtimeMs: 0, kind: null, title: '', buckets: { k: bucket(b) }, metered: { k: bucket(m) }, orchestrator: own ? { k: bucket(own) } : {} }) as ProgressCtx['ledger'][string];
+    // The live job's session usage (role orchestrator) overlaps its meter, so it never adds to the mandate's spend.
+    const ledger = { [live.id]: entry(1.5, 0.5, 50), [gone.id]: entry(2, 0), [other.id]: entry(100, 0) };
     const p = progress(root, config, 'm1', stub({}), { ledger });
     assert.equal(p.spentUsd, 4);
     assert.deepEqual(p.jobs.map((j) => [j.id, j.live]).sort(), [[gone.id, false], [live.id, true]].sort());
