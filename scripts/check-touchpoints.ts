@@ -129,6 +129,19 @@ function configKeys(opts: { removed?: boolean; topLevel?: boolean } = {}): Rule[
   };
 }
 
+const DEPRECATIONS_FILE = 'lib/core/config/validators/deprecations.ts';
+
+/**
+ * Satisfied when every key is removed from KEY_DOCS (and not added back) and DEPRECATED_CONFIG_KEYS gains an
+ * entry naming it, `{ key: '<key>', …`: a key nothing reads leaves with a doctor warning instead of a config step.
+ */
+function deprecatesAll(changes: readonly Change[], keys: readonly string[]): boolean {
+  const docs = changes.filter((c) => c.path === KEY_DOCS_FILE && c.status !== 'A');
+  const added = keysIn(docs.flatMap((c) => c.added));
+  const removed = keysIn(docs.flatMap((c) => c.removed));
+  return keys.length > 0 && keys.every((k) => removed.has(k) && !added.has(k) && addsLine(DEPRECATIONS_FILE, new RegExp(`\\bkey: '${escapeRe(k)}'`))(changes));
+}
+
 /** Satisfied when `file` gains a line matching `re`. */
 function addsLine(file: string, re: RegExp): (changes: readonly Change[]) => boolean {
   return (changes) => changes.some((c) => c.path === file && c.added.some((l) => re.test(l)));
@@ -157,9 +170,9 @@ export const RULES: readonly Rule[] = [
   {
     id: 'config-step',
     fires: configKeys({ removed: true }),
-    satisfied: addsLine('lib/core/versions/config.ts', STEP_LINE),
+    satisfied: (changes, hit) => addsLine('lib/core/versions/config.ts', STEP_LINE)(changes) || deprecatesAll(changes, hit.keys ?? []),
     fix: (hit) =>
-      `config keys ${keyList(hit)} changed: append { id: '<kebab-id>', up: (c) => c } to CONFIG_STEPS in lib/core/versions/config.ts (a real up() when old configs change), with its row in test/schema.test.ts`,
+      `config keys ${keyList(hit)} changed: append { id: '<kebab-id>', up: (c) => c } to CONFIG_STEPS in lib/core/versions/config.ts (a real up() when old configs change), with its row in test/schema.test.ts; or, for a key removed because nothing reads it, add it to DEPRECATED_CONFIG_KEYS in ${DEPRECATIONS_FILE}`,
   },
   {
     id: 'config-disclosure',

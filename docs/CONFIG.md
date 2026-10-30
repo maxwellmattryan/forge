@@ -11,12 +11,9 @@ schemaVersion: 49            # the config schema this file is written for: `forg
 
 project:                     # the project every agent works on
   name: null                 # display name
-  description: null          # a one-line summary of the project (informational)
-  kinds: []                  # free-form tags (web-ui, rust, embedded, …); help pick lenses
   instructions:              # files each agent reads first, if present: `default` for every role, or a role name
                              # (planner, spec-writer, builder, reviewer, …) whose list replaces it; a plain list is every role's
     default: [AGENTS.md, CLAUDE.md]
-  notes: null                # one-paragraph context every agent should know
 
 git:                         # the branches and remote jobs work against
   base: main                 # PR target / integration branch
@@ -96,7 +93,6 @@ ports: { base: 4100, span: 100 }  # one per service/app component and per backin
 
 runtime:                     # the agent runtime: how many jobs run, and each role's model and effort
   provider: anthropic        # informational; the roster is provider-neutral markdown
-  host: claude-code          # the agent host Forge runs in (informational)
   maxParallelJobs: 3         # jobs the orchestrator runs at once (1-16)
   diversity: false           # warn when the approver or a lens shares the builder's model family (never blocks)
   effort: null               # low | medium | high | xhigh | max: the default reasoning effort for jobs (null: Claude Code's own setting); see "Effort"
@@ -259,10 +255,8 @@ downstream:                  # a changed library's linked consumers join the job
 infra:                       # what agents may do to infrastructure; their briefs carry mode and allowed
   mode: human                # human | plan-only | agent
   allowed: []                # commands agents may run under plan-only/agent, e.g. ["terraform plan", "kubectl get"]
-  notes: null                # free-form notes on how infrastructure is run here (informational)
 
 usage:                       # token and cost accounting
-  track: true                # informational: agent runs' usage is recorded either way
   pricing: {}                # overrides for lib/integrations/claude/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }
 
 improve:                     # retros and the experiment ledger (docs/IMPROVEMENT.md)
@@ -1495,7 +1489,25 @@ Tools run without a shell, each field one argument, with a 30 s timeout. One tra
 
 A key on its way out is listed in `DEPRECATED_CONFIG_KEYS` in `lib/core/config/validators/deprecations.ts` with the release that deprecated it, the release that removes it (at least one minor later) and what to use instead. While it is set in `.forge/config.yml`, `forge doctor` and Settings › Diagnostics show a warning row, `deprecated config key <key>`, that never fails the report. The policy is in [RELEASES.md](RELEASES.md#deprecation). Each deprecated key is listed below as `` `<key>` ``, and `test/invariants/version.test.ts` checks the list against the registry.
 
-None today.
+| Key | Deprecated in | Removed in | Instead |
+|---|---|---|---|
+| `project.description` | 0.23.0 | 1.0.0 | no agent reads it: put the text in AGENTS.md (or a file `project.instructions` names) and delete the key |
+| `project.kinds` | 0.23.0 | 1.0.0 | no agent reads it: put the text in AGENTS.md (or a file `project.instructions` names) and delete the key |
+| `project.notes` | 0.23.0 | 1.0.0 | no agent reads it: put the text in AGENTS.md (or a file `project.instructions` names) and delete the key |
+| `infra.notes` | 0.23.0 | 1.0.0 | no agent reads it: put the text in AGENTS.md (or a file `project.instructions` names) and delete the key |
+| `usage.track` | 0.23.0 | 1.0.0 | it has no effect (usage is recorded either way): delete the key |
+| `runtime.host` | 0.23.0 | 1.0.0 | it has no effect: delete the key |
+
+A file that still sets one of these loads as before, and nothing reads the value. Support bundles hide it like any key `defaults()` lacks.
+
+**Unknown keys.** `forge doctor` and Settings › Diagnostics also show a warning row, `unknown config key <dotted.path>`, for each key Forge does not read. Like a deprecated key's row, it never fails the report. The check:
+- walks the file after its migration and before the defaults are merged in, so a key an older `schemaVersion` used and a migration renames (`dashboard.launcher`, `services`) is not flagged;
+- reports the first unknown segment of a path and nothing below it: `pipelines: {plan: auto}` gives one row, `pipelines`;
+- never enters a list (`components`, `review.panel`, `repos`, `backing`, `policy.protectedPaths`, …), whose entries `forge config validate` checks;
+- never enters a map whose keys you name: `project.instructions`, `commands`, `runtime.efforts`, `runtime.effortByComplexity`, `runtime.models`, `runtime.modelByComplexity`, every map whose default is `{}` (`secrets`, `usage.pricing`, `tracker.github.project.statusMap`), and a custom tracker's `tracker.<kind>` block;
+- stops where the file's value and the default differ in type, which `forge config validate` reports;
+- leaves a deprecated key to its deprecated row;
+- lists rows in the order the keys appear in the file, and says nothing about a file it can't parse, an empty one, one whose top level is not a map, or one written for a newer Forge.
 
 ## Repo-layer files
 
