@@ -131,8 +131,10 @@ test('chat text reaches only its chat session', async (t) => {
   const claude = fakeClaude();
   const pool = poolFor(t, repo, { claude: claude.adapter, pollMs: 3_600_000, syncMs: 0, reconcileMs: 0, graceMs: 50, runPass: noPass });
   pool.start('boot');
-  const others = ['_inbox', '_office', job];
-  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the inbox, office and job sessions all run');
+  // The inbox spawns no session at start: the intake runner answers its requests.
+  const others = ['_office', job];
+  assert.deepEqual(others.filter((s) => !claude.children.some((c) => c.scope === s)), [], 'the office and job sessions run');
+  assert.ok(!claude.children.some((c) => c.scope === '_inbox'), 'no inbox session');
 
   const chat = '_chat-0123456789ab';
   assert.deepEqual(pool.sendChat(chat, 'hello, Foreman'), { error: null });
