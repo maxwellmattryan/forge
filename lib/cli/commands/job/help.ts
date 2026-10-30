@@ -227,20 +227,26 @@ export const JOB: HelpGroup = {
     },
     {
       command: 'job agent run',
-      args: '<id> --session S [--spawn-index N] [--epoch N] [--cold]',
+      args: '<id> --session S [--spawn-index N | --role R] [--epoch N] [--cold] [--ipc]',
       summary:
-        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended. A spawn carrying `resume` resumes that session (`claude --resume`) instead of forking, and runs once more as a fresh session when the resume fails before init (resumeFailed: true). Any other review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, resumeSkipped (when step gave a reason not to resume), status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn",
+        "run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended, or with --ipc relayed to the parent process (forge dash's code driver), which answers each from the dashboard. A spawn carrying `resume` resumes that session (`claude --resume`) instead of forking, and runs once more as a fresh session when the resume fails before init (resumeFailed: true). Any other review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, resumeSkipped (when step gave a reason not to resume), status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: <class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn",
       flags: [
         ['--session S', 'the session that holds the job (required): only its driver may run a role'],
         ['--spawn-index N', "which spawn of step's list to run: 0 (the default) is the action itself, 1 on its `spawns`"],
+        ['--role R', "run the spawn of step's list whose role is R (stale_step when none is); not with --spawn-index"],
         ['--epoch N', "the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
         ['--cold', 'run without a context session, for measurement: no context child starts and context.reason is `cold flag`'],
+        [
+          '--ipc',
+          "report to the parent over Node's IPC channel (forge-role messages: started, child, reply, ask, cancel) and wait for its forge-answer to each permission prompt; a lost channel denies what is pending and interrupts the role. Refused without a channel",
+        ],
       ],
       exits: [
         [
           1,
           "no such job; the inbox, office or another job's session; stale_step: step no longer returns that spawn (another caller started it, or the job moved on); a worktree that is missing or under no worktrees root, a daemon.command problem, a tracker symlink, a trust digest that does not match under FORGE_DAEMON=1, or an empty brief; or the role failed (failure.class limit, auth, budget, error, timeout, untrusted or interrupted)",
         ],
+        [2, 'usage: no --session, a bad --spawn-index or --role, --role with --spawn-index, or --ipc without an IPC channel'],
         [3, 'another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end'],
         [5, 'the role failed because claude never started (failure.class spawn) or closed without a result (exit)'],
       ],

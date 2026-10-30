@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 50            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 51            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -310,6 +310,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
     office: 60               # the daily cap in USD on the office session and its gate runs, summed: at the cap no gate run starts (null: none)
     chat: 25                 # the daily cap in USD on every chat session of the project, summed: at the cap a chat refuses the owner's next message, and a running one stops after its reply (null: none)
   keepAwake: auto            # auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)
+  driver: session            # session: a job's resume turns run a claude orchestrator session; code: forge dash drives them itself, running forge job advance and one role run per spawn as child processes, and hands procedures and other requests to a session (see "Daemon" below)
 
 foreman:                     # opt-in: forge dash decides parked gates in code, one forge:assistant process per gate (see "Foreman" below)
   enabled: false             # true (with daemon.enabled): parked gates become `gate` requests that forge dash's gate runner decides

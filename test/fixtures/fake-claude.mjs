@@ -1,7 +1,8 @@
 // A stand-in for `claude -p --input-format stream-json --output-format stream-json`, used by the
 // daemon tests. Knobs (environment):
-//   FAKE_CLAUDE_LOG           append {pid, argv, scope, cwd, env} at start and {pid, stdin} per input line; env holds the
-//                             FORGE_* keys a role child gets, and only whether ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN are set
+//   FAKE_CLAUDE_LOG           append {pid, argv, scope, cwd, env, nodeChannel} at start and {pid, stdin} per input line; env
+//                             holds the FORGE_* keys a role child gets, and only whether ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN
+//                             are set; nodeChannel whether NODE_CHANNEL_FD (or its serialization mode) reached it
 //   FAKE_CLAUDE_RESULT_TEXT   the text of every working result (a role's reply)
 //   FAKE_CLAUDE_MODEL_USAGE   JSON modelUsage for every result, with total_cost_usd the sum of its costUSD
 //   FAKE_CLAUDE_RATE_LIMIT    a rejected rate_limit_event with this resetsAt (epoch seconds) before every result
@@ -62,6 +63,8 @@ log({
   scope,
   cwd: process.cwd(),
   env: { ...Object.fromEntries(ROLE_ENV.map((k) => [k, env[k] ?? null])), ANTHROPIC_API_KEY: Boolean(env.ANTHROPIC_API_KEY), ANTHROPIC_AUTH_TOKEN: Boolean(env.ANTHROPIC_AUTH_TOKEN) },
+  // Whether a parent's IPC channel reached this child: a role child must never get the runner's.
+  nodeChannel: Boolean(env.NODE_CHANNEL_FD || env.NODE_CHANNEL_SERIALIZATION_MODE),
 });
 
 const resume = flag('--resume');
