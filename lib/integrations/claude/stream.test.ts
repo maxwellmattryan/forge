@@ -1,8 +1,10 @@
 // createStream as a pure decoder: claude's stream-json chunks in, ClaudeEvents and stdin lines out.
+import fs from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TIMEOUT_DENIED, TURN_LINE, UNATTENDED_DENIED, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, sessionGrant } from './stream.ts';
-import type { ClaudeEvent, SessionCost } from './types.ts';
+import { AUTH_TEXT, BRIEF_MAX_CHARS, PERMISSION_DENIED, TIMEOUT_DENIED, TURN_LINE, UNATTENDED_DENIED, VERDICT_RETRY_LINE, briefLine, createStream, resultCost, resultUsage, sessionGrant } from './stream.ts';
+import type { ClaudeEvent, SessionCost, TurnUsage } from './types.ts';
 
 /** One stream over in-memory sinks. */
 function decoder(maxLineBytes = 1 << 20) {
@@ -315,6 +317,61 @@ test("claude's stream-json lines become domain events", () => {
   assert.equal(AUTH_TEXT.test(`${'token '.repeat(2000)}x${' '.repeat(8000)}`), false);
   // JSON can't carry NaN, so the decoder's own reader takes it directly.
   assert.deepEqual(resultCost({ total_cost_usd: NaN, modelUsage: { m: { ...usageOf(NaN), outputTokens: Infinity } } }), { usd: null, models: { m: { ...costOf(0), output: 0 } } });
+});
+
+test("a result's own usage, not modelUsage, is the turn's session usage", () => {
+  // The fixture's subagent runs on the same model as the main loop, so only `usage` (not modelUsage) can tell them apart.
+  const fixture = fs.readFileSync(path.resolve(import.meta.dirname, '..', '..', '..', 'test', 'fixtures', 'session-usage-stream.jsonl'), 'utf8');
+  const usageOfEnd = (events: ClaudeEvent[]) => events.filter((e) => e.kind === 'turn-ended').map((e) => (e as { usage?: unknown }).usage);
+  const d = decoder();
+  d.s.stdout(fixture);
+  const expected: TurnUsage = { model: 'claude-opus-5-5', input: 120, output: 800, cacheRead: 40000, cacheWrite: 3000, numTurns: 3, durationMs: 45000 };
+  assert.deepEqual(usageOfEnd(d.events), [expected]);
+  const ended = d.events.find((e) => e.kind === 'turn-ended');
+  assert.equal(ended?.kind === 'turn-ended' && ended.cost?.models['claude-opus-5-5']?.input, 1020, 'the meter still gets modelUsage');
+
+  const withModel = (model: unknown) => ({ ...init, model });
+  const used = { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 3, cache_creation_input_tokens: 4 };
+  const rows: { name: string; lines: unknown[]; usage: (TurnUsage | undefined)[] }[] = [
+    { name: 'no usage object', lines: [withModel('claude-opus-5-5'), { type: 'result', is_error: false }], usage: [undefined] },
+    { name: 'a usage that is not an object', lines: [{ type: 'result', is_error: false, usage: 'lots' }, { type: 'result', is_error: false, usage: [1] }], usage: [undefined, undefined] },
+    {
+      name: 'bad counts read 0, bad num_turns and duration_ms read null',
+      lines: [withModel('claude-opus-5-5'), { type: 'result', is_error: false, num_turns: -1, duration_ms: '9', usage: { input_tokens: -5, output_tokens: '7', cache_read_input_tokens: null, cache_creation_input_tokens: 4 } }],
+      usage: [{ model: 'claude-opus-5-5', input: 0, output: 0, cacheRead: 0, cacheWrite: 4, numTurns: null, durationMs: null }],
+    },
+    { name: 'a trailing context tag is dropped', lines: [withModel('claude-opus-5-5[1m]'), { type: 'result', is_error: false, usage: used }], usage: [{ model: 'claude-opus-5-5', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, numTurns: null, durationMs: null }] },
+    ...[undefined, 42, '', '__proto__', 'bad model', '-x', 'x'.repeat(101), `${'['.repeat(10_000)}`].map((model) => ({
+      name: `an unusable model ${JSON.stringify(model)?.slice(0, 20)}`,
+      lines: [withModel(model), { type: 'result', is_error: false, usage: used }],
+      usage: [{ model: null, input: 1, output: 2, cacheRead: 3, cacheWrite: 4, numTurns: null, durationMs: null }],
+    })),
+    {
+      name: 'a failed turn still carries its usage, and a later init replaces the model',
+      lines: [withModel('claude-opus-5-5'), { ...errorResult('boom'), num_turns: 1, duration_ms: 10, usage: used }, withModel('claude-sonnet-5-5'), { type: 'result', is_error: false, usage: used }],
+      usage: [
+        { model: 'claude-opus-5-5', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, numTurns: 1, durationMs: 10 },
+        { model: 'claude-sonnet-5-5', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, numTurns: null, durationMs: null },
+      ],
+    },
+  ];
+  for (const row of rows) {
+    const r = decoder();
+    r.s.stdout(row.lines.map(line).join(''));
+    const ends = r.events.filter((e) => e.kind === 'turn-ended');
+    assert.deepEqual(ends.map((e) => (e as { usage?: unknown }).usage), row.usage, row.name);
+    for (const [i, e] of ends.entries()) assert.equal('usage' in e, row.usage[i] !== undefined, `${row.name}: no usage key without a usage object`);
+  }
+  // JSON can't carry NaN or Infinity, so the reader takes them directly.
+  assert.deepEqual(resultUsage({ num_turns: NaN, duration_ms: Infinity, usage: { input_tokens: NaN, output_tokens: Infinity, cache_read_input_tokens: 2, cache_creation_input_tokens: 0 } }, null), {
+    model: null,
+    input: 0,
+    output: 0,
+    cacheRead: 2,
+    cacheWrite: 0,
+    numTurns: null,
+    durationMs: null,
+  });
 });
 
 test('every stdin line is built from fixed text', () => {

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { serveProjects, tempRepo } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
-import { createJob, jobDir } from '#core/job/store.ts';
+import { createJob, jobDir, logEvent, readEvents } from '#core/job/store.ts';
 import { recordKnown } from '#engine/guard/known-secrets.ts';
 
 const POSIX = process.platform !== 'win32';
@@ -123,6 +123,25 @@ test('job file reads stay inside the real job dir', async () => {
       ['content-type', 'content-security-policy', 'cache-control', 'cross-origin-resource-policy', 'x-content-type-options'].map((h) => shot.headers[h]),
       ['image/png', "default-src 'none'", 'no-store', 'same-origin', 'nosniff'],
     );
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test("session-usage events stay out of a job's lastEvent and detail events", async () => {
+  const s = await setup();
+  try {
+    logEvent(s.repo.dir, s.id, 'transition', { from: { stage: 'build', state: 'running', waitingOn: null }, to: { stage: 'build', state: 'waiting', waitingOn: 'escalation' } });
+    logEvent(s.repo.dir, s.id, 'session-usage', { session: null, turn: 1, model: 'claude-opus-5-5', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: 1, durationMs: 5, ok: true });
+    const total = readEvents(s.repo.dir, s.id).length;
+    const state = JSON.parse((await get(s, '/api/p/a/state')).text);
+    const job = state.jobs.find((j: { id: string }) => j.id === s.id);
+    assert.equal(job.lastEvent?.type, 'transition', 'the last event that is not accounting');
+    assert.equal(job.eventCount, total, 'every event still counts');
+    const detail = JSON.parse((await get(s, `/api/p/a/jobs/${s.id}`)).text);
+    assert.ok(detail.events.length > 0);
+    assert.equal(detail.events.filter((e: { type: string }) => e.type === 'session-usage').length, 0);
+    assert.equal(detail.events.at(-1).type, 'transition');
   } finally {
     await s.cleanup();
   }

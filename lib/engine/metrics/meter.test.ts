@@ -1,11 +1,30 @@
 // The supervisor's meter in-process: deltas per spawn against claude's cumulative cost, and the meter file's
-// writer and tolerant reader. Every time is passed explicitly, so no row reads the clock.
+// writer and tolerant reader; and the session-usage ledger beside it (its validator, the inbox's and office's file,
+// a lane's pricing). Every time is passed explicitly, so no row reads the clock.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
-import { appendMeter, lastMeterAt, lastMeterCum, meterDelta, meterFile, meterTodayUsd, readMeter, readMeterChecked } from './meter.ts';
+import { estimateCost } from '#integrations/claude/pricing.ts';
+import {
+  SESSION_USAGE_VERSION,
+  appendMeter,
+  appendSessionUsage,
+  laneOf,
+  lastMeterAt,
+  lastMeterCum,
+  meterDelta,
+  meterFile,
+  meterTodayUsd,
+  readMeter,
+  readMeterChecked,
+  readSessionUsage,
+  sessionUsageFile,
+  sessionUsageOf,
+  sessionUsagePayload,
+} from './meter.ts';
 import type { MeterCum, MeterRecord } from './meter.ts';
 import type { ModelCost, SessionCost } from '#integrations/claude/types.ts';
 
@@ -110,4 +129,91 @@ test('the meter file is the supervisor\'s, read tolerantly', (t) => {
   fs.rmSync(meterDir, { recursive: true });
   fs.writeFileSync(meterDir, '');
   assert.deepEqual(readMeterChecked(root, '_office'), { records: [], problem: `${meterDir} is not a directory` });
+});
+
+const scratch = (t: { after: (fn: () => void) => void }): string => {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'forge-session-usage-')));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+};
+const TS = '2026-10-20T10:00:00.000Z';
+const usage = { input: 10, output: 20, cacheRead: 300, cacheWrite: 40, totalTokens: 370 };
+const usageLine = (o: Record<string, unknown>) => JSON.stringify({ v: SESSION_USAGE_VERSION, ts: TS, scope: '_inbox', session: null, turn: 1, model: 'claude-opus-5-5', usage, numTurns: 2, durationMs: 100, ok: true, ...o });
+
+test('the session-usage ledger is read tolerantly and never through a link', (t) => {
+  // The validator: a job event or a runtime line, normalised; totalTokens is always the counts' sum.
+  const good = { model: 'claude-opus-5-5', input: 10, output: 20, cacheRead: 300, cacheWrite: 40, totalTokens: 370, ts: TS };
+  assert.deepEqual(sessionUsageOf({ type: 'session-usage', ts: TS, model: 'claude-opus-5-5', usage: { ...usage, totalTokens: 1e12 } }), good);
+  assert.deepEqual(sessionUsageOf({ ts: TS, model: '__proto__', usage }), { ...good, model: null }, 'an unusable model reads null');
+  for (const [name, e] of [
+    ['another event type', { type: 'agent-end', ts: TS, usage }],
+    ['a bad ts', { ts: 'yesterday', usage }],
+    ['no usage', { ts: TS }],
+    ['a negative count', { ts: TS, usage: { ...usage, input: -1 } }],
+    ['a string count', { ts: TS, usage: { ...usage, output: '20' } }],
+    ['a non-finite count', { ts: TS, usage: { ...usage, cacheRead: Infinity } }],
+  ] as const)
+    assert.equal(sessionUsageOf(e), null, name);
+
+  // Only the inbox and office have a runtime file: no other scope ever names a path.
+  const root = scratch(t);
+  for (const scope of ['_inbox', '_office']) assert.equal(sessionUsageFile(root, scope), path.join(root, '.forge', 'runtime', 'session-usage', `${scope}.jsonl`));
+  for (const scope of ['job-1', '_gates', '_chat-0123456789ab', '../_inbox', '_inbox/../x', '']) assert.throws(() => sessionUsageFile(root, scope), /invalid session-usage scope/, scope);
+
+  // Lines that break the record rules are dropped; the rest read in order.
+  const payload = sessionUsagePayload({ model: 'claude-opus-5-5', input: 10, output: 20, cacheRead: 300, cacheWrite: 40, numTurns: 2, durationMs: 100 }, null, 1, true);
+  assert.deepEqual(payload.usage, usage);
+  appendSessionUsage(root, '_inbox', payload);
+  fs.appendFileSync(
+    sessionUsageFile(root, '_inbox'),
+    [
+      usageLine({ v: 99 }),
+      usageLine({ scope: '_office' }),
+      usageLine({ ts: 'never' }),
+      usageLine({ usage: { ...usage, input: -5 } }),
+      '{"v":1,"ts":"2026-10-20T10:00:00.000Z","scope":"_inbox","usage":{"input":1e400,"output":0,"cacheRead":0,"cacheWrite":0}}',
+      'not json',
+      '',
+      usageLine({ ts: '2026-10-21T10:00:00.000Z', model: 'claude-sonnet-5-5' }),
+    ].join('\n') + '\n',
+  );
+  const read = readSessionUsage(root, '_inbox');
+  assert.deepEqual(read.map((r) => r.model), ['claude-opus-5-5', 'claude-sonnet-5-5']);
+  assert.equal(readSessionUsage(root, '_office').length, 0, 'a missing file has no records');
+
+  // A lane prices each record with today's table and honours `since`.
+  const priced = (model: string) => estimateCost({ model, ...usage }).usd;
+  assert.deepEqual(laneOf(read, undefined, null), { tokens: 740, estCostUsd: Math.round((priced('claude-opus-5-5') + priced('claude-sonnet-5-5')) * 1e4) / 1e4, turns: 2 });
+  assert.equal(laneOf([read[1], { ...read[1], ts: '2026-10-19T10:00:00.000Z' }], undefined, Date.parse('2026-10-20T00:00:00.000Z')).turns, 1, 'a record before since is left out');
+  assert.equal(laneOf([{ ...read[0], model: 'not-a-priced-model' }], undefined, null).estCostUsd, 0, 'an unpriced model counts $0');
+
+  // A linked file reads as none, and an append through it writes nothing at its target.
+  const linked = scratch(t);
+  const target = path.join(linked, 'elsewhere.jsonl');
+  fs.writeFileSync(target, usageLine({}) + '\n');
+  fs.mkdirSync(path.dirname(sessionUsageFile(linked, '_inbox')), { recursive: true });
+  fs.symlinkSync(target, sessionUsageFile(linked, '_inbox'));
+  assert.deepEqual(readSessionUsage(linked, '_inbox'), []);
+  assert.throws(() => appendSessionUsage(linked, '_inbox', payload));
+  assert.equal(fs.readFileSync(target, 'utf8'), usageLine({}) + '\n', 'nothing written through the link');
+
+  // An oversized file, and a session-usage dir that is a link or a file, read as none.
+  const big = scratch(t);
+  const bigFile = sessionUsageFile(big, '_office');
+  fs.mkdirSync(path.dirname(bigFile), { recursive: true });
+  fs.writeFileSync(bigFile, usageLine({ scope: '_office' }) + '\n');
+  fs.truncateSync(bigFile, 64 * 1024 * 1024 + 1);
+  assert.deepEqual(readSessionUsage(big, '_office'), []);
+  const dirLink = scratch(t);
+  const realDir = path.join(dirLink, 'real');
+  fs.mkdirSync(realDir);
+  fs.writeFileSync(path.join(realDir, '_inbox.jsonl'), usageLine({}) + '\n');
+  fs.mkdirSync(path.join(dirLink, '.forge', 'runtime'), { recursive: true });
+  fs.symlinkSync(realDir, path.join(dirLink, '.forge', 'runtime', 'session-usage'));
+  assert.deepEqual(readSessionUsage(dirLink, '_inbox'), [], 'a linked session-usage dir');
+  assert.throws(() => appendSessionUsage(dirLink, '_inbox', payload), /is not a directory/);
+  const dirFile = scratch(t);
+  fs.mkdirSync(path.join(dirFile, '.forge', 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(dirFile, '.forge', 'runtime', 'session-usage'), '');
+  assert.deepEqual(readSessionUsage(dirFile, '_inbox'), [], 'a session-usage path that is a file');
 });

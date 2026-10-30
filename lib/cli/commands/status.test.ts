@@ -49,11 +49,22 @@ test('the stats summary reads an older stats object without the review and timin
       minutesPerExtraRound: { median: 18, p90: 30, n: 4 },
       timedJobs: 7,
     },
-    cost: { ...s.cost, byRole: { builder: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: 0.912 }, reviewer: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: null } } },
+    cost: {
+      ...s.cost,
+      byRole: { builder: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: 0.912 }, reviewer: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: null } },
+      orchestrator: {
+        tokens: 30,
+        estCostUsd: 1.75,
+        turns: 6,
+        byLane: { job: { tokens: 10, estCostUsd: 1.25, turns: 4 }, inbox: { tokens: 10, estCostUsd: 0.3, turns: 1 }, office: { tokens: 10, estCostUsd: 0.2, turns: 1 } },
+        coverage: { jobs: 5, withUsage: 3, agentUsd: 9 },
+      },
+    },
     reviewers: { security: lens },
   });
   const text = [...full.quality, ...full.speed, ...full.cost].join('\n');
   for (const want of [
+    'orchestrator $1.75 (job $1.25 · inbox $0.3 · office $0.2) · 6 turns · session usage on 3/5 jobs',
     'rounds 2+ findings carried 4, new 2',
     'working minutes by stage (median over 7 done jobs) spec 4.1 · build 22.5',
     'parked minutes (median) spec-approval 41',
@@ -67,13 +78,15 @@ test('the stats summary reads an older stats object without the review and timin
   const { stageMinutes: _1, waitingMinutes: _2, medianHandoffMinutes: _3, stalledMinutes: _4, handoffSeconds: _5, agentStartSeconds: _6, minutesPerExtraRound: _7, timedJobs: _8, ...speed } = s.speed;
   const { findingsCarried: _9, findingsNew: _10, ...quality } = s.quality;
   const { soleChanges: _11, reopened: _12, ...olderLens } = lens;
-  const olderStats = { ...s, quality, speed, reviewers: { security: olderLens }, cost: { ...s.cost, byRole: { builder: { tokens: 1, estCostUsd: 0, runs: 1 } } } } as unknown as Stats;
+  const { orchestrator: _13, ...olderCost } = s.cost;
+  const olderStats = { ...s, quality, speed, reviewers: { security: olderLens }, cost: { ...olderCost, byRole: { builder: { tokens: 1, estCostUsd: 0, runs: 1 } } } } as unknown as Stats;
   assert.match(renderStats(olderStats, { color: false, now: Date.now() }) ?? '', /Speed/, 'the human renderer');
   const older = statsSections(olderStats);
   const olderText = [...older.quality, ...older.speed, ...older.cost].join('\n');
   for (const want of ['findings carried 0, new 0', 'by stage (median over 0 done jobs) —', 'parked minutes (median) —', 'between agents — min/job · stalled — min/job · agent gaps — without a command, — with one', 'extra round —'])
     assert.ok(olderText.includes(want), want);
   assert.ok(!olderText.includes('cache-read share'), 'no share, no line');
+  assert.ok(!olderText.includes('orchestrator'), 'no orchestrator figure, no line');
   assert.match(older.reviewers[0][1], /3 blockers, sole 0, reopened 0/);
 });
 
