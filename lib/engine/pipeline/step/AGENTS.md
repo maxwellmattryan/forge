@@ -18,7 +18,7 @@
 | `global.ts` | The rows that run before any stage: finished jobs, parks, running agents, lost runs, and the retro kind's own start. |
 | `input.ts` | loadStepInput: the one place `forge job step` reads disk. |
 | `order.ts` | `forge job step`: the one decider of pipeline transitions, the way the CLI is already the one writer of state. |
-| `panel.ts` | The review panel and the lenses each round reviews: pure helpers step, `forge job panel` and loadStepInput share. |
+| `panel.ts` | The review panel, the lenses each round reviews and the brief lines built from review history: pure helpers step, `forge job panel` and loadStepInput share. |
 | `recall.ts` | The recall eval's facts: decide runs it before the approver (RC1), the pr table holds the merge without a record (PR17), and the approver's `Reviewer recall:` line reads them too, so they live apart from both tables and the brief: pure functions of the StepInput. |
 | `rules.ts` | The rule IDs of `forge job step` and the shape of its tables. |
 | `stages/build.ts` | Build: open a round, hold it to the round limits, run the builder, then verify. |

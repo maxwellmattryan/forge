@@ -307,6 +307,12 @@ const EVENT_ROWS: Row[] = [
   { step: 'person-ci-rerun', input: { ts: 't', type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, fields: { type: 'ci-rerun', head: 'b'.repeat(40), runs: ['101'], jobs: ['201'], checks: ['test'], actor: { login: 'al', source: 'dashboard' } }, note: "a person's re-run keeps its actor" },
   { step: 'permission-timed-out-event', input: { ts: 't', type: 'permission-timed-out', tool: 'Bash' }, fields: { type: 'permission-timed-out', ts: 't', tool: 'Bash' }, note: 'a timed-out prompt reads as written' },
   { step: 'context-session-event', input: { ts: 't', type: 'context-session', role: 'context', session: CTX, status: 'ready', usage: { totalTokens: 9 } }, fields: { type: 'context-session', role: 'context', session: CTX, usage: { totalTokens: 9 } }, note: "read as written; agent-end's context is the same identity step" },
+  {
+    step: 'session-usage-event',
+    input: { ts: 't', type: 'session-usage', session: null, turn: 2, model: 'm', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: null, durationMs: 5, ok: false },
+    fields: { type: 'session-usage', turn: 2, model: 'm', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: null, ok: false },
+    note: 'a session-usage record reads as written; an older job has none',
+  },
   { step: 'gate-event', input: { ts: 't', type: 'gate', round: 2, head: null, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }] }, fields: { type: 'gate', round: 2, reasons: [{ rule: 'runbook', detail: 'runbook.md has steps for a person' }] }, note: "read as written; a decision's gated is the same identity step" },
 ];
 

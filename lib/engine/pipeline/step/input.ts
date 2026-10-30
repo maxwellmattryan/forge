@@ -17,7 +17,8 @@ import { PLUGIN_ROOT, exists } from '#core/paths.ts';
 import { pluginHash } from '../../evals/provenance.ts';
 import { hasFixtures, loadFixtures } from '../../evals/recall.ts';
 import { inSpec } from '#core/glob.ts';
-import { approachPaths, committedChanges, integrationTouched, resolveBase } from '../scope.ts';
+import { approachPaths, committedChanges, integrationTouched, resolveBase, reviewedSha } from '../scope.ts';
+import { reviewedRepoNames } from '#core/job/lens.ts';
 import type { Config, Job, JobEvent } from '#core/types.ts';
 import type { StepFile, StepInput, StepVerdicts } from '../types.ts';
 import { isInsidePath, readJson, readText } from '#core/os/fs.ts';
@@ -132,6 +133,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
     // Only where DC11 and PR12 read it: the check runs git in every job repo.
     reviewCurrent: ['decide', 'pr'].includes(job.stage) && job.state === 'running' && job.kind !== 'eval' ? reviewCurrent(root, config, job, all) : null,
+    // The full log: `verdicts` stays out of step's own events, as for reviewCurrent.
+    reviewedShas: loadReviewedShas(job, all),
     verdicts: {
       round: job.round >= 1 && lenses.length ? compact(roundVerdicts(root, job.id, job.round, lenses, config.review.blockOn)) : null,
       integration: job.stage === 'integrate' ? compact(roundVerdicts(root, job.id, 'integration', ['code'], config.review.blockOn)) : null,
@@ -270,6 +273,22 @@ export function verifierQuestions(root: string, files: readonly string[]): { nam
   return loadVerifiers(root)
     .verifiers.filter((v) => files.some((f) => inSpec(f, v.paths)))
     .map(({ name, question }) => ({ name, question }));
+}
+
+/**
+ * Earlier round → the validated sha its review saw (reviewedSha), for the round 2+ reviewer brief's
+ * `Changed since:` line; {} unless the job is in review at round 2+, with no open PR, no reviewed
+ * member and an existing worktree.
+ */
+export function loadReviewedShas(job: Job, events: JobEvent[]): Record<string, string> {
+  // Only where a reviewer brief reads it: one git call per earlier round.
+  if (job.stage !== 'review' || job.round < 2 || job.pr?.state === 'OPEN' || reviewedRepoNames(job).length || !job.worktree || !exists(job.worktree)) return {};
+  const out: Record<string, string> = {};
+  for (let r = 1; r < job.round; r++) {
+    const sha = reviewedSha(events, r, job.worktree);
+    if (sha) out[String(r)] = sha;
+  }
+  return out;
 }
 
 /** Only when a skip is possible: integrate, code-only, the last verify passed, and the last conflicts event names both sides. */

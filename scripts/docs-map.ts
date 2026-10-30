@@ -1,4 +1,4 @@
-// `npm run docs:map`: regenerates the file table in every AGENTS.md under lib/ and dashboard/src/lib/
+// `npm run docs:map`: regenerates the file table in every AGENTS.md under lib/, dashboard/src/lib/ and dashboard/src/components/
 // from the first sentence of each file's header comment, so a folder map can't drift from the code it describes.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -8,9 +8,9 @@ export const MAP_START = '<!-- forge:map:start (generated from each file\'s head
 export const MAP_END = '<!-- forge:map:end -->';
 
 /** The repo-relative folders whose AGENTS.md maps this writes. */
-export const MAP_ROOTS = ['lib', 'dashboard/src/lib'] as const;
+export const MAP_ROOTS = ['lib', 'dashboard/src/lib', 'dashboard/src/components'] as const;
 
-const SOURCE = /\.(ts|mjs)$/;
+const SOURCE = /\.(ts|mjs|svelte)$/;
 
 /** The first sentence of `paragraph`: up to a `.`, `!` or `?` outside backticks that ends a word. */
 function firstSentence(paragraph: string): string {
@@ -33,8 +33,8 @@ function firstParagraph(lines: string[]): string {
 }
 
 /**
- * The first sentence of a source file's leading `//` or `/* … *\/` comment, after any shebang and
- * `/// <reference … />` directives; null without one.
+ * The first sentence of a source file's leading `//`, `/* … *\/` or (a `.svelte` component's) `<!-- … -->`
+ * comment, after any shebang and `/// <reference … />` directives; null without one.
  */
 export function headerSentence(text: string): string | null {
   const lines = text.split('\n');
@@ -50,6 +50,15 @@ export function headerSentence(text: string): string | null {
       const end = line.indexOf('*/');
       if (end >= 0) line = line.slice(0, end);
       line = line.trimStart().replace(/^\/\*\*?/, '').replace(/^\s*\*(?!\/)/, '');
+      body.push(line);
+      if (end >= 0) break;
+    }
+  } else if (first.startsWith('<!--')) {
+    for (; i < lines.length; i++) {
+      let line = lines[i]!;
+      const end = line.indexOf('-->');
+      if (end >= 0) line = line.slice(0, end);
+      if (!body.length) line = line.trimStart().replace(/^<!--/, '');
       body.push(line);
       if (end >= 0) break;
     }

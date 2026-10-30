@@ -552,6 +552,23 @@ export interface JobEvent {
   configHash?: string | null;
   [key: string]: unknown;
 }
+/**
+ * A job session's own usage for one turn, since event v20: the supervisor's record of its result line's `usage` (main-loop
+ * calls only, never subagents'), recordTurnUsage in lib/office/session/meter.ts. An accounting record, not activity: /api/state's lastEvent and
+ * the job detail's events leave it out. Not `extends JobEvent`, whose `durationMs` is never null.
+ */
+export interface SessionUsageEvent {
+  v: number;
+  ts: string;
+  type: 'session-usage';
+  session: string | null;
+  turn: number;
+  model: string | null;
+  usage: AgentUsage;
+  numTurns: number | null;
+  durationMs: number | null;
+  ok: boolean;
+}
 /** A Foreman hand-off still standing at the job's current park: foremanHandoff in lib/office/foreman/policy.ts. */
 export interface ForemanHandoff {
   gate: GateClass;

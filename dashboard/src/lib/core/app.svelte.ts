@@ -53,7 +53,7 @@ const SIDE_START: SidebarState = readSidebar(pref.get);
 /** The tracker's items, or the error a forced refresh hit (that reply has no tracker). */
 export type BacklogView = Omit<BacklogResponse, 'tracker'> & { tracker?: string };
 export type DrawerContent = { html: true } | { text: string };
-/** What Drawer.svelte shows; reassigned only where the old renderDrawer() ran. */
+/** What drawer/JobPanel.svelte shows; reassigned only where the old renderDrawer() ran. */
 export type DrawerView = { detail: JobDetail; file: string | null; content: DrawerContent | null; tab: DrawerTab } | { error: string } | null;
 
 class CompareState {

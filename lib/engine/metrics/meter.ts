@@ -3,14 +3,21 @@
 // `forge dash` is its only writer (lib/office/session/meter.ts), and no CLI command writes it, so no session
 // can append to it. claude's figures are cumulative per conversation and carry over a --resume, so each record
 // is the delta against a baseline held per spawn (meterDelta). The spend ledger, budget enforcement and the
-// reconciler read it. docs/architecture/policies.md "Usage accounting".
+// reconciler read it. Beside it, each session's own usage per turn (session usage): the result line's `usage`, its
+// main-loop calls only, kept so `forge stats` can show the orchestrator's spend after the session logs rotate away. A job
+// session's is a `session-usage` job event, the inbox's and office's `.forge/runtime/session-usage/<scope>.jsonl`, both
+// written only by the supervisor (lib/office/session/meter.ts recordTurnUsage); no budget reads it.
+// docs/architecture/policies.md "Usage accounting".
 import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { openAppend, openRead } from '#core/job/session-files.ts';
-import { validRuntimeScope } from '#core/job/requests.ts';
+import { INBOX_SCOPE, OFFICE_SCOPE, validRuntimeScope } from '#core/job/requests.ts';
 import { ForgeError } from '#core/errors.ts';
-import type { ModelCost, SessionCost } from '#integrations/claude/types.ts';
+import { estimateCost } from '#integrations/claude/pricing.ts';
+import { initModel } from '#integrations/claude/stream.ts';
+import type { ModelCost, SessionCost, TurnUsage } from '#integrations/claude/types.ts';
+import type { LaneSpend, OrchestratorSpend } from '#core/types.ts';
 
 /** The record shape's version: a later shape change appends a step here, and the reader skips any other. */
 export const METER_VERSION = 1;
@@ -60,7 +67,7 @@ export function meterFile(root: string, scope: string): string {
   return path.join(paths(root).runtime, 'meter', `${scope}.jsonl`);
 }
 
-/** Whether `dir` is missing or a real directory: a planted link or file in its place refuses the meter. */
+/** Whether `dir` is missing or a real directory: a planted link or file in its place refuses the meter (and the session-usage ledger). */
 function realDirOrMissing(dir: string): boolean {
   try {
     return fs.lstatSync(dir).isDirectory();
@@ -225,4 +232,144 @@ export function lastMeterAt(records: readonly MeterRecord[]): string | null {
   let best: string | null = null;
   for (const r of records) if (best === null || Date.parse(r.ts) > Date.parse(best)) best = r.ts;
   return best;
+}
+
+export const SESSION_USAGE_EVENT = 'session-usage';
+/** The session-usage runtime record's own version, as METER_VERSION is the meter's: a later shape change bumps it, and the reader skips any other. */
+export const SESSION_USAGE_VERSION = 1;
+
+/** One turn's session usage, as a job event's fields or a runtime line's (which adds `v`, `ts` and `scope`). */
+export interface SessionUsagePayload {
+  session: string | null;
+  turn: number;
+  model: string | null;
+  usage: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number };
+  numTurns: number | null;
+  durationMs: number | null;
+  ok: boolean;
+}
+
+/** One session-usage record as stats and the ledger read it: sessionUsageOf. */
+export interface SessionUsage {
+  model: string | null;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  totalTokens: number;
+  ts: string;
+}
+
+const COUNTS = ['input', 'output', 'cacheRead', 'cacheWrite'] as const;
+const round4 = (n: number): number => Math.round(n * 10000) / 10000;
+
+export function sessionUsagePayload(u: TurnUsage, session: string | null, turn: number, ok: boolean): SessionUsagePayload {
+  const { input, output, cacheRead, cacheWrite } = u;
+  return { session, turn, model: u.model, usage: { input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite }, numTurns: u.numTurns, durationMs: u.durationMs, ok };
+}
+
+/**
+ * The one validator for a session-usage job event or runtime line: its normalised figures, or null when it is another
+ * event type, has no readable `ts`, or a count that is not finite and >= 0. `totalTokens` is the four counts' sum, never
+ * the stored one; a model that is not a usable id reads null.
+ */
+export function sessionUsageOf(e: unknown): SessionUsage | null {
+  if (!obj(e) || (e.type !== undefined && e.type !== SESSION_USAGE_EVENT)) return null;
+  if (typeof e.ts !== 'string' || Number.isNaN(Date.parse(e.ts))) return null;
+  const u = e.usage;
+  if (!obj(u) || !COUNTS.every((f) => fin(u[f]))) return null;
+  const [input, output, cacheRead, cacheWrite] = COUNTS.map((f) => u[f] as number);
+  return { model: initModel(e.model), input, output, cacheRead, cacheWrite, totalTokens: input + output + cacheRead + cacheWrite, ts: e.ts };
+}
+
+/** Whether an event is a session-usage record: accounting, not activity, for the server's and speed's filters. */
+export const isSessionUsageEvent = (e: { type?: unknown } | null | undefined): boolean => e?.type === SESSION_USAGE_EVENT;
+
+/** The inbox's or office's session-usage file. Any other scope throws, so no path is ever built from one. */
+export function sessionUsageFile(root: string, scope: string): string {
+  if (scope !== INBOX_SCOPE && scope !== OFFICE_SCOPE) throw new ForgeError(`invalid session-usage scope ${JSON.stringify(String(scope).slice(0, 80))}`, 'usage');
+  return path.join(paths(root).runtime, 'session-usage', `${scope}.jsonl`);
+}
+
+/** Appends one session-usage record as appendMeter does: no link followed, no FIFO blocked on, real directories only, one write. */
+export function appendSessionUsage(root: string, scope: string, payload: SessionUsagePayload): void {
+  const file = sessionUsageFile(root, scope);
+  const dir = path.dirname(file);
+  for (const d of [paths(root).runtime, dir]) if (!realDirOrMissing(d)) throw new ForgeError(`${d} is not a directory`);
+  fs.mkdirSync(dir, { recursive: true });
+  const fd = openAppend(file);
+  try {
+    fs.writeSync(fd, JSON.stringify({ v: SESSION_USAGE_VERSION, ts: new Date().toISOString(), scope, ...payload }) + '\n');
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+/**
+ * A scope's session-usage records, oldest first, read as readMeterChecked reads. A line of another version or scope, or
+ * one sessionUsageOf refuses, is dropped. A missing, linked, non-regular or oversized file, a directory that is not a real
+ * one, or a failed read has none: nothing enforces this figure, so nothing fails closed.
+ */
+export function readSessionUsage(root: string, scope: string): SessionUsage[] {
+  const file = sessionUsageFile(root, scope);
+  if (![paths(root).runtime, path.dirname(file)].every((d) => realDirOrMissing(d))) return [];
+  let fd: number | undefined;
+  try {
+    fd = openRead(file);
+    if (fs.fstatSync(fd).size > MAX_BYTES) return [];
+    const out: SessionUsage[] = [];
+    for (const line of fs.readFileSync(fd, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      let raw: unknown;
+      try {
+        raw = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (!obj(raw) || raw.v !== SESSION_USAGE_VERSION || raw.scope !== scope) continue;
+      const u = sessionUsageOf(raw);
+      if (u) out.push(u);
+    }
+    return out;
+  } catch {
+    return [];
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/** One record priced with today's table (and config's usage.pricing): an unpriced model's tokens count at $0. */
+export function priceSessionUsage(u: SessionUsage, pricingOverrides?: Record<string, any>): { tokens: number; usd: number } {
+  return { tokens: u.totalTokens, usd: estimateCost(u, pricingOverrides).usd };
+}
+
+export const emptyLane = (): LaneSpend => ({ tokens: 0, estCostUsd: 0, turns: 0 });
+
+/** Adds one priced record to a lane: one daemon turn. */
+export function addToLane(lane: LaneSpend, priced: { tokens: number; usd: number }): void {
+  lane.tokens += priced.tokens;
+  lane.estCostUsd += priced.usd;
+  lane.turns += 1;
+}
+
+const roundLane = (l: LaneSpend): LaneSpend => ({ tokens: l.tokens, estCostUsd: round4(l.estCostUsd), turns: l.turns });
+
+/** A lane of these records (on or after `sinceMs` when given), priced. */
+export function laneOf(records: readonly SessionUsage[], pricingOverrides: Record<string, any> | undefined, sinceMs: number | null): LaneSpend {
+  const lane = emptyLane();
+  for (const r of records) if (sinceMs === null || Date.parse(r.ts) >= sinceMs) addToLane(lane, priceSessionUsage(r, pricingOverrides));
+  return roundLane(lane);
+}
+
+/** Stats.cost.orchestrator from its lanes and coverage: each lane's usd rounded to 4 decimals, and the totals their sum. */
+export function orchestratorSpend(byLane: OrchestratorSpend['byLane'], coverage: OrchestratorSpend['coverage']): OrchestratorSpend {
+  const lanes = { job: roundLane(byLane.job), inbox: roundLane(byLane.inbox), office: roundLane(byLane.office) };
+  const all = [lanes.job, lanes.inbox, lanes.office];
+  return {
+    tokens: all.reduce((n, l) => n + l.tokens, 0),
+    estCostUsd: round4(all.reduce((n, l) => n + l.estCostUsd, 0)),
+    turns: all.reduce((n, l) => n + l.turns, 0),
+    byLane: lanes,
+    coverage: { ...coverage, agentUsd: round4(coverage.agentUsd) },
+  };
 }

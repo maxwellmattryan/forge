@@ -61,9 +61,9 @@ test('{@html} receives only escape-first builders', () => {
   for (const f of sources()) {
     const { problems, calls } = htmlProblems(f, read(f));
     assert.deepEqual(problems, []);
-    if (f === 'src/components/Drawer.svelte' && calls.includes('md')) drawerMd = true;
+    if (f === 'src/components/drawer/JobPanel.svelte' && calls.includes('md')) drawerMd = true;
   }
-  assert.ok(drawerMd, 'Drawer.svelte renders markdown through {@html md(…)}');
+  assert.ok(drawerMd, 'drawer/JobPanel.svelte renders markdown through {@html md(…)}');
 });
 
 test('the {@html} guard rejects anything but one whole builder call', () => {
@@ -163,7 +163,7 @@ test('mockups render only in the sandboxed /raw iframe', () => {
   const hits = sources().flatMap((f) => [...read(f).matchAll(/<iframe\b[^>]*>/g)].map((m) => [f, m[0]]));
   assert.equal(hits.length, 1, `exactly one <iframe>: ${JSON.stringify(hits)}`);
   const [file, tag] = hits[0];
-  assert.equal(file, 'src/components/Drawer.svelte');
+  assert.equal(file, 'src/components/drawer/JobPanel.svelte');
   assert.match(tag, /\ssandbox=""/);
   assert.match(tag, /\ssrc="\/api\/p\/\{[^}]+\}\/jobs\/\{[^}]+\}\/raw\?path=\{[^}]+\}"/);
 });
@@ -635,8 +635,8 @@ test('segments and nav expose their selected state', () => {
   assert.match(pipeline, /\{@const on = S\.layout === l\}/);
 
   // One link loop per section (General: the global pages and the Office and Foreman; the project's other views), shared by the sidebar, the rail and the phone strip.
-  const nav = readSrc('components/Nav.svelte');
-  const links = tags('components/Nav.svelte', nav).filter((t) => t.name === 'a');
+  const nav = readSrc('components/shell/Nav.svelte');
+  const links = tags('components/shell/Nav.svelte', nav).filter((t) => t.name === 'a');
   assert.equal(links.length, 2, 'one link per section');
   for (const link of links) {
     const attr = (n: string) => link.attrs.find((a) => a.name === n)?.value;

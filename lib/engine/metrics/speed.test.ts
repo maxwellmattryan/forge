@@ -36,6 +36,9 @@ test("a done job's working, parked, idle and stalled time", () => {
   assert.deepEqual(sa.stageMs, { spec: 10 * MIN, build: 30 * MIN, review: 30 * MIN });
   assert.deepEqual(sa.waitingMs, { 'spec-approval': 30 * MIN });
   assert.deepEqual([sa.runningMs, sa.idleMs, sa.stalledMs].map((x) => x / MIN), [70, 31, 15]);
+  // A session-usage record is accounting, not a sign of life: inside the 90–100 stall it splits nothing, where a note would.
+  assert.equal(jobSpeed(done('A', 100), [...a, ev(93, 'session-usage', { turn: 3, usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 } })])?.stalledMs, 15 * MIN);
+  assert.equal(jobSpeed(done('A', 100), [...a, ev(93, 'note', { text: 'here' })])?.stalledMs, 12 * MIN);
 
   const b = [move(20, side('build'), side('build', 'waiting', 'shelved')), move(50, side('build', 'waiting', 'shelved'), side('build')), move(55, side('build'), side('done', 'done'))];
   const sb = jobSpeed(done('B', 55), b);
