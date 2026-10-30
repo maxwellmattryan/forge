@@ -6,7 +6,8 @@ import { inChat, inOffice } from '#core/job/requests.ts';
 import { chatSetRefusal } from '#office/chat/authority.ts';
 import { refreshDependencyWait, validateDependsOn } from '#engine/pipeline/moves/deps.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
-import { loadJob, logEvent, setJobEffort } from '#core/job/store.ts';
+import { builderNoteRefusal, writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
+import { loadJob, logEvent, logHumanEvent, setJobEffort } from '#core/job/store.ts';
 import { checkFieldKey, checkJobFields, reopensShelved } from '#core/job/fields.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
@@ -101,8 +102,19 @@ export function refreshRequestCmd(root: string, config: Config, rest: string[], 
 
 export function note(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const id = rest[0];
-  logEvent(root, requireJob(root, id).id, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags, root, config) });
-  return { ok: true };
+  const jobId = requireJob(root, id).id;
+  if (flags.for === undefined) {
+    logEvent(root, jobId, 'note', { text: rest.slice(1).join(' ') || bodyFrom(flags, root, config) });
+    return { ok: true };
+  }
+  oneOf(str(flags.for, '--for'), ['builder'] as const, 'for');
+  // Refused before the body is read and before anything is written.
+  const refusal = builderNoteRefusal(jobId, 'forge job note --for builder');
+  if (refusal) throw new ForgeError(refusal, 1);
+  const text = rest.slice(1).join(' ') || bodyFrom(flags, root, config);
+  if (!text.trim()) throw usageError(JOB, 'note');
+  logHumanEvent(root, jobId, 'builder-note', { note: text });
+  return { ok: true, approvalNotes: writeApprovalNotes(root, jobId) };
 }
 
 export async function budget(root: string, config: Config, rest: string[], flags: Record<string, any>) {

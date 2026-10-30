@@ -81,6 +81,13 @@ export const EVENT_STEPS: readonly Step[] = [
   // the event as generic and ignores the fields; a `verdicts` event without `escalate` makes the gate read that round's
   // review files instead.
   { id: 'gate-event', up: (e) => e },
+  // v23 adds the `builder-note` event ({ note, actor }): `forge job note --for builder` logs a person's hint for the
+  // job's builder, which approval-notes.md renders. An older Forge reads it as a generic event.
+  { id: 'builder-note-event', up: (e) => e },
+  // v24 adds `approvalNote: true` to a `human` approve-spec: `forge job human` marks the event when its note was allowed
+  // into approval-notes.md (the job waited on spec-approval and the session may add a builder hint for it). Only a marked
+  // note is rendered; an event without the mark, which an older Forge also writes, never reaches the builder.
+  { id: 'approval-note-mark', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);
