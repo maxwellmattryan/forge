@@ -10,7 +10,8 @@ import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import type { JobEvent, WaitingOn } from '#core/types.ts';
 import type { StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, runningRoles, splitMode } from './facts.ts';
+import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, reworkResume, runningRoles, splitMode } from './facts.ts';
+import type { ResumeSkip } from './facts.ts';
 import { reworkReviewFiles } from './panel.ts';
 import type { RuleId } from './rules.ts';
 
@@ -92,8 +93,11 @@ function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
   return out;
 }
 
-/** A spawn of `role` with the context its stage implies. */
-export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; retry?: boolean; retryLine?: string; answered?: boolean } = {}): StepSpawn {
+/**
+ * A spawn of `role` with the context its stage implies. `resume`: N2's and IG10b's answered agent. `rework`: B4 and the
+ * review panel, which continue the role's last session when reworkResume allows it, or carry why not.
+ */
+export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; rework?: boolean; retry?: boolean; retryLine?: string; answered?: boolean } = {}): StepSpawn {
   const j = x.job;
   const base = role.split(':')[0];
   const lens = base === 'reviewer' ? role.slice('reviewer:'.length) : undefined;
@@ -124,9 +128,21 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
   }
   const model = resolveModel(x.config, x.job, role, ctx.rework ?? []);
   const a = agent(x, role);
-  const resume = o.resume && a?.agentId && AGENT_ID.test(a.agentId) ? a.agentId : undefined;
+  let resume = o.resume && a?.agentId && AGENT_ID.test(a.agentId) ? a.agentId : undefined;
+  let resumeSkipped: ResumeSkip | undefined;
+  if (o.rework && !o.resume) {
+    const r = reworkResume(x, role, model);
+    if (r && 'resume' in r) resume = r.resume;
+    else if (r && 'skipped' in r) resumeSkipped = r.skipped;
+  }
   const parallel = base === 'reviewer' && j.stage === 'review';
-  const start = ['job', 'agent', j.id, 'start', '--role', role, '--model', model, ...(output ? ['--output', output] : []), ...(o.retry ? ['--retry'] : [])];
+  const start = [
+    ...['job', 'agent', j.id, 'start', '--role', role, '--model', model],
+    ...(output ? ['--output', output] : []),
+    ...(o.retry ? ['--retry'] : []),
+    ...(resume ? ['--resume', resume] : []),
+    ...(resumeSkipped ? ['--resume-skipped', resumeSkipped] : []),
+  ];
   return {
     action: 'spawn',
     rule,
@@ -139,6 +155,7 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
     ...(output ? { output } : {}),
     ...(o.retry ? { retry: true as const } : {}),
     ...(resume ? { resume } : {}),
+    ...(resumeSkipped ? { resumeSkipped } : {}),
     ...(parallel ? { parallel: true as const } : {}),
     start,
     startShell: shellLine(start),

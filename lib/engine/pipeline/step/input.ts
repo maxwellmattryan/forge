@@ -27,7 +27,10 @@ import { loadVerifiers, verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
 import { decisionCurrent, decisionEligible, lastDecision, reviewCurrent } from '../../pr/eligible.ts';
-import { autoMerge } from '#core/config/load.ts';
+import { autoMerge, worktreeRoot } from '#core/config/load.ts';
+import { UUID, readInfo, roleRunFiles } from '#core/job/session-files.ts';
+import { roleRunTranscriptById } from '#integrations/claude/transcripts.ts';
+import { ended } from './facts.ts';
 
 /** Request bodies above this, or with this many list or heading lines, get a planner under `pipeline.plan: auto`. */
 export const PLAN_AUTO_CHARS = 600;
@@ -163,7 +166,38 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     memberWorktrees: Object.fromEntries(memberRepos(job).map((m) => [m.repo, trustedMemberWorktree(root, config, job, m.repo)])),
     // Only at a budget park: measuring runs git, and only GA7 reads it.
     budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureJob(root, config, job), job.budget.ack, job.round).map((e) => e.key) : null,
+    lastSessions: loadLastSessions(root, config, job),
   };
+}
+
+/** The stages whose spawns may resume a role's last session: B4's builder and the review panel's lenses. */
+const RESUME_STAGES: readonly string[] = ['build', 'review'];
+
+/**
+ * Each rework role's last run as a session a resume could continue: a `builder` or `reviewer:*` record that ended with
+ * a uuid `agentId` whose runner sidecar (outside every write root) has `v: 1` and names that same role. job.json is
+ * agent-writable, so the sidecar is what binds a session to its role: an id planted on another role finds a sidecar
+ * naming the role that ran it, and gets no entry. The uuid check comes before any path is built from the id.
+ */
+export function loadLastSessions(root: string, config: Config, job: Job): StepInput['lastSessions'] {
+  const out: StepInput['lastSessions'] = {};
+  if (!RESUME_STAGES.includes(job.stage) || !job.worktree || !exists(job.worktree)) return out;
+  const worktrees = worktreeRoot(root, config);
+  for (const [role, a] of Object.entries(job.agents)) {
+    if (role !== 'builder' && !role.startsWith('reviewer:')) continue;
+    const id = a?.agentId;
+    if (!ended(a) || typeof id !== 'string' || !UUID.test(id)) continue;
+    let info: any;
+    try {
+      info = readInfo(roleRunFiles(root, job.id, id).cum);
+    } catch {
+      continue;
+    }
+    if (info?.v !== 1 || info.role !== role) continue;
+    const context = typeof info.context === 'number' && Number.isFinite(info.context) && info.context >= 0 ? info.context : null;
+    out[role] = { session: id, transcript: roleRunTranscriptById(root, job, id, { worktrees }) !== null, context };
+  }
+  return out;
 }
 
 const MAP_READ_CAP = 64 * 1024;

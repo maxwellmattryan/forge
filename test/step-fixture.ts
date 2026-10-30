@@ -74,6 +74,8 @@ export interface FixtureOpts {
   instructionsChanged?: StepInput['instructionsChanged'];
   /** The keys still over budget at a budget park (loadStepInput's budgetExceeded); null by default. */
   budgetExceeded?: StepInput['budgetExceeded'];
+  /** loadStepInput's lastSessions: each rework role's resumable last session; {} by default. */
+  lastSessions?: StepInput['lastSessions'];
   /**
    * What loadRecall read for the decide gate: the committed files (null: git failed), whether the main
    * checkout has fixtures (yes by default), whether one of them fails to load (no by default) and the
@@ -157,5 +159,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     endpoints: o.endpoints ?? (config.commands.dev ? jobEndpoints(ROOT, config, job).components.map((e) => ({ name: e.name, url: e.url })) : []),
     memberWorktrees: o.memberWorktrees ?? {},
     budgetExceeded: o.budgetExceeded ?? null,
+    lastSessions: o.lastSessions ?? {},
   };
 }

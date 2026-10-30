@@ -162,6 +162,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'pr-needs-human-label', input: { pr: { labels: ['forge'] } }, fields: { 'pr.labels': ['forge'] }, removed: ['pr.needsHumanLabel'], note: ONLY_VERSION },
   { step: 'improve-transcripts', input: { improve: { retroEvery: 5 } }, fields: { improve: { retroEvery: 5 } }, removed: ['improve.transcripts'], note: ONLY_VERSION },
   { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
+  { step: 'resume-rework', input: { pipeline: { maxRounds: 4 } }, fields: { pipeline: { maxRounds: 4 } }, removed: ['pipeline.resumeRework'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -312,6 +313,13 @@ const EVENT_ROWS: Row[] = [
     input: { ts: 't', type: 'session-usage', session: null, turn: 2, model: 'm', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: null, durationMs: 5, ok: false },
     fields: { type: 'session-usage', turn: 2, model: 'm', usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4, totalTokens: 10 }, numTurns: null, ok: false },
     note: 'a session-usage record reads as written; an older job has none',
+  },
+  {
+    step: 'agent-resume',
+    input: { ts: 't', type: 'agent-start', role: 'builder', model: 'opus', resumeSkipped: 'context over ceiling' },
+    fields: { type: 'agent-start', ts: 't', role: 'builder', model: 'opus', resumeSkipped: 'context over ceiling' },
+    removed: ['resume'],
+    note: "read as written; agent-start's resume and agent-end's resumeFailed are the same identity step",
   },
 ];
 
