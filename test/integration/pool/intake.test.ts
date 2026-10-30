@@ -71,7 +71,10 @@ const logged = (pool: ReturnType<typeof createPool>, event: string): Record<stri
     .filter((x) => x.event === event);
 
 /** A request file as a hand-written one would be: past enqueue's checks. */
-function writeRequest(root: string, rec: Partial<ForgeRequest> & { type: string }): string {
+/** A request file's fields; `type` may be one no Forge knows. */
+type RawRequest = Omit<Partial<ForgeRequest>, 'type'> & { type: string };
+
+function writeRequest(root: string, rec: RawRequest): string {
   const id = `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
   const dir = path.join(root, '.forge', 'runtime', 'requests');
   fs.mkdirSync(dir, { recursive: true });
@@ -112,7 +115,7 @@ const TRIAGE = ['tracker', 'triage', '--limit=10'];
 test('the intake runner answers each request type', async (t) => {
   type Row = {
     name: string;
-    req: Partial<ForgeRequest> & { type: string };
+    req: RawRequest;
     answer?: (args: string[], n: number) => Partial<ForgeCall>;
     calls: (S: string) => string[][];
     status: 'done' | 'rejected';
