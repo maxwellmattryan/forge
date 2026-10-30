@@ -17,7 +17,8 @@ const ch = (file: string, added: string[] = [], removed: string[] = [], status: 
 const FIELD = ['  name: string;'];
 const API_STEP = ch('lib/api/versions.ts', ["  { id: 'api-38' },"]);
 const CONFIG_STEP = ch('lib/core/versions/config.ts', ["  { id: 'new-key', up: (c) => c },"]);
-const MOVED_TYPE = ['/** A job row. */', 'export interface Row {', '  id: string;', '}'];
+const DEPRECATE = (key: string) => ch('lib/core/config/validators/deprecations.ts', [`  { key: '${key}', since: '0.23.0', removeIn: '1.0.0', replacement: null, note: 'delete it' },`]);
+const MOVED_TYPE =['/** A job row. */', 'export interface Row {', '  id: string;', '}'];
 const MOVED_FN = ['export function notes(x: string): string {', '  return x.trim();', '}'];
 const PIN = (sha: string, v: string) => `      - uses: actions/checkout@${sha} # ${v}`;
 
@@ -37,6 +38,9 @@ const ROWS: [string, string, Change[], boolean][] = [
   ['a config key removed', 'config-step', [ch('lib/core/config/keys/docs.ts', [], ["  'git.depth': { doc: 'clone depth' },"])], true],
   ['a config key added with its config step', 'config-step', [ch('lib/core/config/keys/docs.ts', ["  'git.depth': {"]), CONFIG_STEP], false],
   ['a changed value of an existing KEY_DOCS key', 'config-step', [ch('lib/core/config/keys/docs.ts', ["  'git.base': { doc: 'the PR target' },"], ["  'git.base': { doc: 'PR target / integration branch' },"])], false],
+  ['a config key removed and deprecated', 'config-step', [ch('lib/core/config/keys/docs.ts', [], ["  'git.depth': { doc: 'clone depth' },"]), DEPRECATE('git.depth')], false],
+  ['a config key removed, the deprecation naming another key', 'config-step', [ch('lib/core/config/keys/docs.ts', [], ["  'git.depth': { doc: 'clone depth' },"]), DEPRECATE('git.width')], true],
+  ['a key added beside a deprecated removal', 'config-step', [ch('lib/core/config/keys/docs.ts', ["  'git.width': { doc: 'w' },"], ["  'git.depth': { doc: 'clone depth' },"]), DEPRECATE('git.depth'), DEPRECATE('git.width')], true],
   ['KEY_DOCS created whole', 'config-step', [ch('lib/core/config/keys/docs.ts', ['export const KEY_DOCS = {', "  git: { doc: 'x' },", "  'git.base': { doc: 'y' },", '};'], [], 'A')], false],
   ['a top-level config key added', 'config-disclosure', [ch('lib/core/config/keys/docs.ts', ["  mirror: { doc: 'a mirror' },"]), CONFIG_STEP], true],
   ['a top-level key added with its disclosure class', 'config-disclosure', [ch('lib/core/config/keys/docs.ts', ["  mirror: { doc: 'a mirror' },"]), ch('lib/core/config/fields.ts', ["  mirror: 'plain',"])], false],
