@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaults } from './keys/defaults.ts';
+import { FIELDS } from './fields.ts';
 import { splitWords } from '../text.ts';
 import { allowedToolProblem, daemonIsolationWarning, daemonProblems, daemonTrust, trustDigest } from './trust.ts';
 
@@ -116,6 +117,20 @@ test('daemonProblems refuses a bad keepAwake', () => {
   assert.equal(defaults().daemon.keepAwake, 'auto', 'the default');
   for (const ok of ['auto', 'never']) assert.deepEqual(problemsFor(ok), [], ok);
   for (const bad of ['always', true, null, undefined, 1]) assert.deepEqual(problemsFor(bad), [`daemon.keepAwake must be auto or never (got ${JSON.stringify(bad)})`], String(bad));
+});
+
+test('daemonProblems refuses a bad driver', () => {
+  const problemsFor = (driver: unknown) => {
+    const c = defaults();
+    (c.daemon as { driver: unknown }).driver = driver;
+    return daemonProblems(c).filter((p) => p.startsWith('daemon.driver'));
+  };
+  assert.equal(defaults().daemon.driver, 'session', 'the default');
+  for (const ok of ['session', 'code']) assert.deepEqual(problemsFor(ok), [], ok);
+  for (const bad of ['Code', 'agent', true, null, undefined, 1]) assert.deepEqual(problemsFor(bad), [`daemon.driver must be session or code (got ${JSON.stringify(bad)})`], String(bad));
+  const f = FIELDS.find((x) => x.key === 'daemon.driver');
+  assert.ok(f && f.type === 'enum' && f.editable && f.default === 'session');
+  assert.deepEqual(f.options, ['session', 'code']);
 });
 
 test('daemonProblems refuses a bad freshAfterTokens', () => {

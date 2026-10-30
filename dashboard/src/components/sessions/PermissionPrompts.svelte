@@ -1,7 +1,8 @@
 <!-- Tool calls daemon sessions are waiting on a human to allow: the whole pool's in the status bar's Needs-you popover, one job's in
      its Thread, one Foreman session's (named by `name`, which each card and the section's label then carry) in the Foreman popover.
      A session the pool state doesn't list (a chat's) passes its own state as `session`, and `onanswered` re-reads it after
-     each answer. The tool input, the agent's description and paths are session output, i.e. untrusted, and render as text.
+     each answer. A prompt a code turn's role run asked names that role. The tool input, the agent's description and paths
+     (and that role) are session output, i.e. untrusted, and render as text.
      Only the decision is posted; the server builds what the session receives from claude's own request. -->
 <script lang="ts">
   import Chip from '../ui/Chip.svelte';
@@ -56,7 +57,7 @@
             {:else if sharedScope(s)}<span class="mono text-muted">{s}</span>
             {:else}<button class="mono text-fg underline decoration-dotted truncate max-w-full" title={s} onclick={() => openDrawer(s, null, 'log')}>{s}</button>{/if}
           {/if}
-          <span class="text-fg">{p.agentId ? $t('permission.asksSubagent', { tool: p.tool }) : $t('permission.asks', { tool: p.tool })}</span>
+          <span class="text-fg">{p.role ? $t('permission.asksRole', { role: p.role, tool: p.tool }) : p.agentId ? $t('permission.asksSubagent', { tool: p.tool }) : $t('permission.asks', { tool: p.tool })}</span>
           <span class="flex-1"></span>
           {#if p.at}<span class="text-muted">{ago(p.at)}</span>{/if}
         </div>

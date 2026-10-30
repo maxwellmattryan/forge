@@ -8,7 +8,7 @@ import { validEffort } from './models.ts';
 import { defaults } from './keys/defaults.ts';
 import { allInstructionFiles } from './validators/instructions.ts';
 import { paths } from '../paths.ts';
-import { DAEMON_AUTH, EFFORTS, KEEP_AWAKE_MODES } from '../job/schema.ts';
+import { DAEMON_AUTH, DAEMON_DRIVERS, EFFORTS, KEEP_AWAKE_MODES } from '../job/schema.ts';
 import * as yaml from '../format/yaml.ts';
 import { isMap } from '../shape.ts';
 import { isClaudeExecutable } from '../os/process.ts';
@@ -77,6 +77,7 @@ export function daemonProblems(c: unknown, root?: string): string[] {
   if (!DAEMON_AUTH.includes(d.auth)) problems.push(`daemon.auth must be one of ${DAEMON_AUTH.join(' | ')} (got ${JSON.stringify(d.auth)})`);
   problems.push(...jobBudgetProblems(d.jobBudget), ...dailyUsdProblems(d.dailyUsd));
   if (!(KEEP_AWAKE_MODES as readonly unknown[]).includes(d.keepAwake)) problems.push(`daemon.keepAwake must be auto or never (got ${JSON.stringify(d.keepAwake)})`);
+  if (!(DAEMON_DRIVERS as readonly unknown[]).includes(d.driver)) problems.push(`daemon.driver must be session or code (got ${JSON.stringify(d.driver)})`);
   const effort = cfg.runtime?.effort ?? null;
   if (effort !== null && !validEffort(effort))
     problems.push(`runtime.effort must be one of ${EFFORTS.join(' | ')}, or null (got ${JSON.stringify(effort)})`);

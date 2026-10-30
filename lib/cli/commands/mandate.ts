@@ -15,7 +15,7 @@ import { listArchived } from '#core/job/archive.ts';
 import { listJobs } from '#core/job/store.ts';
 import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
-import { refuseOutsideOffice } from '#office/owner.ts';
+import { refuseOutsideOffice } from '#office/session/permissions/owner.ts';
 import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman/policy.ts';
 import { approveMandateRelease, mandateReleaseState } from '#engine/release/mandate.ts';
 import { readDirectives } from '#office/mandates/directives.ts';

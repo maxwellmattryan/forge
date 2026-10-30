@@ -1,0 +1,79 @@
+// What each pipeline role writes, for the stub claude (fake-claude.mjs FAKE_CLAUDE_ROLES): called before a role child's
+// working result with { agent, brief, cwd, env }, it writes the role's output files from the brief's `Output:` line in the
+// formats step and verify read, and returns the reply's text. A role it doesn't know writes nothing.
+import { execFileSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+
+/** The value of the brief's `<name>: ` line, or null. */
+const line = (/** @type {string} */ brief, /** @type {string} */ name) => {
+  const l = brief.split('\n').find((x) => x.startsWith(`${name}: `));
+  return l ? l.slice(name.length + 2) : null;
+};
+
+const write = (/** @type {string} */ file, /** @type {string} */ text) => {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+};
+
+const SPEC = `# A small change
+
+Size: S
+Complexity: low
+Components: library
+Needs design: no
+Needs infra: none
+
+## Goal
+Add one file.
+
+## Acceptance criteria
+- [ ] AC1 — the file exists · Proven by: command \`test -f added.txt\`
+
+## Approach
+Write the file.
+
+## Tasks
+- [ ] 1. Add the file.
+`;
+
+/**
+ * @param {{ agent: string | null, brief: string, cwd: string, env: NodeJS.ProcessEnv }} run
+ * @returns {string | undefined} the reply's text
+ */
+export default function role({ agent, brief, cwd, env }) {
+  const outputs = (line(brief, 'Output') ?? '').split(', ').filter((p) => path.isAbsolute(p));
+  const round = Number(line(brief, 'Round') ?? '1');
+  switch (agent) {
+    case 'forge:planner':
+      write(outputs[0], 'PLAN: SINGLE\n\nOne job: add one file.\n');
+      return 'PLAN: SINGLE · one job';
+    case 'forge:spec-writer':
+      write(outputs[0], SPEC);
+      return 'SPEC: done · 1 AC';
+    case 'forge:builder': {
+      // A commit in the worktree, as the builder makes through `forge git commit`.
+      write(path.join(cwd, 'added.txt'), `round ${round}\n`);
+      const git = (/** @type {string[]} */ ...args) => execFileSync('git', args, { cwd, env: { ...env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'pipe' });
+      git('add', 'added.txt');
+      git('-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', `feat: add the file (round ${round})`);
+      const tasks = outputs.find((p) => p.endsWith('tasks.md'));
+      if (tasks) write(tasks, '- [x] 1. Add the file.\n');
+      const build = outputs.find((p) => p.endsWith('build.md')) ?? outputs[0];
+      write(build, `## Round ${round}\nChanges: added.txt\nTests: none\nAcceptance criteria:\n| AC | Proof | Result |\n|---|---|---|\n| AC1 | command \`test -f added.txt\` | pass |\n`);
+      return 'BUILD: done · 1 commit · tasks 1/1 · tests pass';
+    }
+    case 'forge:reviewer':
+      write(outputs[0], 'VERDICT: PASS\n\n## Summary\nLooks right.\n\n## Findings\nNone.\n');
+      return 'VERDICT: PASS';
+    case 'forge:approver': {
+      const decision = outputs.find((p) => p.endsWith('decision.md')) ?? outputs[0];
+      write(decision, 'APPROVE\n\nAuto-merge eligible: no\n\nThe change is small and every lens passed.\n');
+      const pr = outputs.find((p) => p.endsWith('pr.md'));
+      if (pr) write(pr, '## Summary\nAdds one file.\n');
+      return 'DECISION: APPROVE';
+    }
+    default:
+      return undefined;
+  }
+}

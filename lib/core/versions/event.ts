@@ -91,6 +91,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v25 adds `clean: true` to a `decision` Forge recorded on a clean pass (`forge job decision --clean`, no approver ran);
   // an older Forge ignores the field and reads an APPROVE that is never auto-merge eligible.
   { id: 'clean-decision', up: (e) => e },
+  // v26 adds the `advance-ran` event ({ ran: [{ rule, command, ok, text }] }): what one `forge job advance` call ran,
+  // which the Thread shows as one progress row. It is no progress event; an older Forge reads it as a generic event.
+  { id: 'advance-ran-event', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

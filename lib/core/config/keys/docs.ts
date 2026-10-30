@@ -318,6 +318,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   'daemon.keepAwake': {
     doc: 'auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)',
   },
+  'daemon.driver': {
+    doc: 'session: a job\'s resume turns run a claude orchestrator session; code: forge dash drives them itself, running forge job advance and one role run per spawn as child processes, and hands procedures and other requests to a session (see "Daemon" below)',
+  },
 
   foreman: { doc: 'opt-in: forge dash decides parked gates in code, one forge:assistant process per gate (see "Foreman" below)' },
   'foreman.enabled': { doc: "true (with daemon.enabled): parked gates become `gate` requests that forge dash's gate runner decides" },

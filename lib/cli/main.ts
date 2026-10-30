@@ -5,7 +5,7 @@
 // resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/cli/commands/; this file only routes.
 import { daemonTrust, loadConfig } from '#core/config/load.ts';
-import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/owner.ts';
+import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { registerNotify } from '#office/notify.ts';
 import { mandateRefusal } from '#office/foreman/policy.ts';
 import { NEED_INIT } from '#core/config/set.ts';

@@ -1,7 +1,7 @@
 // `forge job advance`: step's executor. It runs the deterministic `run` actions `forge job step`
 // returns in-process and hands back only the next action that needs judgement, so a stretch of
 // bookkeeping costs the orchestrator one call instead of a turn per command. `step` stays pure.
-import { refuseInboxDrive } from '#office/owner.ts';
+import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { moveJob } from '#engine/pipeline/moves/apply.ts';
 import { assertEpoch, leaseStatus, loadJob, logEvent, readEvents, renewLease } from '#core/job/store.ts';
 import { progressMark } from '#office/reconcile.ts';
@@ -73,15 +73,20 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
   }
 
   const ran: AdvanceRan[] = [];
+  /** Every return once the loop started: what this call ran goes on the job first. */
+  const out = (data: Record<string, unknown>, exitCode: number): Dispatched => {
+    logRan(root, jobId, ran);
+    return { data, exitCode };
+  };
   for (;;) {
     // Fenced by epoch alone: G3's release leaves no driver but the same epoch, and a takeover always moves it.
     renewLease(root, jobId, { session, ...(epoch !== undefined ? { fence: { epoch } } : {}) });
     const x = loadStepInput(root, config, jobId);
     const a = step(x);
-    if (a.action !== 'run') return { data: { ...a, ran }, exitCode: 0 };
+    if (a.action !== 'run') return out({ ...a, ran }, 0);
     // A null driver keeps going: G3 releases this session's own claim, then waits.
-    if (x.job.lease.driver && x.job.lease.driver !== session) return { data: { ...a, ran, refused: true, owner: x.job.lease.driver }, exitCode: 3 };
-    if (ran.length >= max) return { data: { ...a, ran, capped: true }, exitCode: 0 };
+    if (x.job.lease.driver && x.job.lease.driver !== session) return out({ ...a, ran, refused: true, owner: x.job.lease.driver }, 3);
+    if (ran.length >= max) return out({ ...a, ran, capped: true }, 0);
     let result = '';
     let error: string | null = null;
     if (!runnableInProcess(a.command)) error = `forge job advance does not run "forge ${a.command[0]}" in-process`;
@@ -95,8 +100,29 @@ export async function advance(ctx: CliContext, id: string, opts: { session: stri
       }
     }
     ran.push({ rule: a.rule, command: a.command, ok: error === null, ...(error === null ? { result } : { error }), ...(a.tell ? { tell: a.tell } : {}) });
-    if (error !== null) return { data: { ...a, failed: true, error, ran, ...((await parkRepeatedFailure(ctx, jobId, a.rule, a.command, error)) ? { parked: true } : {}) }, exitCode: 1 };
+    if (error !== null) return out({ ...a, failed: true, error, ran, ...((await parkRepeatedFailure(ctx, jobId, a.rule, a.command, error)) ? { parked: true } : {}) }, 1);
   }
+}
+
+/** The entries one `advance-ran` event holds: a call under a larger --max keeps its last ones, which end at a failure. */
+const MAX_RAN_EVENT = 20;
+/** The argv words after `forge` an entry keeps: the group, the subcommand and usually the job id, never a flag's value text. */
+const RAN_WORDS = 3;
+
+/**
+ * One `advance-ran` event for a call that ran anything: each entry's rule, `forge` plus its first words, whether it worked,
+ * and its tell, else its result or error, one line of at most 200 characters. The Thread shows it as one row, and it is no
+ * progress event (progressMark ignores it). A job that can't take the event loses only the row: advance's result stands.
+ */
+function logRan(root: string, id: string, ran: readonly AdvanceRan[]): void {
+  if (!ran.length) return;
+  const entries = ran.slice(-MAX_RAN_EVENT).map((r) => {
+    const text = r.tell ?? (r.ok ? r.result : r.error);
+    return { rule: r.rule, command: ['forge', ...r.command.slice(0, RAN_WORDS)].join(' '), ok: r.ok, text: text === undefined ? null : summarize(text) };
+  });
+  try {
+    logEvent(root, id, 'advance-ran', { ran: entries });
+  } catch {}
 }
 
 /**

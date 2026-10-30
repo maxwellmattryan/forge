@@ -187,6 +187,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v50 adds approver.skipWhenClean (false), filled from defaults, so no v49 config changes; the bump lets older Forges
   // refuse a config whose skipWhenClean they would reject as an unknown key.
   { id: 'approver-skip-when-clean', up: (c) => c },
+  // v51 adds daemon.driver (session), filled from defaults, so no v50 config changes; the bump lets older Forges
+  // refuse a config whose driver they would reject as an unknown key.
+  { id: 'daemon-driver', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

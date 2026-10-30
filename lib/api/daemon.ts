@@ -170,6 +170,8 @@ export interface DaemonPermissionPrompt {
   sessionDirs: string[];
   /** When the supervisor received it. */
   at: string;
+  /** The role whose own child asked, under the code driver (a role run's prompt relayed over IPC); absent or null for a session's. */
+  role?: string | null;
 }
 
 /** A prompt nobody answered in time, which the supervisor denied with its fixed timeout text. Untrusted text but id, at and deniedAt. */
