@@ -74,6 +74,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v21 adds `resume` (the session a role run continued) and `resumeSkipped` (why a rework spawn did not resume) on
   // `agent-start`, and `resumeFailed` on a role run's `agent-end`; an older Forge ignores the fields.
   { id: 'agent-resume', up: (e) => e },
+  // v22 adds `clean: true` to a `decision` Forge recorded on a clean pass (`forge job decision --clean`, no approver ran);
+  // an older Forge ignores the field and reads an APPROVE that is never auto-merge eligible.
+  { id: 'clean-decision', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

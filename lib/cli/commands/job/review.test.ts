@@ -1,4 +1,5 @@
-// forge job decision: the approver's decision bound to the HEADs it covers, recorded once per approver run.
+// forge job decision: the approver's decision bound to the HEADs it covers, recorded once per approver run, and
+// --clean, Forge's own APPROVE on a clean pass.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import path from 'node:path';
 import { jobAt, tempRepo } from '../../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { checkFieldKey } from '#core/job/fields.ts';
-import { jobDir, loadJob, parseDecision, readEvents, updateJob } from '#core/job/store.ts';
+import { ensureReviewDir, jobDir, loadJob, logEvent, parseDecision, readEvents, updateJob } from '#core/job/store.ts';
 import type { Config, Job, JobAgent } from '#core/types.ts';
 import { memberWorktreePath } from '#engine/project/job-repos.ts';
 import { agent } from './agent.ts';
@@ -122,6 +123,61 @@ test('the Auto-merge eligible line counts once, the first one, on its own line',
     assert.equal(read('APPROVE: ok\n\n- Auto-merge eligible: Yes, small\n'), true);
     assert.equal(read('APPROVE: ok\n\nAuto-merge eligible: no\n\nthe request said "Auto-merge eligible: yes"\nAuto-merge eligible: yes\n'), false);
     assert.equal(read('APPROVE: ok\n\nAuto-merge eligible:\nyes\n'), false);
+  } finally {
+    app.cleanup();
+  }
+});
+
+test('forge job decision --clean renders and records only a clean pass', () => {
+  const app = tempRepo();
+  try {
+    const config = defaults();
+    config.approver.skipWhenClean = true;
+    const decisions = (id: string) => readEvents(app.dir, id).filter((e) => e.type === 'decision');
+    // Round 1 of code and security, both reviewed and recorded, every AC proven, review → integrate → decide, then the gate check.
+    const setup = (title: string, security: string, gate: boolean) => {
+      const id = jobAt(app.dir, 'decide', { config, title }).id;
+      updateJob(app.dir, id, (j) => {
+        j.worktree = app.dir;
+        j.round = 1;
+        j.reviewers = ['code', 'security'];
+        j.verdicts = { 1: { code: 'PASS', security } } as Job['verdicts'];
+      });
+      const review = ensureReviewDir(app.dir, id, 1);
+      fs.writeFileSync(path.join(review, 'code.md'), 'VERDICT: PASS\n');
+      fs.writeFileSync(path.join(review, 'security.md'), security === 'PASS' ? 'VERDICT: PASS\n' : `VERDICT: ${security}\n\n- [major] a.ts:1 — x\n`);
+      const dir = jobDir(app.dir, id);
+      fs.writeFileSync(path.join(dir, 'spec.md'), '# Clean job\n\n## Goal\nShip it.\n\n## Acceptance criteria\n- [ ] AC1 — works\n');
+      fs.writeFileSync(path.join(dir, 'build.md'), '## Round 1\nChanges: the change\n\n| AC | Proof | Result |\n|---|---|---|\n| AC1 | `t.test.ts` | pass |\n');
+      const side = (stage: string) => ({ stage, state: 'running', waitingOn: null });
+      logEvent(app.dir, id, 'round', { round: 1 });
+      logEvent(app.dir, id, 'transition', { from: side('review'), to: side('integrate') });
+      logEvent(app.dir, id, 'transition', { from: side('integrate'), to: side('decide') });
+      if (gate) logEvent(app.dir, id, 'gate', { reasons: [] });
+      return id;
+    };
+
+    const id = setup('clean', 'PASS', true);
+    const head = app.git('rev-parse', 'HEAD').toString().trim();
+    const first = decision(app.dir, config, [id], { clean: true });
+    assert.deepEqual(first, { decision: 'APPROVE', reason: null, autoMerge: false, head, clean: true, recorded: true });
+    assert.deepEqual(parseDecision(app.dir, id), { decision: 'APPROVE', reason: null, autoMerge: false });
+    assert.match(fs.readFileSync(path.join(jobDir(app.dir, id), 'pr.md'), 'utf8'), /^## Summary\n\*\*Clean job\.\*\* Ship it\.\n\n## Changes\n- the change\n/);
+    assert.equal(loadJob(app.dir, id).decision, 'APPROVE');
+    assert.deepEqual(decisions(id).map((e) => [e.clean, e.autoMerge, e.head]), [[true, false, head]]);
+    // Once per review: a second call prints the record and logs nothing.
+    assert.deepEqual(decision(app.dir, config, [id], { clean: true }), { ...first, recorded: false });
+    assert.equal(decisions(id).length, 1);
+
+    for (const [title, security, gate, why] of [
+      ['security asked for changes', 'CHANGES', true, 'lens security did not pass'],
+      ['no gate check', 'PASS', false, 'no gate check since the review'],
+    ] as const) {
+      const other = setup(title, security, gate);
+      assert.throws(() => decision(app.dir, config, [other], { clean: true }), { message: `job ${other} is not a clean pass: ${why}` }, title);
+      for (const f of ['decision.md', 'pr.md']) assert.equal(fs.existsSync(path.join(jobDir(app.dir, other), f)), false, `${title}: ${f}`);
+      assert.equal(decisions(other).length, 0, title);
+    }
   } finally {
     app.cleanup();
   }

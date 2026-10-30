@@ -42,6 +42,8 @@ const STEP_EVENTS = new Set([
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
   'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate',
+  // The gate check's (`forge job gate`) escalation reasons: the clean pass reads them raw (moves/clean-pass.ts).
+  'gate',
 ]);
 
 /**

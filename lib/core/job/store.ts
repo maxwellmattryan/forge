@@ -772,9 +772,9 @@ function reviewerEnded(root: string, id: string, round: number | 'integration'):
   };
 }
 
-export function parseDecision(root: string, id: string): { decision: string | null; reason: string | null; autoMerge: boolean } {
-  const text = readRegularText(path.join(jobDir(root, id), 'decision.md'), AGENT_TEXT_MAX) ?? '';
-  const first = text.split('\n').find((l) => l.trim()) ?? '';
-  const m = first.match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);
+export const parseDecision = (root: string, id: string) => parseDecisionText(readRegularText(path.join(jobDir(root, id), 'decision.md'), AGENT_TEXT_MAX) ?? '');
+/** decision.md's text as parseDecision reads it: the first non-empty line's APPROVE or ESCALATE, and the first Auto-merge eligible line. */
+export function parseDecisionText(text: string): { decision: string | null; reason: string | null; autoMerge: boolean } {
+  const m = (text.split('\n').find((l) => l.trim()) ?? '').match(/^\s*(APPROVE|ESCALATE)\b\s*[:\-–]?\s*(.*)$/i);
   return { ...(m ? { decision: m[1].toUpperCase(), reason: m[2].trim() || null } : { decision: null, reason: null }), autoMerge: /^yes\b/i.test(text.match(/^[ \t]*(?:[-*][ \t]*)?Auto-merge eligible:[ \t]*(.*)$/im)?.[1] ?? '') }; // the first such line only
 }

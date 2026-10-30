@@ -322,6 +322,13 @@ const EVENT_ROWS: Row[] = [
     removed: ['resume'],
     note: "read as written; agent-start's resume and agent-end's resumeFailed are the same identity step",
   },
+  {
+    step: 'clean-decision',
+    input: { ts: 't', type: 'decision', decision: 'APPROVE', reason: null, autoMerge: false, head: 'a'.repeat(40) },
+    fields: { type: 'decision', ts: 't', decision: 'APPROVE', reason: null, autoMerge: false, head: 'a'.repeat(40) },
+    removed: ['clean'],
+    note: "an approver's decision reads as written and gains no clean flag",
+  },
 ];
 
 const MACHINE_ROWS: Row[] = [
