@@ -165,11 +165,8 @@ export interface Config {
   schemaVersion: number;
   project: {
     name: string | null;
-    description: string | null;
-    kinds: string[];
     /** A list every role reads, or a map: `default` plus role lists (INSTRUCTION_ROLES) that replace it (instructionsFor). */
     instructions: string[] | Record<string, string[]>;
-    notes: string | null;
   };
   git: {
     base: string;
@@ -201,7 +198,6 @@ export interface Config {
   ports: { base: number; span: number };
   runtime: {
     provider: string;
-    host: string;
     maxParallelJobs: number;
     diversity: boolean;
     /** The default reasoning effort for jobs; null leaves it to Claude Code's own setting. */
@@ -283,10 +279,8 @@ export interface Config {
   infra: {
     mode: 'human' | 'plan-only' | 'agent';
     allowed: string[];
-    notes: string | null;
   };
   usage: {
-    track: boolean;
     /** Overrides for lib/integrations/claude/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }. */
     pricing: Record<string, unknown>;
   };

@@ -5,7 +5,7 @@ import { validateConfig, worktreeRoot } from '#core/config/load.ts';
 import { daemonIsolationWarning } from '#core/config/trust.ts';
 import { dockerCheck } from '../environment/backing.ts';
 import { billingOf } from '#integrations/claude/argv.ts';
-import { deprecationChecks } from '#core/config/validators/deprecations.ts';
+import { deprecationChecks, unknownKeyChecks } from '#core/config/validators/deprecations.ts';
 import { uncoveredInstructionProbes } from '#core/config/validators/instructions.ts';
 import { policyRules } from '#core/config/validators/policy-check.ts';
 import { memberRepoChecks, releaseChecks, repoProblems } from '../project/member-repos.ts';
@@ -278,7 +278,8 @@ export async function doctor(root: string, config: Config, initialized: boolean,
     const problems = validateConfig(config, root);
     configValid = !problems.length;
     add('config valid', !problems.length, problems.join('; '));
-    checks.push(...deprecationChecks(readText(paths(root).config)));
+    const text = readText(paths(root).config);
+    checks.push(...deprecationChecks(text), ...unknownKeyChecks(text));
     // A bad repos list is already a failing config check; member checks would only guess at it.
     if (!repoProblems(config, root).length) checks.push(...memberRepoChecks(root, config));
     checks.push(...releaseChecks(root, config));

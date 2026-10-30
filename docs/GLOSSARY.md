@@ -149,7 +149,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 
 - `resources` stays the reference links agents should know about, and `infra.mode` stays the policy for cloud and infrastructure commands. That is why runtime infrastructure is a "backing service", never a "resource" or "infra".
 - "GitHub Project" always carries the prefix (`tracker.github.project`, `statusSync: project`). Bare "project" means the glossary's project.
-- The top-level `project:` block (name, description, kinds, instructions, notes) today describes the root repo of a one-repo project.
+- The top-level `project:` block (name, instructions) today describes the root repo of a one-repo project.
 - A job's components were once its `services` (the job field and the spec's `Services:` header), which still read as deprecated aliases. A component of kind `service` is not a backing service.
 - "Model profiles" in [CONFIG.md](CONFIG.md) are `runtime.models` presets from `/forge init`. "Profile" alone means the glossary's profile.
 - A job's `dependsOn` is a job dependency. "Dependency" alone means a component edge.

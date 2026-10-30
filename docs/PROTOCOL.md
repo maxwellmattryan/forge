@@ -24,7 +24,7 @@ Forge is packaged for Claude Code, but nothing in its design is specific to one 
 | `forge job agent … --import` | omit `--import`; pass whatever usage your runtime reports (`--tokens`, `--tool-uses`, `--duration-ms`), or nothing |
 | AskUserQuestion (init) | ask the questions in plain text |
 
-Set `runtime.provider`/`runtime.host` in `.forge/config.yml` so humans and the dashboard know what drove a job. Model names in `runtime.models` can be any ids your runtime accepts. Add their prices under `usage.pricing.models` if you want cost estimates.
+Set `runtime.provider` in `.forge/config.yml` so humans and the dashboard know which provider drove a job. Model names in `runtime.models` can be any ids your runtime accepts. Add their prices under `usage.pricing.models` if you want cost estimates.
 
 ## The minimum contract
 
