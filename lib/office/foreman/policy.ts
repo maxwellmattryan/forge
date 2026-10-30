@@ -304,7 +304,7 @@ export function checkMandateGateDecision(
 
 /**
  * The stages a `forge job set --state running` may move a job to right after each foreman action: the
- * second column of the gate table in skills/forge/reference/foreman.md. undefined: the stage stays.
+ * stage each action of the gate table (docs/architecture/foreman.md › Gate runs) resumes at. undefined: the stage stays.
  * A chat's set after a recorded decision takes the same table (chatSetRefusal, lib/office/chat/authority.ts).
  */
 export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {

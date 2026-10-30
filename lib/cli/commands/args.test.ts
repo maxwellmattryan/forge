@@ -52,7 +52,7 @@ test('--body-file under the daemon reads only the session job\'s folder or workt
     ["another job's folder through ..", `${folder}${path.sep}..${path.sep}${other}${path.sep}request.md`],
     ['a sibling that shares the prefix', path.join(sibling, 'comment.md')],
     ['a job-folder file in the inbox session', path.join(folder, 'comment.md'), { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_inbox' }],
-    ['a job-folder file in the office session', path.join(folder, 'comment.md'), { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }],
+    ['a job-folder file in an office run', path.join(folder, 'comment.md'), { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' }],
     ['no session scope', path.join(folder, 'comment.md'), { FORGE_DAEMON: '1' }],
     ['a missing file', path.join(folder, 'nope.md')],
   ];

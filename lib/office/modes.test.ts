@@ -1,4 +1,4 @@
-// The pool's permission modes: the launch mode starts every job, inbox and office session, a chat asks, and a human's own choice wins.
+// The pool's permission modes: the launch mode starts every job and inbox session (and the `_office` scope, the retired office session's), a chat asks, and a human's own choice wins.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createModeBook } from './modes.ts';
