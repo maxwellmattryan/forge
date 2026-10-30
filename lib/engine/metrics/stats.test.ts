@@ -104,6 +104,37 @@ test('cacheReadShare per role', () => {
   assert.ok(!('cacheReadShare' in s.cost.byModel['claude-x']), 'byRole rows only');
 });
 
+test('peakContext and runTokens per role', () => {
+  const bucket = { tokens: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, toolUses: 0, durationMs: 0, runs: 1, estCostUsd: 0 };
+  const usage = (totalTokens: unknown) => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens });
+  const composition = (total: number) => ({ total, forgePrompt: total, harness: 0, carried: 0, assistant: 0, user: 0, tools: [] });
+  const run = (peak: number | null, tokens: unknown) => ({ round: 1, startedAt: null, endedAt: null, status: 'done', model: 'opus', usage: usage(tokens), composition: peak === null ? null : composition(peak) });
+  const withRuns = (id: string, roles: string[], agents: string): StatsSource => {
+    const src = source(id, []);
+    const byRole = Object.fromEntries(roles.map((r) => [r, bucket])) as JobUsage['byRole'];
+    src.job.usage = { ...src.job.usage, byRole, byModel: { 'claude-x': bucket as JobUsage['byModel'][string] } };
+    // JSON.parse keeps a `__proto__` key as an own property, the way an agent-written job.json would.
+    src.job.agents = JSON.parse(agents) as Job['agents'];
+    return src;
+  };
+  const s = statsFrom([
+    withRuns('a', ['builder', 'reviewer:code'], JSON.stringify({
+      builder: { runHistory: [run(100_000, 1000), run(null, 0), run(140_000, 'x'), run(0, 2000)] },
+      'reviewer:code': {},
+      planner: { runHistory: [run(50_000, 500)] },
+    }).replace('"planner"', '"__proto__"')),
+    withRuns('b', ['builder'], JSON.stringify({ builder: { runHistory: [run(200_000, 3000), 'not a run'] }, designer: { runHistory: [run(10, 10)] }, spec: 'not an agent' })),
+  ]);
+  // a: 100000/1000 counts; the null composition and the 0 total and 0 tokens are left out; the 'x' usage drops the run.
+  assert.deepEqual(s.cost.byRole.builder.peakContext, { median: 150_000, p90: 200_000, n: 2 });
+  assert.deepEqual(s.cost.byRole.builder.runTokens, { median: 2000, p90: 3000, n: 3 });
+  assert.deepEqual(s.cost.byRole['reviewer:code'].peakContext, { median: null, p90: null, n: 0 }, 'a role with no samples');
+  assert.deepEqual(s.cost.byRole['reviewer:code'].runTokens, { median: null, p90: null, n: 0 });
+  assert.ok(!('designer' in s.cost.byRole), 'samples without a usage row add no row');
+  assert.ok(!Object.hasOwn(s.cost.byRole, '__proto__') && !('peak' in Object.prototype), 'a __proto__ agent is skipped');
+  assert.ok(!('peakContext' in s.cost.byModel['claude-x']) && !('runTokens' in s.cost.byModel['claude-x']), 'byRole rows only');
+});
+
 test('a __proto__ key in job.json or a findings record never reaches Object.prototype', (t) => {
   const polluted = ['read', 'all', 'reviews', 'changes', 'blockers', 'soleChanges', 'reopened', 'findings', 'tokens', 'runs', 'estCostUsd'];
   t.after(() => {

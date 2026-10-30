@@ -9,6 +9,10 @@ export interface UsageRow {
   runs: number;
   /** cost.byRole rows only: cacheRead / (input + cacheRead + cacheWrite) over the role's usage; null at 0. */
   cacheReadShare?: number | null;
+  /** cost.byRole rows only: the spread of the role's recorded runs' peak context (composition.total, the last request's size). */
+  peakContext?: TimeSpread;
+  /** cost.byRole rows only: the spread of the role's recorded runs' usage.totalTokens. */
+  runTokens?: TimeSpread;
 }
 
 /** A sample's median, nearest-rank 90th percentile and size: spread in lib/engine/metrics/speed.ts; both null at n 0. */

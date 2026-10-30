@@ -51,7 +51,10 @@ test('the stats summary reads an older stats object without the review and timin
     },
     cost: {
       ...s.cost,
-      byRole: { builder: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: 0.912 }, reviewer: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: null } },
+      byRole: {
+        builder: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: 0.912, peakContext: { median: 153_400, p90: 209_600, n: 12 } },
+        reviewer: { tokens: 1, estCostUsd: 0, runs: 1, cacheReadShare: null, peakContext: { median: null, p90: null, n: 0 } },
+      },
       orchestrator: {
         tokens: 30,
         estCostUsd: 1.75,
@@ -70,7 +73,7 @@ test('the stats summary reads an older stats object without the review and timin
     'parked minutes (median) spec-approval 41',
     'between agents 3.5 min/job · stalled 0 min/job · agent gaps 12s (p90 40s, n 9) without a command, — with one',
     'agent start — foreground, — background · extra round 18 min (p90 30)',
-    'cache-read share builder 91%',
+    'cache-read share builder 91%\npeak context builder 153K (p90 210K, n 12)\n',
   ])
     assert.ok(text.includes(want), want);
   assert.equal(full.reviewers[0][1], '50% changes, 3 blockers, sole 1, reopened 1, — disputed, — missed');
@@ -86,6 +89,7 @@ test('the stats summary reads an older stats object without the review and timin
   for (const want of ['findings carried 0, new 0', 'by stage (median over 0 done jobs) —', 'parked minutes (median) —', 'between agents — min/job · stalled — min/job · agent gaps — without a command, — with one', 'extra round —'])
     assert.ok(olderText.includes(want), want);
   assert.ok(!olderText.includes('cache-read share'), 'no share, no line');
+  assert.ok(!olderText.includes('peak context'), 'no peak context, no line');
   assert.ok(!olderText.includes('orchestrator'), 'no orchestrator figure, no line');
   assert.match(older.reviewers[0][1], /3 blockers, sole 0, reopened 0/);
 });
