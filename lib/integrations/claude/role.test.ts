@@ -40,13 +40,14 @@ test('runRoleChild writes the brief once and ends the child after its result', a
   c.emit({ kind: 'tool-use', names: ['Read', 'Read'] });
   c.emit({ kind: 'tool-use', names: ['Write', 'Read'] });
   assert.equal(c.inputEnded, false, 'stdin stays open until the result, for permission answers');
-  c.emit({ ...ok, text: 'VERIFY: 2 yes\nthe rest' });
+  // The result carries the turn's last main-loop context, which a rework resume reads back from the runner's sidecar.
+  c.emit({ ...ok, text: 'VERIFY: 2 yes\nthe rest', context: 60102 });
   assert.equal(c.inputEnded, true, 'stdin closes after the result');
   c.exit(0, null);
   const out = await run.done;
   assert.deepEqual(
     { ...out, wallMs: 0 },
-    { ok: true, started: true, init: true, sessionId: SID, summary: 'VERIFY: 2 yes', text: 'VERIFY: 2 yes\nthe rest', firstRequest: { input: 2, cacheRead: 60000, cacheWrite: 100 }, tools: ['Read', 'Write'], dropped: 0, cost, failure: null, denied: 0, exit: { code: 0, signal: null }, wallMs: 0 },
+    { ok: true, started: true, init: true, sessionId: SID, summary: 'VERIFY: 2 yes', text: 'VERIFY: 2 yes\nthe rest', firstRequest: { input: 2, cacheRead: 60000, cacheWrite: 100 }, tools: ['Read', 'Write'], dropped: 0, cost, context: 60102, failure: null, denied: 0, exit: { code: 0, signal: null }, wallMs: 0 },
   );
   assert.deepEqual([lines, ids], [['{"type":"assistant"}'], [SID]]);
   assert.deepEqual(c.signals, [], 'a child that exits on its own is never signalled');

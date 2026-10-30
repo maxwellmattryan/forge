@@ -68,8 +68,8 @@ const REWORK_WHY = 'rework round: re-review the lenses that asked for changes, t
  */
 function panelSpawn(x: StepInput, rule: RuleId, why?: string) {
   const [first, ...rest] = nextLenses(x);
-  const a = { ...spawn(x, rule, `reviewer:${first}`), ...(why ? { why } : {}) };
-  return rest.length ? { ...a, spawns: rest.map((l) => spawn(x, rule, `reviewer:${l}`)) } : a;
+  const a = { ...spawn(x, rule, `reviewer:${first}`, { rework: true }), ...(why ? { why } : {}) };
+  return rest.length ? { ...a, spawns: rest.map((l) => spawn(x, rule, `reviewer:${l}`, { rework: true })) } : a;
 }
 
 export const REVIEW: Table<ReviewCtx> = {

@@ -96,11 +96,11 @@ export const BUILD: Table<BuildCtx> = {
       when: ({ x, f, b, lv, reworkAt }) => !startedIn(b, x.job.round) && !lv && enteredFrom(x, f) === 'review' && previousAllPass(x.job) && !afterIdx(reworkAt, f.stageEntry!.i),
       then: ({ x }) => toStage(x, 'B8', 'verify', 'a commit after review: verify and review it, no builder'),
     },
-    // Never resumed: a rework builder is expendable and its brief carries the findings, so it need not drag the last round's context along.
+    // A rework builder resumes its last session when that is safe and cheap (reworkResume): it already read the spec and wrote the code.
     {
       id: 'B4',
       when: ({ x, b, lv, rework }) => !startedIn(b, x.job.round) || Boolean(lv && !lv.ok && after(lv.at, b?.endedAt)) || after(rework?.ts, b?.startedAt),
-      then: ({ x }) => spawn(x, 'B4', 'builder'),
+      then: ({ x }) => spawn(x, 'B4', 'builder', { rework: true }),
     },
     { id: 'B5', when: ({ x, b }) => endedIn(b, x.job.round), then: ({ x }) => toStage(x, 'B5', 'verify', 'the builder committed this round') },
   ],

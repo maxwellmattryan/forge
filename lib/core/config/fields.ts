@@ -113,6 +113,7 @@ export const FIELDS: ConfigField[] = [
   field('pipeline.design', 'pipeline', 'Design', 'Whether UI jobs get a design reference or a mockup first.', { type: 'enum', options: ['none', 'reference', 'mockup'] }),
   field('pipeline.maxRounds', 'pipeline', 'Max rounds', 'Build and review rounds before asking a human.', { type: 'integer', min: 1, max: 20 }),
   field('pipeline.maxTotalRounds', 'pipeline', 'Total-round ceiling', 'Rounds of any kind, reworks by a human, the foreman or CI included, before each further round needs a person. Empty means twice max rounds.', { type: 'integer', min: 1, nullable: true }),
+  field('pipeline.resumeRework', 'pipeline', 'Resume on rework', "A rework round's builder and re-run lenses continue their role's last session instead of starting fresh, unless its context is over 120k tokens, the model changed, its transcript is gone or the spec changed since.", { type: 'boolean' }),
   budget('tokens', 'Token budget', 'Per-job limit on total tokens.', 'integer'),
   budget('usd', 'Cost budget (USD)', 'Per-job limit on estimated cost.', 'number'),
   budget('minutes', 'Minutes budget', 'Per-job limit on agent run time, never human waits.', 'number'),

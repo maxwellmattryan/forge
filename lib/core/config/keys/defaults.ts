@@ -160,6 +160,8 @@ export function defaults(): Config {
       // Every round counts, whoever opened it; past it only a person's rework opens another (B7).
       // null means twice the job's maxRounds.
       maxTotalRounds: null,
+      // A rework spawn continues its role's last session unless step logs why not (reworkResume in step/facts.ts).
+      resumeRework: true,
       // null means unlimited; a job's `budget.limits` overrides any key.
       budget: { tokens: null, usd: null, minutes: null, changedLines: null, verifyRetries: 2 },
     },

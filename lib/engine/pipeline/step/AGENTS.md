@@ -12,7 +12,7 @@
 |---|---|
 | `actions.ts` | The actions a rule returns. |
 | `answered.ts` | GA1–GA11: a gate a logged `human` decision (a person's or the foreman's) answered. |
-| `facts.ts` | What step reads off a StepInput: agent records, events and the facts derived from them, and the park reason NP1b writes for a prompt nobody answered in time, with its parser (brief.ts reads it without the step rows). |
+| `facts.ts` | What step reads off a StepInput: agent records, events and the facts derived from them, whether a rework spawn resumes its role's last session, and the park reason NP1b writes for a prompt nobody answered in time, with its parser (brief.ts reads it without the step rows). |
 | `gates.ts` | The gates that run before the stage rules (secret scan, protected paths, repo proposals, downstream verification), the open rules of the one escalation park (openEscalation), and what step tells a human at a gate. |
 | `generic.ts` | The per-role rows every stage shares (NP1, NP1b, N1, N1b, N2, M1, M2) and the X1 fallback. |
 | `global.ts` | The rows that run before any stage: finished jobs, parks, running agents, lost runs, and the retro kind's own start. |

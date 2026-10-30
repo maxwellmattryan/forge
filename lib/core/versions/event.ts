@@ -71,7 +71,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // a job session's own turn usage from its result line (lib/office/session/meter.ts). An older Forge reads it as generic,
   // and an older job simply has none.
   { id: 'session-usage-event', up: (e) => e },
-  // v21 adds the `gate` event ({round, head, reasons: [{rule, detail, paths?}]}): `forge job gate` recorded the job's gate
+  // v21 adds `resume` (the session a role run continued) and `resumeSkipped` (why a rework spawn did not resume) on
+  // `agent-start`, and `resumeFailed` on a role run's `agent-end`; an older Forge ignores the fields.
+  { id: 'agent-resume', up: (e) => e },
+  // v22 adds the `gate` event ({round, head, reasons: [{rule, detail, paths?}]}): `forge job gate` recorded the job's gate
   // reasons, which DC12, PR19, the approver's brief and the escalation park read; and `gated: true` on a `decision` the
   // gate reasons kept from auto-merge; `escalate` ({lens: boolean}, whether that review's Summary said ESCALATE, for each
   // lens whose reviewer ran in the round) on a `verdicts` event, and `reasons` on a `pr-gate` one. An older Forge reads
