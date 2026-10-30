@@ -6,9 +6,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scratchGitConfig, waitFor } from '../../test/helpers.ts';
+import { scratchGitConfig, waitFor } from '../../../test/helpers.ts';
 import { SYNC_PINS } from '#integrations/git/runner.ts';
-import { runChild, syncChildEnv } from './sync-child.ts';
+import { runChild, syncChildEnv } from './children.ts';
 
 const git = (cwd: string, args: string[], env: NodeJS.ProcessEnv = process.env) => execFileSync('git', args, { cwd, env, stdio: 'pipe', encoding: 'utf8' });
 
