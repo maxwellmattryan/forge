@@ -104,7 +104,8 @@
       },
       "ranFailed": "failed",
       "transcript": "Transcript",
-      "transcriptTitle": "Open this role's transcript in the Agents tab"
+      "transcriptTitle": "Open this role's transcript in the Agents tab",
+      "transcriptFor": "Open {role}'s transcript"
     },
     "live": {
       "label": "Open this job's Log",

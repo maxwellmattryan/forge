@@ -218,7 +218,7 @@ export const FIELDS: ConfigField[] = [
   field('daemon.keepAwake', 'daemon', 'Keep awake', "Hold the machine awake while this project's pool has an active mandate or a running job at an agent stage.", { type: 'enum', options: [...KEEP_AWAKE_MODES] }),
   // Editable: it names no command and widens nothing; it only picks who turns a job's resume work into
   // `forge` calls, and both drivers run the same commands under the same scope, trust and deny rules.
-  field('daemon.driver', 'daemon', 'Driver', "Who drives a job's resume work: a Claude orchestrator session, or the dashboard itself in code, running forge job advance and one role run per spawn. Procedures and other requests still go to a session.", { type: 'enum', options: [...DAEMON_DRIVERS] }),
+  field('daemon.driver', 'daemon', 'Driver', "Who drives a job's resume work. session: a Claude orchestrator session. code: the code driver, forge dash itself, which runs forge job advance and one role run per spawn. Procedures and other requests still go to a session.", { type: 'enum', options: [...DAEMON_DRIVERS] }),
   // Locked: each one widens or narrows what an unattended session decides for a human.
   field('retention.logsDays', 'daemon', 'Delete session logs after (days)', 'forge sync and forge dash delete daemon session logs this many days old whose session is not running. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes session logs' }),
   field('retention.logMaxBytes', 'daemon', 'Rotate session logs at (bytes)', 'Rotate a session log to <scope>.log.1 as soon as it reaches this size, keeping one older generation. Empty rotates only at spawn, past 20 MiB.', { type: 'integer', min: 1048576, max: 1073741824, nullable: true }),

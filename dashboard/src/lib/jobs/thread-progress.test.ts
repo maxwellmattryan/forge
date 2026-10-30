@@ -1,7 +1,7 @@
 // The Thread's progress lines for events, read defensively: events.jsonl is a file in the job dir.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { progressOf } from './thread-progress.ts';
+import { progressOf, threadProgress, transcriptRows } from './thread-progress.ts';
 import type { JobEvent } from '../core/types.ts';
 
 const ev = (type: string, fields: Record<string, unknown>): JobEvent => ({ v: 1, ts: '2026-10-27T10:00:00Z', type, ...fields }) as JobEvent;
@@ -45,4 +45,21 @@ test('what an advance ran becomes one Thread line', () => {
     ['not a list', ev('advance-ran', { ran: 'B1' }), null],
   ];
   for (const [name, e, want] of rows) assert.deepEqual(progressOf(e), want, name);
+});
+
+test('only the newest run of a role the Agents tab lists gets a Transcript button', () => {
+  const end = (ts: string, role: string): JobEvent => ({ ...ev('agent-end', { role, status: 'done', summary: 'ok' }), ts });
+  const lines = threadProgress([
+    end('2026-10-27T10:00:00Z', 'spec-writer'),
+    end('2026-10-27T10:01:00Z', 'builder'),
+    end('2026-10-27T10:02:00Z', 'reviewer'),
+    end('2026-10-27T10:03:00Z', 'builder'),
+    { ...ev('verify', { round: 1, ok: true }), ts: '2026-10-27T10:02:30Z' },
+  ]);
+  const idOf = (role: string, nth: number): string => lines.filter((m) => m.line.kind === 'agent' && m.line.role === role)[nth]!.id;
+  // The builder ran twice: the later line has the button, the earlier one does not. The spec-writer's round is over, so the
+  // Agents tab does not list it, and its line has none either.
+  assert.deepEqual(transcriptRows(lines, ['builder', 'reviewer']), new Set([idOf('builder', 1), idOf('reviewer', 0)]));
+  assert.deepEqual(transcriptRows(lines, []), new Set());
+  assert.deepEqual(transcriptRows([], ['builder']), new Set());
 });

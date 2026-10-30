@@ -151,7 +151,7 @@
     "inbox": "Inbox session",
     "asks": "The session asks to use {tool}",
     "asksSubagent": "A subagent asks to use {tool}",
-    "asksRole": "{role} asks to use {tool}",
+    "asksRole": "The {role} asks to use {tool}",
     "agentSays": "The agent says:",
     "outside": "Outside its folders:",
     "allow": "Allow once",

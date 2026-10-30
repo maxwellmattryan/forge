@@ -157,6 +157,18 @@ export function threadProgress(events: JobEvent[] | null | undefined): ProgressI
 }
 
 /**
+ * The ids of the agent lines that get a Transcript button: the newest line of each role in `roles`, the roles the Agents
+ * tab can open a transcript for. That tab shows one transcript per role, the latest run's, so an earlier run's line, or a
+ * role it does not list (one that ran in an earlier round), gets none. `lines` come oldest first, as threadProgress returns them.
+ */
+export function transcriptRows(lines: readonly ProgressItem[], roles: readonly string[]): Set<string> {
+  const want = new Set(roles);
+  const newest = new Map<string, string>();
+  for (const m of lines) if (m.line.kind === 'agent' && want.has(m.line.role)) newest.set(m.line.role, m.id);
+  return new Set(newest.values());
+}
+
+/**
  * The messages with the progress lines merged in by time; a line goes before the first message that is newer, so on a
  * tie the message comes first. A message without a time (an opening with no creation time) keeps its place at the top.
  */
