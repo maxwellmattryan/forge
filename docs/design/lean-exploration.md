@@ -99,7 +99,7 @@ Run all of this from a person's own terminal, not from a Forge daemon session (`
 - `<plugin-a>`, `<plugin-b>`, `<plugin-c>`: `<scratch>/plugin-a`, `-b` and `-c`.
 - `<clone>`: `<scratch>/t-<size>-<arm>`, one per job × arm (nine).
 - `<base>`, `<merge>`: the Jobs table's columns.
-- `<phase-1>`: this branch's Phase 1 commit (`forge git log <job>` shows it).
+- `<phase-1>`: this branch's Phase 1 commit, the one titled `feat(prompts,stats): …` in its log.
 - `<job>`: the scratch job id `job new` prints.
 
 Every command runs with `FORGE_ROOT=<clone>` and `FORGE_HOME=<scratch>/home`.
