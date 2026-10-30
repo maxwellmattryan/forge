@@ -25,6 +25,9 @@
 //                             (--fork-session with --resume always does)
 //   FAKE_CLAUDE_FORK_READ     a fork's first request's cache read (default 60000)
 //   FAKE_CLAUDE_NO_RESULT     never send a turn's result (a turn that hangs)
+//   FAKE_CLAUDE_ROLES         an absolute module path: before each working result its default export gets
+//                             {agent, brief, cwd, env}, writes the role's output, and may return the reply's text
+//                             (test/fixtures/fake-roles.mjs)
 // A context session's child (its brief has a `Role: context session · …` line) skips FAKE_CLAUDE_WRITE, _ASK and
 // _RESULT_ERROR, and has its own knobs:
 //   FAKE_CLAUDE_CONTEXT_TEXT        its reply (default READY)
@@ -67,6 +70,8 @@ log({
   nodeChannel: Boolean(env.NODE_CHANNEL_FD || env.NODE_CHANNEL_SERIALIZATION_MODE),
 });
 
+/** FAKE_CLAUDE_ROLES: the module whose default export writes a role's output (test/fixtures/fake-roles.mjs). */
+const roles = env.FAKE_CLAUDE_ROLES ? (await import(env.FAKE_CLAUDE_ROLES)).default : null;
 const resume = flag('--resume');
 const forked = Boolean(resume && argv.includes('--fork-session'));
 const session = resume && (env.FAKE_CLAUDE_FORK || forked) ? crypto.randomUUID() : (resume ?? flag('--session-id') ?? 'no-session');
@@ -88,6 +93,8 @@ function serve() {
   let turn = 0;
   /** Set from the first user line: this child is a context session's. */
   let context = false;
+  /** The first user line's text: a role child's brief. */
+  let briefText = '';
   const out = (/** @type {any} */ ev) => process.stdout.write(JSON.stringify(ev) + '\n');
   let first = true;
   const asked = flag('--permission-mode');
@@ -119,6 +126,7 @@ function serve() {
     if (msg?.type !== 'user') return;
     if (first) {
       const text = String(msg.message?.content?.[0]?.text ?? '');
+      briefText = text;
       context = text.split('\n').some((l) => l.startsWith('Role: context session · '));
       if (context && env.FAKE_CLAUDE_CONTEXT_EXIT) {
         process.exitCode = Number(env.FAKE_CLAUDE_CONTEXT_EXIT);
@@ -146,7 +154,10 @@ function serve() {
       const modelUsage = JSON.parse(usageEnv);
       Object.assign(cost, { modelUsage, total_cost_usd: Object.values(modelUsage).reduce((n, /** @type {any} */ m) => n + (m.costUSD ?? 0), 0) });
     }
-    const resultText = context ? (env.FAKE_CLAUDE_CONTEXT_TEXT ?? 'READY') : env.FAKE_CLAUDE_RESULT_TEXT;
+    // A role's own output and reply, from the roles module (its default export decides by --agent and the brief).
+    let roleText;
+    if (roles && !context && !env.FAKE_CLAUDE_RESULT_ERROR) roleText = roles({ agent: flag('--agent'), brief: briefText, cwd: process.cwd(), env });
+    const resultText = context ? (env.FAKE_CLAUDE_CONTEXT_TEXT ?? 'READY') : (roleText ?? env.FAKE_CLAUDE_RESULT_TEXT);
     const text = resultText ? { result: resultText } : {};
     const failed = env.FAKE_CLAUDE_RESULT_ERROR && !context ? { is_error: true, result: env.FAKE_CLAUDE_RESULT_ERROR } : { is_error: false, ...text };
     const hold = context ? env.FAKE_CLAUDE_CONTEXT_HOLD : undefined;

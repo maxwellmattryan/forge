@@ -5,12 +5,18 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
-import { tempRepo } from '../../test/helpers.ts';
-import { sessionFiles } from '#core/job/session-files.ts';
+import path from 'node:path';
+import { fakeClaude, tempRepo, withLease } from '../../test/helpers.ts';
+import { defaults, trustDigest } from '#core/config/load.ts';
+import { UUID, readInfo, sessionFiles } from '#core/job/session-files.ts';
 import { INBOX_SCOPE } from '#core/job/requests.ts';
+import { createJob, leaseStatus, loadJob } from '#core/job/store.ts';
+import { createCodeDriver } from './code/job-driver.ts';
+import { confineDigest } from './session/confine.ts';
+import { sessionOptions, type SessionContext } from './session/contract.ts';
 import { daemonSessionIds, driverIdOf, inboxSessionIds, recordIds, whoDrives, type Drive } from './driver.ts';
 import { judge } from './reconcile.ts';
-import type { Job } from '#core/types.ts';
+import type { Config, Job } from '#core/types.ts';
 
 test('whoDrives answers who drives a job', (t) => {
   const [y, s, p, stranger] = Array.from({ length: 4 }, () => crypto.randomUUID());
@@ -79,4 +85,62 @@ test('whoDrives answers who drives a job', (t) => {
   const agents = {} as Job['agents'];
   assert.deepEqual(judge({ ...job(s), agents }, [], off, at), { driven: false, why: 'its session is off' });
   assert.deepEqual(judge({ ...job(stranger), agents }, [], off, at), { driven: true, why: 'lease' });
+});
+
+test("the code driver's id lives in its scope's record, apart from the session's", async (t) => {
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  const root = repo.dir;
+  fs.mkdirSync(path.join(root, '.forge'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.forge', 'config.yml'), 'daemon:\n  enabled: true\n  command: claude {session}\n');
+  const cfg: Config = defaults();
+  cfg.daemon = { ...cfg.daemon, enabled: true, command: 'claude {session}', idleStopMinutes: null };
+  const job = createJob(root, cfg, { title: 'driven in code' }).id;
+  const [digest, confined] = [trustDigest(root), confineDigest(root, cfg)];
+  const ctx: SessionContext = {
+    trusted: () => digest,
+    confined: () => confined,
+    poolWanted: () => true,
+    config: () => cfg,
+    untrusted: () => {},
+    fatal: () => {},
+    emit: () => {},
+    onResult: () => {},
+    onExit: () => {},
+    poke: () => {},
+    permissionMode: () => null,
+    permissionModeRefused: () => {},
+    effort: () => ({ level: null, source: 'none' }),
+    model: () => null,
+    browser: () => null,
+  };
+  const fake = fakeClaude();
+  const o = sessionOptions({ claude: fake.adapter, graceMs: 20 });
+  const f = sessionFiles(root, job);
+  const session = crypto.randomUUID();
+  fs.mkdirSync(f.dir, { recursive: true });
+  // A planted id that is no uuid is replaced; the session's own fields stay.
+  fs.writeFileSync(f.info, JSON.stringify({ sessionId: session, driverId: '--resume' }));
+  const first = createCodeDriver(root, job, ctx, o);
+  const id = driverIdOf(readInfo(f.info));
+  assert.ok(id && UUID.test(id), String(id));
+  assert.equal(readInfo(f.info).sessionId, session);
+  t.after(() => first.close());
+  // A second pool over the same root reads the same id.
+  const second = createCodeDriver(root, job, ctx, o);
+  await second.close();
+  assert.equal(driverIdOf(readInfo(f.info)), id);
+  assert.ok(daemonSessionIds(root).includes(id!), 'a pool boot releases it');
+  assert.ok(first.facts().ids.includes(id!), "the reconciler counts it as the scope's");
+
+  // The inner session's spawn and exit keep the id, and its release never lets the driver's lease go.
+  withLease(root, job, id!);
+  assert.equal(first.spawn(cfg), true);
+  assert.equal(fake.children.length, 1, 'under daemon.driver: session, the inner session spawns');
+  assert.equal(driverIdOf(readInfo(f.info)), id, 'after the spawn');
+  await first.kill('stop', true, 'test');
+  assert.equal(first.running, false);
+  assert.equal(driverIdOf(readInfo(f.info)), id, 'after the exit');
+  const lease = loadJob(root, job).lease;
+  assert.deepEqual([lease.driver, leaseStatus(loadJob(root, job)).status], [id, 'live']);
 });

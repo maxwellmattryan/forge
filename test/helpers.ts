@@ -9,6 +9,7 @@ import { BIN, type CliResult } from './support/cli.ts';
 // import side effects (below) are what pin git config, SHELL, FORGE_MODE and NODE_OPTIONS.
 export { BIN, cliEnv, forgeSync, type CliResult } from './support/cli.ts';
 export { fakeClaude, type FakeClaudeChild } from './support/claude-adapter.ts';
+export { FAKE_ROLES, STUB_CLAUDE, codeDriverRig, pidGone, type CodeDriverRig } from './support/code-driver.ts';
 export { fakeBin } from './support/fake-bin.ts';
 export { emptyState as fakeDockerState, handle as fakeDockerHandle } from './fixtures/fake-docker.mjs';
 export { editConfigFile, gateAnswer, gateCost, gateHarness, type GateHarness } from './support/gate-runner.ts';
