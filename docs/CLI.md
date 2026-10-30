@@ -250,6 +250,8 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 A recorded decision moves the job by itself: the next `forge job step` on a job whose current park a `human` event answers returns that gate's follow-up `forge job set` (rules GA1–GA11, docs/architecture/job-model.md › Answered gates), so `forge job human` followed by `forge requests add resume --job <id>` is enough from any session.
 
+A person's `approve-spec` with a note (`--note`, or the words after the action) also writes `approval-notes.md` in the job folder, which the builder brief lists: the result gains `approvalNotes: {path, written: true}`, or `{path, written: false, error}` when the write failed or was skipped, in which case the decision still stands and the exit is still 0. The file is written only for a job that was waiting on `spec-approval` when the call began, and from a session that may add a builder hint for it (see `--for builder` below); otherwise the note stays in the event log and `error` says why. That is decided when the event is logged: an allowed note's event carries `approvalNote: true`, and the file renders only marked approve-spec notes, so a refused note never shows up in a later write, such as a hint added afterwards. No note, a whitespace-only note, a refused call or the Foreman's decision writes nothing. A hint a person adds later goes in with `forge job note <id> --for builder "…"` (or `--body`, `--body-file`): it logs a `builder-note` event `{note, actor}`, rewrites the file and returns `{ok: true, approvalNotes}`. The file is rendered from events on every write, so a hand edit is overwritten. `--for` with any other value, or without text, exits 2; in the office session, or in a job session for another job, `--for builder` exits 1 before reading the body or writing anything. The builder brief lists the file after `tasks.md` on a fresh round, and on a findings-first rework only when a note came after the last builder started.
+
 A **Foreman hand-off** is recorded only by a gate run, never from the CLI: when it leaves the gate the job waits at for a person (a reserved topic or class, the assistant escalated, or the policy refused its decision), it logs one `foreman-handoff` event `{gate, class, reason, actor: {login: null, source: "foreman"}}`, the gate taken from the job and the reason cleaned and cut to 200 characters.
 
 `forge status --json` rows and `forge job show` carry `foremanHandoff`: that `{gate, class, reason, at}` while the job still waits on the gate it was handed off at, with no newer transition and no `human` event (anyone's decision) since, and `null` otherwise. It is derived from events on read; job.json has no such field. `forge status` marks such a job `waiting:<gate> (left for a human)` in its agent-mode table, and adds a `handoff` column (`<class>: <reason>`) in human mode.
@@ -1097,7 +1099,7 @@ See [Audit trail](architecture/audit-trail.md).
 | 3 | another session holds a live lease (owned), or the lease moved past --epoch (stale_epoch) |
 | 4 | dependencies pending, or the repo budget holds new work |
 
-**`forge job decision <id> [--clean]`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); once per approver run: a later call returns that record with recorded: false and logs nothing
+**`forge job decision <id> [--clean]`**: read decision.md and record the approver's decision, its Auto-merge eligible line and the worktree HEAD it covers (head, and heads per PR member repo); gated: true and autoMerge: false when a gate event of the round lists a reason; once per approver run: a later call returns that record with recorded: false and logs nothing
 
 | Flag | Meaning |
 |---|---|
@@ -1152,6 +1154,12 @@ See [Effort](CONFIG.md#effort).
 | 4 | the repo budget holds new work |
 | 5 | gh failed (GitHub tracker) |
 
+**`forge job gate <id>`**: compute the gate reasons: the facts that need a person before merge (unapproved protected paths, a review Summary that said ESCALATE when forge job verdicts recorded it, runbook.md, unmapped or failing ACs, a changed manifest version or dependency table), each with a CLI-composed detail; logs a gate event {round, head, reasons} on every call and prints {id, round, reasons}
+
+| Exit | When |
+|---|---|
+| 1 | no such job |
+
 **`forge job get <id> [path]`**: one value of job.json by dotted path (null when absent)
 
 | Exit | When |
@@ -1164,7 +1172,7 @@ See [Effort](CONFIG.md#effort).
 |---|---|
 | `--actor human\|foreman` | who decided (default human). foreman is refused in every scope, approve-release included: only forge dash's gate runner records foreman decisions, in-process |
 | `--link <ref>\|new\|none` | with approve or approve-spec: link an issue, create one, or record that none is needed |
-| `--note N` | the human's note |
+| `--note N` | the human's note; with approve-spec a person's note is also written to approval-notes.md, which the builder brief lists |
 | `--reason R` | why, with --link none |
 | `--repo A[,B]` | with approve-repos or reject-repos (required): the pending repos you decide |
 
@@ -1247,16 +1255,18 @@ See [Local links](CONFIG.md#local-links).
 |---|---|
 | 1 | an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's |
 
-**`forge job note <id> [text] [--body B | --body-file F]`**: log a note event
+**`forge job note <id> [text] [--body B | --body-file F] [--for builder]`**: log a note event. With --for builder it is a person's hint for the job's builder instead: logs a builder-note event, rewrites approval-notes.md (which the builder brief lists) and returns approvalNotes { path, written, error? }
 
 | Flag | Meaning |
 |---|---|
 | `--body B` | the text |
 | `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
+| `--for builder` | a hint for the job's builder; refused in the office session and in another job's session |
 
 | Exit | When |
 |---|---|
-| 1 | no such job |
+| 1 | no such job, or --for builder in the office session or in a job session for another job |
+| 2 | usage: --for other than builder, or --for builder with no text |
 
 **`forge job panel <id>`**: this round's review lenses: always, the spec's suggestions and the panel's paths matched against the branch diff, with a reason per lens; each reviewed job repo adds the lenses its clone's panel defines, as &lt;repo>:&lt;lens>; on a narrowed rework round, rerun and skipped name the rework panel
 
@@ -1391,18 +1401,18 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job, a job that is not shelved, not confirmed, or human_only: run in a daemon session or with no person at a terminal (an agent, a script or a configured command) |
 
-**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read a round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD
+**`forge job verdicts <id> [--round N|integration] [--reviewers a,b] [--malformed changes] [--compact]`**: read the current round's review files and record their verdicts once all are in, with each reviewed job repo's HEAD and, for each lens whose reviewer ran in the round, whether its Summary says ESCALATE (escalate), which forge job gate reads instead of the files; recording a round again never takes an escalate back
 
 | Flag | Meaning |
 |---|---|
 | `--compact` | one verdict per lens, and the missing files |
 | `--malformed changes` | count a malformed review as CHANGES |
 | `--reviewers a,b` | the lenses to read (default: the job's reviewers) |
-| `--round N` | the round (default: the current one), or integration |
+| `--round N` | the current round (the default; an earlier or later number is refused), or integration |
 
 | Exit | When |
 |---|---|
-| 1 | no such job, or no reviewers selected |
+| 1 | no such job, no reviewers selected, or a numbered --round that is not the current one |
 
 ### `forge mandate`
 
@@ -1765,7 +1775,7 @@ A job's pull request.
 | 1 | no such job |
 | 5 | gh or git failed |
 
-**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (an escalation, a before-merge runbook, protected paths, a recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
+**`forge pr gate <id>`**: say on the open root PR why its merge waits on a person: the gate section of the body (between its markers) and the pr.needsHumanLabel label while a merge gate (the escalation park, which lists the approver's escalation and every gate reason, or a missing recall eval) is open; once none is, the label goes and the section shows the escalation approval. GitHub failures are recorded in the pr-gate event (error), never an exit
 
 | Exit | When |
 |---|---|

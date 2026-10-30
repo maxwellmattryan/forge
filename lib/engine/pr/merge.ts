@@ -21,7 +21,7 @@ import { bumpsOnRelease, releaseGates, repoLabel, resolveInterim } from '../rele
 import type { ReleaseGate } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
 import { FULL_SHA, autoMergeGate, decisionSuperseded } from './eligible.ts';
-import type { GateReason, GateResult } from './eligible.ts';
+import type { EligibilityReason, GateResult } from './eligible.ts';
 import { memberSlug, recordMemberPr } from './members.ts';
 import type { MemberSync } from './members.ts';
 import { requiredError, requiredFor } from './required.ts';
@@ -62,7 +62,7 @@ export interface MergePart {
   required?: RequiredSummary;
 }
 
-export type MergeReason = 'order' | 'cycle' | 'release' | GateReason;
+export type MergeReason = 'order' | 'cycle' | 'release' | EligibilityReason;
 
 // Merge states in which GitHub itself holds a PR back (required checks or reviews, or an
 // up-to-date requirement). In any other state `gh pr merge --auto` merges immediately.

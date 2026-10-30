@@ -74,7 +74,21 @@ export const EVENT_STEPS: readonly Step[] = [
   // v21 adds `resume` (the session a role run continued) and `resumeSkipped` (why a rework spawn did not resume) on
   // `agent-start`, and `resumeFailed` on a role run's `agent-end`; an older Forge ignores the fields.
   { id: 'agent-resume', up: (e) => e },
-  // v22 adds `clean: true` to a `decision` Forge recorded on a clean pass (`forge job decision --clean`, no approver ran);
+  // v22 adds the `gate` event ({round, head, reasons: [{rule, detail, paths?}]}): `forge job gate` recorded the job's gate
+  // reasons, which DC12, PR19, the approver's brief and the escalation park read; and `gated: true` on a `decision` the
+  // gate reasons kept from auto-merge; `escalate` ({lens: boolean}, whether that review's Summary said ESCALATE, for each
+  // lens whose reviewer ran in the round) on a `verdicts` event, and `reasons` on a `pr-gate` one. An older Forge reads
+  // the event as generic and ignores the fields; a `verdicts` event without `escalate` makes the gate read that round's
+  // review files instead.
+  { id: 'gate-event', up: (e) => e },
+  // v23 adds the `builder-note` event ({ note, actor }): `forge job note --for builder` logs a person's hint for the
+  // job's builder, which approval-notes.md renders. An older Forge reads it as a generic event.
+  { id: 'builder-note-event', up: (e) => e },
+  // v24 adds `approvalNote: true` to a `human` approve-spec: `forge job human` marks the event when its note was allowed
+  // into approval-notes.md (the job waited on spec-approval and the session may add a builder hint for it). Only a marked
+  // note is rendered; an event without the mark, which an older Forge also writes, never reaches the builder.
+  { id: 'approval-note-mark', up: (e) => e },
+  // v25 adds `clean: true` to a `decision` Forge recorded on a clean pass (`forge job decision --clean`, no approver ran);
   // an older Forge ignores the field and reads an APPROVE that is never auto-merge eligible.
   { id: 'clean-decision', up: (e) => e },
 ];

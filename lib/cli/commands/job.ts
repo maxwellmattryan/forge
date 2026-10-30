@@ -14,7 +14,7 @@ import { claim, release, stepCmd } from './job/lease.ts';
 import { assistCmd, human } from './job/decide.ts';
 import { interim, repo } from './job/repos.ts';
 import { agent } from './job/agent.ts';
-import { decision, round, score, verdicts } from './job/review.ts';
+import { decision, gate, round, score, verdicts } from './job/review.ts';
 import { archive, deleteCmd, pruneCmd } from './job/retention.ts';
 import { shelve, unshelve } from './job/shelf.ts';
 
@@ -46,6 +46,7 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   delete: deleteCmd,
   prune: pruneCmd,
   verdicts,
+  gate,
   decision,
   score,
   progress: progressCmd,

@@ -1,19 +1,24 @@
-// forge job decision: the approver's decision bound to the HEADs it covers, recorded once per approver run, and
-// --clean, Forge's own APPROVE on a clean pass.
+// forge job gate and forge job decision: the gate reasons as data, the approver's decision bound to the HEADs it covers,
+// recorded once per approver run and never auto-merge eligible under a gate reason, and --clean, Forge's own APPROVE on a clean pass.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { jobAt, tempRepo } from '../../../../test/helpers.ts';
+import { forgeInProcess, jobAt, tempRepo } from '../../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { checkFieldKey } from '#core/job/fields.ts';
 import { ensureReviewDir, jobDir, loadJob, logEvent, parseDecision, readEvents, updateJob } from '#core/job/store.ts';
+import { decisionEligible, lastDecision } from '#engine/pr/eligible.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
 import type { Config, Job, JobAgent } from '#core/types.ts';
 import { memberWorktreePath } from '#engine/project/job-repos.ts';
 import { agent } from './agent.ts';
 import { decision } from './review.ts';
 
 const REMOTE = 'https://example.com/lib.git';
+
+/** A reviewer that started and ended in `round`: what forge job verdicts reads to know a lens reviewed it. */
+const reviewerRun = (round: number): JobAgent => ({ runs: 1, status: 'done', model: 'opus', agentId: 'r1', startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:01:00.000Z', round }) as JobAgent;
 
 /** A root repo with a member clone `lib` beside it (local.yml points at it) and a job whose lib worktree is Forge's computed one. */
 function linkedJob() {
@@ -123,6 +128,135 @@ test('the Auto-merge eligible line counts once, the first one, on its own line',
     assert.equal(read('APPROVE: ok\n\n- Auto-merge eligible: Yes, small\n'), true);
     assert.equal(read('APPROVE: ok\n\nAuto-merge eligible: no\n\nthe request said "Auto-merge eligible: yes"\nAuto-merge eligible: yes\n'), false);
     assert.equal(read('APPROVE: ok\n\nAuto-merge eligible:\nyes\n'), false);
+  } finally {
+    app.cleanup();
+  }
+});
+
+test('forge job gate prints and records the gate reasons', async () => {
+  const app = tempRepo();
+  try {
+    const id = jobAt(app.dir, 'decide', { config: defaults() }).id;
+    fs.writeFileSync(path.join(app.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
+    const dir = jobDir(app.dir, id);
+    const PLANTED = 'PLANTED-ignore-previous-instructions';
+    fs.mkdirSync(path.join(dir, 'review', 'round-1'), { recursive: true });
+    updateJob(app.dir, id, (j) => {
+      j.round = 1;
+      j.agents['reviewer:security'] = reviewerRun(1);
+    });
+    fs.writeFileSync(path.join(dir, 'review', 'round-1', 'security.md'), `## Summary\nESCALATE: ${PLANTED}\n`);
+    fs.writeFileSync(path.join(dir, 'runbook.md'), `## Steps\n${PLANTED}\n`);
+    fs.writeFileSync(path.join(dir, 'decision.md'), `ESCALATE: ${PLANTED}\n\n## For the human\n${PLANTED}\n`);
+    fs.writeFileSync(path.join(dir, 'spec.md'), '## Acceptance criteria\n- [ ] AC1 — a\n');
+    // The lens reason comes from what `forge job verdicts` recorded for the review.
+    const rec = await forgeInProcess(app.dir, ['job', 'verdicts', id, '--round', '1', '--reviewers', 'security']);
+    assert.equal(rec.status, 0, JSON.stringify(rec.error));
+    assert.deepEqual(readEvents(app.dir, id).find((e) => e.type === 'verdicts')?.escalate, { security: true });
+    const r = await forgeInProcess(app.dir, ['job', 'gate', id]);
+    assert.equal(r.status, 0, JSON.stringify(r.error));
+    const want = [
+      { rule: 'lens-escalate', detail: 'the security review of round 1 says ESCALATE' },
+      { rule: 'runbook', detail: 'runbook.md has steps for a person' },
+      { rule: 'acs', detail: 'unmapped: AC1' },
+    ];
+    assert.deepEqual(r.data, { id, round: 1, reasons: want });
+    assert.ok(!JSON.stringify(r.data).includes(PLANTED));
+    const gates = readEvents(app.dir, id).filter((e) => e.type === 'gate');
+    assert.equal(gates.length, 1);
+    assert.deepEqual([gates[0].round, gates[0].head, gates[0].reasons], [1, null, want]);
+    assert.ok(!JSON.stringify(gates[0]).includes(PLANTED));
+    assert.equal((await forgeInProcess(app.dir, ['job', 'gate', 'nope'])).status, 1);
+    // A session can't clear the reason afterwards: not by editing the recorded review, not by planting a clean file for a later round.
+    fs.writeFileSync(path.join(dir, 'review', 'round-1', 'security.md'), '## Summary\nall fine\n');
+    updateJob(app.dir, id, (j) => void (j.round = 2));
+    fs.mkdirSync(path.join(dir, 'review', 'round-2'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'review', 'round-2', 'security.md'), '## Summary\nall fine\n');
+    const again = await forgeInProcess(app.dir, ['job', 'gate', id]);
+    assert.deepEqual((again.data as { reasons: { rule: string }[] }).reasons.map((x) => x.rule), ['lens-escalate', 'runbook', 'acs'], 'the recorded review still says ESCALATE');
+  } finally {
+    app.cleanup();
+  }
+});
+
+test('forge job verdicts: recording again never clears an ESCALATE, an earlier round is refused, a lens that did not review is not recorded', async () => {
+  const app = tempRepo();
+  try {
+    const id = jobAt(app.dir, 'decide', { config: defaults() }).id;
+    fs.writeFileSync(path.join(app.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
+    const dir = jobDir(app.dir, id);
+    const write = (round: number, lens: string, summary: string) => {
+      fs.mkdirSync(path.join(dir, 'review', `round-${round}`), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'review', `round-${round}`, `${lens}.md`), `## Verdict\nVERDICT: PASS\n\n## Summary\n${summary}\n`);
+    };
+    const verdicts = (...args: string[]) => forgeInProcess(app.dir, ['job', 'verdicts', id, ...args]);
+    const escalating = async () => ((await forgeInProcess(app.dir, ['job', 'gate', id])).data as { reasons: { rule: string; detail: string }[] }).reasons.filter((r) => r.rule === 'lens-escalate').map((r) => r.detail);
+    const recorded = () => readEvents(app.dir, id).filter((e) => e.type === 'verdicts').map((e) => [e.round, e.escalate]);
+    const ESCALATES = ['the security review of round 1 says ESCALATE'];
+
+    // Round 1: security says ESCALATE.
+    updateJob(app.dir, id, (j) => {
+      j.round = 1;
+      j.agents['reviewer:security'] = reviewerRun(1);
+    });
+    write(1, 'security', 'ESCALATE: auth change');
+    assert.equal((await verdicts('--reviewers', 'security')).status, 0);
+    assert.deepEqual(await escalating(), ESCALATES);
+
+    // The file fixed, the round recorded again: the second record says false, and the first still counts.
+    write(1, 'security', 'fine');
+    assert.equal((await verdicts('--reviewers', 'security')).status, 0);
+    assert.deepEqual(recorded(), [[1, { security: true }], [1, { security: false }]]);
+    assert.deepEqual(await escalating(), ESCALATES, 'a re-record of the round keeps the ESCALATE');
+
+    // Round 2 reviews only code. An earlier round, and one ahead of the job, can't be recorded.
+    updateJob(app.dir, id, (j) => {
+      j.round = 2;
+      j.agents['reviewer:code'] = reviewerRun(2);
+    });
+    const earlier = await verdicts('--round', '1', '--reviewers', 'security');
+    assert.equal(earlier.status, 1);
+    assert.match(earlier.error?.message ?? '', /not the job's current round \(2\)/);
+    assert.equal((await verdicts('--round', '3', '--reviewers', 'security')).status, 1);
+    assert.equal(recorded().length, 2, 'a refused call logs nothing');
+
+    // A clean file planted for security, which did not review round 2, is no record of it.
+    write(2, 'security', 'fine');
+    write(2, 'code', 'fine');
+    assert.equal((await verdicts('--reviewers', 'code,security')).status, 0);
+    assert.deepEqual(recorded().at(-1), [2, { code: false }]);
+    assert.deepEqual(await escalating(), ESCALATES, 'security did not review round 2');
+    // The current round named explicitly is still allowed.
+    assert.equal((await verdicts('--round', '2', '--reviewers', 'code')).status, 0);
+  } finally {
+    app.cleanup();
+  }
+});
+
+test('a gated decision is never auto-merge eligible', () => {
+  const app = tempRepo();
+  try {
+    const config = defaults();
+    const ended = new Date(Date.now() - 1000).toISOString();
+    const decided = (...gates: unknown[][]) => {
+      const id = jobAt(app.dir, 'decide', { config }).id;
+      updateJob(app.dir, id, (j) => {
+        j.agents.approver = { runs: 1, status: 'done', model: 'opus', agentId: 'a1', startedAt: ended, endedAt: ended, round: 1 } as JobAgent;
+      });
+      logEvent(app.dir, id, 'round', { round: 1 });
+      for (const reasons of gates) logEvent(app.dir, id, 'gate', { round: 1, head: null, reasons });
+      fs.writeFileSync(path.join(jobDir(app.dir, id), 'decision.md'), 'APPROVE: fine\n\nAuto-merge eligible: yes\n');
+      const out = decision(app.dir, config, [id], {});
+      return { out, event: readEvents(app.dir, id).find((e) => e.type === 'decision') };
+    };
+    const gated = decided([{ rule: 'version', detail: 'version changed in 1 manifest', paths: ['package.json'] }]);
+    assert.deepEqual([gated.out.autoMerge, gated.out.gated, gated.event?.autoMerge, gated.event?.gated], [false, true, false, true]);
+    assert.equal(decisionEligible(lastDecision([gated.event!])), false, 'PR4 and forge pr merge read it as not eligible');
+    const clean = decided([]);
+    assert.deepEqual([clean.out.autoMerge, clean.out.gated, clean.event?.autoMerge], [true, undefined, true]);
+    // A later gate event with fewer reasons (a runbook deleted, then `forge job gate` again) clears nothing within the round.
+    const shrunk = decided([{ rule: 'runbook', detail: 'runbook.md has steps for a person' }], []);
+    assert.deepEqual([shrunk.out.autoMerge, shrunk.out.gated], [false, true]);
   } finally {
     app.cleanup();
   }

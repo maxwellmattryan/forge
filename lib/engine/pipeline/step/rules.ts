@@ -34,14 +34,17 @@ export const RULES = [
   'VF1', 'VF2', 'VF2b', 'VF3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV5b', 'RV6', 'RV7', 'RV8', 'RV8b', 'RV8c', 'RV8d', 'RV9', 'RV10', 'RV11',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC9', 'DC9b', 'DC10', 'DC11',
+  // The gate reasons, once per review, before the approver (PR19 computes them in pr for a job decided without them).
+  'DC12',
   // The recall eval before the approver when the diff changes reviewer prompts.
   'RC1',
   // A clean pass (approver.skipWhenClean): Forge records the APPROVE without the approver.
   'DC13',
   'IG1', 'IG2', 'IG2b', 'IG3', 'IG4', 'IG5', 'IG6', 'IG7', 'IG7b', 'IG8', 'IG9', 'IG10', 'IG10b', 'IG10c', 'IG11', 'IG12', 'IG13',
   'PR1', 'PR2', 'PR2b', 'PR3', 'PR4', 'PR5', 'PR6', 'PR7', 'PR8', 'PR9', 'PR9b', 'PR9c', 'PR10', 'PR11', 'PR12',
-  // The held push (PR13), the merge gates on the open PR (PR15–PR17, PP1b) and what the PR says of them (PR14, PR18).
-  'PR13', 'PR14', 'PR15', 'PR16', 'PP1b', 'PR17', 'PR18',
+  // The held push (PR13), the merge gates on the open PR (PR15: the one escalation park, PR17: the recall eval), what
+  // the PR says of them (PR14, PR18), and the gate reasons of a job decided without them (PR19).
+  'PR13', 'PR14', 'PR15', 'PR17', 'PR18', 'PR19',
   // No rule matched: a state step can't advance, parked visibly instead of looping.
   'X1',
 ] as const;

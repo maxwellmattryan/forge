@@ -41,9 +41,7 @@ const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate',
-  // The gate check's (`forge job gate`) escalation reasons: the clean pass reads them raw (moves/clean-pass.ts).
-  'gate',
+  'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate', 'gate', 'builder-note',
 ]);
 
 /**
@@ -142,7 +140,6 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     panelOutcome: typeof logged === 'string' ? logged : null,
     // The full log: `verdicts` stays out of step's own events, as for reviewCurrent.
     reviewedShas: loadReviewedShas(job, all),
-    runbookBeforeMerge: /^\s*(?:[-*]\s*)?When:\s*before merge\b/im.test(read('runbook.md') ?? ''),
     verdicts: {
       round: job.round >= 1 && lenses.length ? compact(roundVerdicts(root, job.id, job.round, lenses, config.review.blockOn)) : null,
       integration: job.stage === 'integrate' ? compact(roundVerdicts(root, job.id, 'integration', ['code'], config.review.blockOn)) : null,

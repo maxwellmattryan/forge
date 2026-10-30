@@ -1,18 +1,18 @@
 // PR: verify, open or update the PR (unless the push is held), follow interim deferrals and releases,
-// then hold the merge on an open merge gate (an escalation, a before-merge runbook, protected paths, a
+// then hold the merge on an open merge gate (the one escalation park listing every open rule, then a
 // missing recall eval) until a person decides, merge, or wait on review.
 import { autoMerge } from '#core/config/load.ts';
 import { deferralStatus, readDeferrals, releaseGates, releaseIndex, resolveInterim } from '../../../release/interim.ts';
 import { memberRepos } from '../../../project/job-repos.ts';
 import { decisionEligible, lastDecision } from '../../../pr/eligible.ts';
-import { protectedReason } from '../../../guard/protected.ts';
+import { escalationReason, gateSince } from '../../moves/escalation.ts';
 import { lastRun, runsSince } from '../../../verify/record.ts';
-import type { JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
+import type { GateReason, JobEvent, VerifyRun, WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
 import { SAFE_REF } from '#core/text.ts';
 import { SAFE_ELEMENT, park, run, safe, set, toStage } from '../actions.ts';
-import { REVIEWED_HEAD_NOTE, after, afterIdx, agent, human, lastEvent, lastIdx, orNull } from '../facts.ts';
-import { PP1b } from '../gates.ts';
+import { REVIEWED_HEAD_NOTE, after, afterIdx, human, lastEvent, lastIdx, orNull } from '../facts.ts';
+import { openEscalation } from '../gates.ts';
 import { recallReason, recallRecorded, recallWaived } from '../recall.ts';
 import { inStage } from '../rules.ts';
 import type { Ctx, Rule, Table } from '../rules.ts';
@@ -72,36 +72,22 @@ interface PrCtx extends Ctx {
 
 /** A gate that holds the merge of an open PR until a person decides: what mergeGate returns. */
 export interface MergeGate {
-  rule: 'PR15' | 'PR16' | 'PP1b' | 'PR17';
+  rule: 'PR15' | 'PR17';
   waitingOn: WaitingOn;
   reason: string;
-}
-
-const ESCALATED = 'approver escalated: see decision.md';
-const RUNBOOK = 'runbook: steps before merge';
-
-/**
- * A person's approve at a park with this `waitingOn` and exactly this reason, in decide (before this
- * gate moved) or pr, given after the approver last ended. So an approve at another escalation (a
- * release bump's, say) never clears the approver's ESCALATE, and a new approver run needs a new one.
- */
-function cleared({ x, f }: Ctx, waitingOn: WaitingOn, reason: string): boolean {
-  const ended = agent(x, 'approver')?.endedAt;
-  return f.approvals.some(
-    (a) => a.park.state === 'waiting' && a.park.waitingOn === waitingOn && (a.park.stage === 'decide' || a.park.stage === 'pr') && x.events[a.parkAt]?.reason === reason && after(a.e.ts, ended),
-  );
+  /** PR15's open rules with their details, in table order. */
+  reasons?: GateReason[];
 }
 
 /**
- * The first open merge gate, in the order the pr table checks them: the approver's ESCALATE (PR15),
- * a runbook with steps before merge (PR16), escalate paths no human approved (PP1b), a missing recall
- * eval for the diff's reviewer prompts (PR17). Null when none is open. `forge pr gate` reads it too.
+ * The first open merge gate, in the order the pr table checks them: the one escalation park, every
+ * open rule on it (PR15: the approver's ESCALATE and the gate reasons, openEscalation), then a missing
+ * recall eval for the diff's reviewer prompts (PR17). Null when none is open. `forge pr gate` reads it too.
  */
 export function mergeGate(c: Ctx): MergeGate | null {
   const { x } = c;
-  if (x.decision.decision === 'ESCALATE' && !cleared(c, 'escalation', ESCALATED)) return { rule: 'PR15', waitingOn: 'escalation', reason: ESCALATED };
-  if (x.runbookBeforeMerge && !cleared(c, 'infra', RUNBOOK)) return { rule: 'PR16', waitingOn: 'infra', reason: RUNBOOK };
-  if (PP1b.when(c)) return { rule: 'PP1b', waitingOn: 'human', reason: protectedReason(x.job.protectedPaths!) };
+  const open = openEscalation(c);
+  if (open.length) return { rule: 'PR15', waitingOn: 'escalation', reason: escalationReason(open.map((r) => r.rule)), reasons: open };
   if (x.recall?.required && !recallRecorded(x) && !recallWaived(x)) return { rule: 'PR17', waitingOn: 'human', reason: recallReason(x.recall.pluginHash) };
   return null;
 }
@@ -161,15 +147,17 @@ const deferredWait = (c: PrCtx) => c.deferral!.sequential ?? readDeferrals(c.ope
  * behaviour, so a single-repo `pr.draft: true` job still auto-merges (gh un-drafts it).
  * Eligibility is the recorded decision event bound to the heads it covers (decisionCurrent), never
  * decision.md: an ESCALATE with `yes`, a `yes` written after the record, or a commit after the
- * decision all wait on a human.
+ * decision all wait on a human. So does any gate reason since the review, even under a decision
+ * recorded eligible before `forge job decision` knew of them: a person cleared it, and merges it.
  */
-function mergeable({ x, res, gates, openedAt }: PrCtx): boolean {
+function mergeable({ x, f, res, gates, openedAt }: PrCtx): boolean {
   const j = x.job;
   const local = res.edges.some((e, i) => e.strategy === 'local' && gates[i].gate !== 'released');
   const held = gates.some((g) => g.gate === 'held' || g.gate === 'bump-due');
   const draft = res.edges.length > 0 && (j.pr?.isDraft === true || memberRepos(j).some((m) => m.pr?.isDraft === true));
   const eligible = decisionEligible(lastDecision(x.events)) && x.decisionCurrent === true;
-  return !local && !held && !draft && eligible && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
+  const gated = Boolean(gateSince(x.events, f.reviewedAt)?.reasons.length);
+  return !local && !held && !draft && eligible && !gated && autoMerge(x.config) && !j.protectedPaths?.hits?.length && !x.events.some((e, i) => i > openedAt && MERGE_EVENTS.includes(e.type));
 }
 
 /** PR5's reason. Plain words only: it goes through shellLine, which allows no quote, pipe or angle bracket. */
@@ -192,6 +180,12 @@ export const PR: Table<PrCtx> = {
       id: 'PR1',
       when: ({ x }) => !x.config.pr.enabled,
       then: ({ x }) => toStage(x, 'PR1', 'done', 'PRs are off: the branch is the result', { tell: `${x.job.id} finished on branch ${safe(x.job.branch, SAFE_REF, 'its branch')}` }),
+    },
+    // A job decided before gate reasons existed, or a DC10 rework round that skipped decide: compute them for this review.
+    {
+      id: 'PR19',
+      when: ({ x, f }) => gateSince(x.events, f.reviewedAt) === null,
+      then: ({ x }) => run(x, 'PR19', ['job', 'gate', x.job.id], 'compute the gate reasons of this review before the merge gates'),
     },
     // PR9–PR9c: verify bumps the consumers, unless a verify newer than the release failed (park, until
     // a human approves after it, then PR2 verifies again) or passed without bumping (park).
@@ -246,23 +240,23 @@ export const PR: Table<PrCtx> = {
       when: (c) => c.ready !== undefined,
       then: ({ x, ready }) => run(x, 'PR10', ['pr', 'ready', x.job.id, ...(ready === null ? ['--root'] : ['--repo', ready!])], 'release recorded and consumers bumped: mark the consumer ready for review'),
     },
-    // PR14: an open merge gate the PR doesn't say yet (no sync of this gate since the last push): the
-    // gate section and label first, so the person reads why on the PR.
+    // PR14: an open merge gate the PR doesn't say yet (no sync of this gate since the last push, or one
+    // that listed other reasons: a sync recorded before `reasons` existed counts as current): the gate
+    // section and label first, so the person reads why on the PR.
     {
       id: 'PR14',
       when: (c) => {
         if (!c.gate || c.x.job.pr?.state !== 'OPEN') return false;
         const at = lastIdx(c.x, (e) => e.type === 'pr-gate');
         const e = c.x.events[at];
-        return !(e && e.action === 'set' && e.rule === c.gate.rule && e.reason === c.gate.reason && afterIdx(at, orNull(c.openedAt)));
+        const sameReasons = e?.reasons === undefined || JSON.stringify(e.reasons) === JSON.stringify(c.gate.reasons);
+        return !(e && e.action === 'set' && e.rule === c.gate.rule && e.reason === c.gate.reason && sameReasons && afterIdx(at, orNull(c.openedAt)));
       },
       then: ({ x }) => run(x, 'PR14', ['pr', 'gate', x.job.id], 'say on the PR why it waits on a decision before merge'),
     },
-    // PR15–PR17, PP1b: the merge gates, after the push, in mergeGate's order. The first open one parks
+    // PR15 and PR17: the merge gates, after the push, in mergeGate's order. The first open one parks
     // the job, so an open merge gate always comes before PR4.
     gateRow('PR15'),
-    gateRow('PR16'),
-    PP1b,
     gateRow('PR17'),
     // PR18: no merge gate is open, and the PR still says one is: clear the label and the section.
     {

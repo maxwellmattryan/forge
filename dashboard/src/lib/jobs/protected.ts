@@ -24,10 +24,12 @@ export function protectedSummary(job: Pick<Job, 'protectedPaths'>): ProtectedSum
 }
 
 /**
- * Whether the Needs-you card shows the job's park reason. A protected park's reason (step rule PP1)
- * names a few of the paths the card's list shows in full, so with that list it is left out.
+ * Whether the Needs-you card shows the job's park reason. An escalation park's reason only names the
+ * rules its `Why it waits` list shows with their details, and a legacy protected park's reason names
+ * a few of the paths the card's list shows in full, so with either list it is left out.
  */
-export function showParkReason(job: Pick<Job, 'reason' | 'protectedPaths'>): boolean {
+export function showParkReason(job: Pick<Job, 'reason' | 'protectedPaths'> & { gateReasons?: unknown }): boolean {
   if (!job.reason) return false;
+  if (Array.isArray(job.gateReasons) && job.gateReasons.length) return false;
   return !(protectedSummary(job) && job.reason.startsWith('protected paths'));
 }

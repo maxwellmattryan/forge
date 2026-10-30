@@ -2,6 +2,7 @@
 // human fixes, and this judges each merged job against it once its outcome is final. Stats and
 // the retro read it from here, so the rule can't drift between them.
 import { isForemanActor } from '#core/job/store.ts';
+import { parseEscalationReason } from '../pipeline/moves/escalation.ts';
 import type { Job, JobEvent } from '#core/types.ts';
 
 /** Why a merged job was not autonomous, in the order judgeAutonomy checks them. */
@@ -38,8 +39,16 @@ function parkBefore(events: JobEvent[], i: number): { waitingOn: unknown; reason
   return null;
 }
 
-const isRequiredPark = (p: { waitingOn: unknown; reason: string } | null): boolean =>
-  Boolean(p) && (REQUIRED_PARKS.has(String(p!.waitingOn)) || (p!.waitingOn === 'human' && p!.reason.startsWith('protected paths')));
+/** The escalation rules a person clears only because policy says so: what config requires, never a judgement call. */
+const REQUIRED_RULES: readonly string[] = ['protected-paths', 'runbook'];
+
+/** A required gate: a REQUIRED_PARKS park, a protected-paths `human` park, or an escalation park whose every rule is a REQUIRED_RULES one. */
+function isRequiredPark(p: { waitingOn: unknown; reason: string } | null): boolean {
+  if (!p) return false;
+  if (REQUIRED_PARKS.has(String(p.waitingOn)) || (p.waitingOn === 'human' && p.reason.startsWith('protected paths'))) return true;
+  const rules = p.waitingOn === 'escalation' ? parseEscalationReason(p.reason) : [];
+  return rules.length > 0 && rules.every((r) => REQUIRED_RULES.includes(r));
+}
 
 /**
  * Null until the job's root PR is merged and its outcome final. Then autonomous when no person

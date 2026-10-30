@@ -27,6 +27,7 @@ import { draftGates } from '#office/mandates/gate.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { itemView } from '#engine/trackers/view.ts';
 import { roster } from '#engine/pipeline/roster.ts';
+import { waitingGateReasons } from '#engine/pipeline/moves/escalation.ts';
 import { readTriageCache } from '#engine/trackers/triage.ts';
 import { redactContext, redactText } from '#engine/guard/redact.ts';
 import { isMap } from '#core/shape.ts';
@@ -239,7 +240,7 @@ function state(root: string, daemons: DaemonPoolState, projects: string, budget:
     // A session-usage event is accounting, not activity: the card's time and the secret-park chip read the last real one.
     const last = events.findLast((e) => !isSessionUsageEvent(e)) ?? null;
     // Without the per-run lists, so /api/state doesn't grow with every run: the job detail serves them.
-    return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events) };
+    return { ...j, agents: withoutRunHistory(j.agents), progress: progress(root, j.id), lastEvent: last, eventCount: events.length, ownerStatus: leaseStatus(j), activity: jobActivity(root, j, projects), gateOwner: gateOwner(root, config, j, requests), lastHuman: lastHuman(events), endpoints: endpointsFor(root, config, j), foremanHandoff: foremanHandoff(j, events), gateReasons: waitingGateReasons(j, events) };
   });
   // Every string leaf: titles, events and activity lines can all carry what a command printed.
   return redactDeep<ApiState>({

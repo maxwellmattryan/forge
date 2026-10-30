@@ -178,7 +178,7 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v47 adds improve.transcripts (max 12, the agent runs a retro's digests read in depth), filled from defaults, so
   // no v46 config changes; the bump lets older Forges refuse a config whose transcripts key they would reject as unknown.
   { id: 'improve-transcripts', up: (c) => c },
-  // v48 adds daemon.permissionTimeoutMinutes (null), filled from defaults, so no v45 config changes; the bump lets
+  // v48 adds daemon.permissionTimeoutMinutes (null), filled from defaults, so no v47 config changes; the bump lets
   // older Forges refuse a config whose timeout they would reject as an unknown key.
   { id: 'daemon-permission-timeout', up: (c) => c },
   // v49 adds pipeline.resumeRework (true), filled from defaults, so no v48 config changes; the bump lets older Forges

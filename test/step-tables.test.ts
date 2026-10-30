@@ -7,7 +7,7 @@ import path from 'node:path';
 import * as stepModule from '#engine/pipeline/step.ts';
 import { RULES, TABLES, step } from '#engine/pipeline/step.ts';
 import { computeFacts } from '#engine/pipeline/step/facts.ts';
-import { PP1, PP1b } from '#engine/pipeline/step/gates.ts';
+import { PP1 } from '#engine/pipeline/step/gates.ts';
 import { M1, M2, N1, N1b, N2, NP1, NP1b, X1 } from '#engine/pipeline/step/generic.ts';
 import { firstMatch, flatRows } from '#engine/pipeline/step/rules.ts';
 import type { Ctx, Row, Rule } from '#engine/pipeline/step/rules.ts';
@@ -32,9 +32,9 @@ const PINNED: Record<string, string[]> = {
   build: ['B1', 'B6', 'B7', 'B6b', 'B2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'B3', 'B8', 'B4', 'B5'],
   verify: ['V1', 'VF1', 'VF2', 'VF2b', 'VF3', 'V2', 'V2b', 'V3', 'V3b'],
   review: ['RV11', 'RV9', 'RV1', 'RV2', 'RV3', 'RV10', 'RV4', 'M1', 'M2', 'M1', 'M2', 'RV5', 'RV5b', 'RV6', 'RV7', 'RV8', 'RV8b', 'RV8c', 'RV8d'],
-  decide: ['DC11', 'DC10', 'RC1', 'DC13', 'DC1', 'M1', 'M2', 'DC2', 'DC4', 'DC5', 'DC6', 'DC3', 'DC9', 'DC9b'],
+  decide: ['DC11', 'DC12', 'DC10', 'RC1', 'DC13', 'DC1', 'M1', 'M2', 'DC2', 'DC4', 'DC5', 'DC6', 'DC3', 'DC9', 'DC9b'],
   integrate: ['IG1', 'IG2', 'IG2b', 'IG3', 'IG4', 'IG5', 'IG6', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'IG7', 'IG7b', 'IG11', 'IG8', 'M1', 'M2', 'IG12', 'IG13', 'IG9', 'IG10', 'IG10b', 'IG10c'],
-  pr: ['PR12', 'PR1', 'PR9', 'PR9b', 'PR9c', 'PR2', 'PR11', 'PR2b', 'PR13', 'PR3', 'PR6', 'PR7', 'PR8', 'PR10', 'PR14', 'PR15', 'PR16', 'PP1b', 'PR17', 'PR18', 'PR4', 'PR5'],
+  pr: ['PR12', 'PR1', 'PR19', 'PR9', 'PR9b', 'PR9c', 'PR2', 'PR11', 'PR2b', 'PR13', 'PR3', 'PR6', 'PR7', 'PR8', 'PR10', 'PR14', 'PR15', 'PR17', 'PR18', 'PR4', 'PR5'],
   fallback: ['X1'],
 };
 
@@ -114,7 +114,7 @@ test('each transition has one ID', () => {
   for (const id of objects.keys()) assert.ok((RULES as readonly string[]).includes(id), `${id} is not in RULES`);
   assert.equal(new Set(RULES).size, RULES.length, 'RULES has a duplicate');
   // The shared rows are single objects, placed wherever they run.
-  const shared = { NP1, NP1b, N1, N1b, N2, M1, M2, PP1, PP1b, X1 };
+  const shared = { NP1, NP1b, N1, N1b, N2, M1, M2, PP1, X1 };
   for (const [id, r] of Object.entries(shared)) assert.ok(objects.get(id)!.has(r as Rule<any>), id);
   for (const id of ['NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2']) assert.ok(positions.get(id)! > 1, `${id} runs in one place only`);
 });
