@@ -6,7 +6,7 @@
 // CONFIG_DISCLOSURE, at the end, is a separate map rather than a ConfigField property: it must
 // classify every key (commands.* and worktrees.setup are not settings), and /api/config stays as is.
 import { defaults } from './load.ts';
-import { COMPLEXITIES, EFFORT_ROLES, EFFORTS, FOREMAN_ESCALATIONS, FOREMAN_SHIP, KEEP_AWAKE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
+import { COMPLEXITIES, DAEMON_DRIVERS, EFFORT_ROLES, EFFORTS, FOREMAN_ESCALATIONS, FOREMAN_SHIP, KEEP_AWAKE_MODES, MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_UNTIL, MODEL_RE, OFFICE_GATES } from '../job/schema.ts';
 import type { Config, ConfigField, ConfigFieldType, ConfigSection, ConfigValue } from '../types.ts';
 import { getPath } from '../shape.ts';
 import { ForgeError } from '../errors.ts';
@@ -216,6 +216,9 @@ export const FIELDS: ConfigField[] = [
   field('daemon.dailyUsd.chat', 'daemon', 'Chat daily cap (USD)', "Dollars per UTC day every chat with the Foreman may spend together, as the supervisor meters it. At the cap a chat refuses the next message and a running one stops after its reply; send again after midnight UTC, or raise the cap. Empty means no cap.", { type: 'number', min: 0, nullable: true, locked: 'caps unattended spend' }),
   // Editable: it names no command, file or tool and loosens no policy; it only decides whether this project holds the machine awake.
   field('daemon.keepAwake', 'daemon', 'Keep awake', "Hold the machine awake while this project's pool has an active mandate or a running job at an agent stage.", { type: 'enum', options: [...KEEP_AWAKE_MODES] }),
+  // Editable: it names no command and widens nothing; it only picks who turns a job's resume work into
+  // `forge` calls, and both drivers run the same commands under the same scope, trust and deny rules.
+  field('daemon.driver', 'daemon', 'Driver', "Who drives a job's resume work: a Claude orchestrator session, or the dashboard itself in code, running forge job advance and one role run per spawn. Procedures and other requests still go to a session.", { type: 'enum', options: [...DAEMON_DRIVERS] }),
   // Locked: each one widens or narrows what an unattended session decides for a human.
   field('retention.logsDays', 'daemon', 'Delete session logs after (days)', 'forge sync and forge dash delete daemon session logs this many days old whose session is not running. Empty keeps them forever.', { type: 'integer', min: 1, max: 3650, nullable: true, locked: 'deletes session logs' }),
   field('retention.logMaxBytes', 'daemon', 'Rotate session logs at (bytes)', 'Rotate a session log to <scope>.log.1 as soon as it reaches this size, keeping one older generation. Empty rotates only at spawn, past 20 MiB.', { type: 'integer', min: 1048576, max: 1073741824, nullable: true }),
@@ -448,6 +451,7 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   daemon: 'plain',
   'daemon.command': 'command',
   'daemon.allowedTools': 'command',
+  'daemon.driver': 'plain',
   foreman: 'plain',
   'foreman.reserved': 'text',
   retention: 'plain',

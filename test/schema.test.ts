@@ -164,6 +164,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'daemon-permission-timeout', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.permissionTimeoutMinutes'], note: ONLY_VERSION },
   { step: 'resume-rework', input: { pipeline: { maxRounds: 4 } }, fields: { pipeline: { maxRounds: 4 } }, removed: ['pipeline.resumeRework'], note: ONLY_VERSION },
   { step: 'approver-skip-when-clean', input: { approver: { alwaysEscalate: ['x'] } }, fields: { approver: { alwaysEscalate: ['x'] } }, removed: ['approver.skipWhenClean'], note: ONLY_VERSION },
+  { step: 'daemon-driver', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.driver'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -332,6 +333,7 @@ const EVENT_ROWS: Row[] = [
     note: 'an approve-spec from before the mark reads as written and gains none, so approval-notes.md never renders it',
   },
   { step: 'clean-decision', input: { ts: 't', type: 'decision', decision: 'APPROVE', reason: null, autoMerge: false, head: 'a'.repeat(40) }, fields: { type: 'decision', ts: 't', decision: 'APPROVE', reason: null, autoMerge: false, head: 'a'.repeat(40) }, removed: ['clean'], note: "an approver's decision reads as written and gains no clean flag" },
+  { step: 'advance-ran-event', input: { ts: 't', type: 'advance-ran', ran: [{ rule: 'B1', command: 'forge worktree create', ok: true, text: null }] }, fields: { type: 'advance-ran', ts: 't', ran: [{ rule: 'B1', command: 'forge worktree create', ok: true, text: null }] }, note: 'what one advance ran reads as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [

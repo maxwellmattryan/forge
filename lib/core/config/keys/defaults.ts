@@ -290,6 +290,9 @@ export function defaults(): Config {
       // While this project's pool is started and has an active mandate or a running job at an agent
       // stage, the machine dashboard holds one sleep assertion (lib/server/uptime.ts).
       keepAwake: 'auto',
+      // session: a job's resume turns run a claude orchestrator session; code: forge dash runs
+      // `forge job advance` and one role run per spawn itself (lib/office/code/job-driver.ts).
+      driver: 'session',
     },
     // Opt-in: forge dash's gate runner decides parked gates in code, one forge:assistant process per gate;
     // docs/architecture/foreman.md. Whole-phrase, case-insensitive patterns: a match keeps the
