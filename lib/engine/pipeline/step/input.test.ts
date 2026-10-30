@@ -133,6 +133,49 @@ test('loadStepInput binds decide and pr to the reviewed head', (t) => {
   assert.equal(loadStepInput(repo.dir, config, id).reviewCurrent, null, 'at stage build');
 });
 
+test('loadStepInput reads the shas earlier reviews saw only for a round 2+ review', (t) => {
+  const repo = tempRepo();
+  const wt = `${repo.dir}.wt`;
+  t.after(() => {
+    repo.cleanup();
+    fs.rmSync(wt, { recursive: true, force: true });
+  });
+  repo.git('worktree', 'add', '-q', '-b', 'forge/history', wt);
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: wt, stdio: 'pipe' }).toString().trim();
+  fs.writeFileSync(path.join(wt, 'feature.txt'), 'feature\n');
+  git('add', '-A');
+  git('commit', '-qm', 'feature');
+  const reviewed = git('rev-parse', 'HEAD');
+  fs.writeFileSync(path.join(wt, 'fix.txt'), 'fix\n');
+  git('add', '-A');
+  git('commit', '-qm', 'fix');
+  const config: Config = defaults();
+  config.tracker.kind = 'none';
+  const { id } = jobAt(repo.dir, 'review', { config });
+  updateJob(repo.dir, id, (j) => {
+    j.worktree = wt;
+    j.base = 'main';
+    j.round = 2;
+    j.reviewers = ['code'];
+    j.verdicts = { 1: { code: 'CHANGES' } };
+  });
+  logEvent(repo.dir, id, 'verdicts', { round: 1, outcome: 'CHANGES', sha: reviewed });
+  assert.deepEqual(loadStepInput(repo.dir, config, id).reviewedShas, { '1': reviewed }, 'round 2 at review');
+
+  updateJob(repo.dir, id, (j) => void (j.pr = { number: 3, url: 'https://github.com/o/r/pull/3', state: 'OPEN', isDraft: false, lastSyncedAt: new Date().toISOString() }));
+  assert.deepEqual(loadStepInput(repo.dir, config, id).reviewedShas, {}, 'an open PR');
+  updateJob(repo.dir, id, (j) => {
+    j.pr = null;
+    j.stage = 'build';
+  });
+  assert.deepEqual(loadStepInput(repo.dir, config, id).reviewedShas, {}, 'at stage build');
+  updateJob(repo.dir, id, (j) => {
+    j.stage = 'review';
+    j.round = 1;
+  });
+  assert.deepEqual(loadStepInput(repo.dir, config, id).reviewedShas, {}, 'round 1');
+});
+
 test('loadStepInput keeps the permission-timed-out event, so NP1b parks a builder whose prompt nobody answered', (t) => {
   const repo = tempRepo();
   const wt = `${repo.dir}.wt`;

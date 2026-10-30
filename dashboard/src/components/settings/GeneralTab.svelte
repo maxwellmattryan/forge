@@ -1,6 +1,6 @@
 <!-- Settings › General: the dashboard's appearance, language and keyboard, kept per browser. -->
 <script lang="ts">
-  import Select from '../Select.svelte';
+  import Select from '../ui/Select.svelte';
   import { CATALOGS, locale, setLocale, t } from '../../lib/text/locale.ts';
   import { THEME_CHOICES, chooseTheme, currentGrain, currentScreen, setGrain, setScreen, themeChoice, type ThemeChoice } from '../../lib/ui/theme.ts';
   import { pref } from '../../lib/settings/prefs.ts';

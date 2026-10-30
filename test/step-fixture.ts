@@ -1,4 +1,4 @@
-// Builds StepInputs for test/step.test.ts and test/brief.test.ts without touching disk: a job from
+// Builds StepInputs for test/step.test.ts (step and the briefs it renders) without touching disk: a job from
 // normalizeJob({id:'j'}), the default config, and only the facts a row names.
 import path from 'node:path';
 import { acCoverage } from '#engine/pipeline/acs.ts';
@@ -41,6 +41,8 @@ export interface FixtureOpts {
   decisionCurrent?: StepInput['decisionCurrent'];
   /** loadStepInput's reviewCurrent: every job repo's HEAD follows the head the round's review was given; true by default. */
   reviewCurrent?: StepInput['reviewCurrent'];
+  /** loadStepInput's reviewedShas; {} by default. */
+  reviewedShas?: StepInput['reviewedShas'];
   runbookBeforeMerge?: boolean;
   verdicts?: Partial<StepInput['verdicts']>;
   runtime?: string[];
@@ -138,6 +140,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     decision: { decision: null, ...o.decision },
     decisionCurrent: o.decisionCurrent ?? true,
     reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
+    reviewedShas: o.reviewedShas ?? {},
     runbookBeforeMerge: o.runbookBeforeMerge ?? false,
     verdicts: { round: null, integration: null, ...o.verdicts },
     acs: { ...acCoverage(null, null), ...o.acs },

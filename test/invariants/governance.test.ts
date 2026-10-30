@@ -89,6 +89,7 @@ function markdownFiles(): Map<string, string[]> {
   for (const dir of ['docs', 'skills/forge', 'agents', 'reviewers']) roots.set(`${dir}/`, walk(dir, md));
   roots.set('lib/**/AGENTS.md', walk('lib', (name) => name === 'AGENTS.md'));
   roots.set('dashboard/src/lib/**/AGENTS.md', walk('dashboard/src/lib', (name) => name === 'AGENTS.md'));
+  roots.set('dashboard/src/components/**/AGENTS.md', walk('dashboard/src/components', (name) => name === 'AGENTS.md'));
   return roots;
 }
 

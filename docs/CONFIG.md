@@ -503,6 +503,8 @@ Under `review.onRework: narrow`, `forge job panel` on round N ≥ 2 still record
 
 There is no narrowing (every lens re-runs) when `onRework` is `full` or any other value, round N−1 has no verdicts or all of them are `PASS` (a human rework), the round N−1 `verdicts` event has no sha, the sha isn't 40 to 64 hex characters or isn't an ancestor of HEAD (history was rewritten), the job has an open PR (`review.onPrFeedback` decides), a reviewed member repo or is a retro job, or the rework panel would be empty or every lens. When it narrows, `forge job panel` returns `rerun` and `skipped`, the `panel` event records `rerun` and `rerunReasons`, and `forge job step` spawns only `rerun` (rule RV10) and records verdicts for those lenses only.
 
+On rounds 2 and later of a job with no open PR and no reviewed member, under `narrow` or `full`, each lens that re-runs is told its latest earlier review (`Previous review:`) and the commit that review saw (`Changed since:`, the sha on that round's `verdicts` event when it is 40 to 64 lowercase hex and an ancestor of HEAD, else `none`), so it re-reviews the fix first. A lens back after a skipped round gets the review and sha of the latest round it reviewed.
+
 ## Open PRs
 
 `forge sync` (and `forge pr sync <id>`) re-reads every open PR. A job parked on `pr-review` or `conflicts` whose PR has moved under it is handled by these keys:

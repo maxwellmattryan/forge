@@ -1,6 +1,6 @@
 <!-- One config field: label, key, help and default, then its control (or its read-only value) and any error. -->
 <script lang="ts">
-  import Select from '../Select.svelte';
+  import Select from '../ui/Select.svelte';
   import { t } from '../../lib/text/locale.ts';
   import type { SelectOption } from '../../lib/ui/select.ts';
   import { draftOf, formatValue, parseDraft, type Draft, type Parsed } from '../../lib/settings/config-form.ts';

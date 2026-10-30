@@ -1,4 +1,4 @@
-// Where a small menu popover (components/MenuButton.svelte, components/Select.svelte) opens, and where focus waits while
+// Where a small menu popover (components/ui/overlay/MenuButton.svelte, components/ui/Select.svelte) opens, and where focus waits while
 // a button's action runs, as plain functions node:test can pin.
 
 export interface MenuPlaceInput {

@@ -1,4 +1,4 @@
-// The Office page's layout classes, shared by the page (views/Office.svelte, components/OfficePanel.svelte) and its
+// The Office page's layout classes, shared by the page (views/Office.svelte, components/office/OfficePanel.svelte) and its
 // skeleton so the two hold the same shape. Whole literals, so Tailwind's @source scan sees every class. At a 56rem #view
 // container the panel is two columns (the mandates, gate runs and directives on the left, the office session on the
 // right) and the page takes the viewport's height less the view's top padding (pt-4) and its bottom padding (the status
