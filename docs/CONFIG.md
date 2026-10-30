@@ -307,7 +307,7 @@ daemon:                      # opt-in headless sessions supervised by `forge das
     usd: 150                 # estimated USD per job
   dailyUsd:                  # dollars per UTC day the inbox, office and chat sessions may spend, as the supervisor meters it; at the cap the session stops: start it again after midnight UTC, or raise the cap (null: no caps; see "Daemon" below)
     inbox: 25                # the inbox session's daily cap in USD (null: none)
-    office: 60               # the daily cap in USD on the office session and its gate runs, summed: at the cap no gate run starts (null: none)
+    office: 60               # the daily cap in USD on the office runs and the gate runs, summed: at the cap no office or gate run starts (null: none)
     chat: 25                 # the daily cap in USD on every chat session of the project, summed: at the cap a chat refuses the owner's next message, and a running one stops after its reply (null: none)
   keepAwake: auto            # auto: while the pool is started and an active mandate or a running job at an agent stage is in flight, the machine dashboard holds a sleep assertion; never: this project never does (see "Daemon" below)
 
@@ -343,8 +343,8 @@ foreman:                     # opt-in: forge dash decides parked gates in code, 
     - encryption
     - gate:release
   ship: propose              # propose | merge | release: merge counts as merge.auto for PRs the approver marks eligible; release does too, and lets a mandate run until released
-  model: inherit             # the office session's model when it directs work under mandates (inherit: daemon.command's)
-  effort: null               # the office session's effort (null: runtime.effort)
+  model: inherit             # the director call's model when an office run directs work under mandates (inherit: daemon.command's)
+  effort: null               # the director call's effort (null: runtime.effort)
   cadence: 10                # 1-1440: minutes between the Office's passes over its mandates
   assistants:                # the forge:assistant that judges one gate, and the gate runs that start it
     enabled: true            # the gate runner takes the Foreman's gate requests (false: every gate waits for a person)

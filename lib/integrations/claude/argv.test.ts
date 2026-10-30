@@ -74,6 +74,13 @@ test('a system prompt to append goes once, before the deny tail', () => {
   assert.deepEqual([agent[a + 1], agent.filter((w) => w === '--agent').length], ['forge:assistant', 1]);
   assert.ok(a < agent.indexOf('--disallowedTools'), 'before the deny tail');
   assert.deepEqual([...agent.slice(0, a), ...agent.slice(a + 2)], plain, 'nothing else changes');
+  // An office run's children: each listed agent once; anything else appends nothing.
+  for (const name of ['forge:drafter', 'forge:surveyor', 'forge:director'] as const) {
+    const w = buildArgv('claude {session}', { ...vars, agent: name });
+    assert.deepEqual([w[w.indexOf('--agent') + 1], w.filter((x) => x === '--agent').length], [name, 1], name);
+  }
+  for (const other of ['forge:builder', 'forge:director --x', '--agent', 'director'])
+    assert.deepEqual(buildArgv('claude {session}', { ...vars, agent: other as never }), plain, `${other}: not a child agent`);
 });
 
 test("Forge's browser config goes once, before the deny tail", () => {

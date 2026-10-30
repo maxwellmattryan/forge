@@ -126,7 +126,7 @@ export interface SessionContext {
   permissionModeRefused(scope: string, mode: DaemonPermissionMode, live: string | null): void;
   /** The --effort a spawn of `scope` gets under config `c` (resolveEffort); null level passes none. */
   effort(scope: string, c: Config): { level: Effort | null; source: EffortSource };
-  /** The --model a spawn of `scope` gets under config `c` (the office session's foreman.model); null keeps daemon.command's. */
+  /** The --model a spawn of `scope` gets under config `c` (foreman.model for `_office`, the retired office session's scope); null keeps daemon.command's. */
   model(scope: string, c: Config): string | null;
   /** The --mcp-config a spawn of `scope` passes (Forge's browser, lib/office/slots.ts sessionBrowser), read at every spawn; null passes none. */
   browser(scope: string): string | null;

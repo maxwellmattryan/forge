@@ -1,6 +1,6 @@
 // The supervisor's meter for one session: each result's cost, as a delta against a baseline held per spawn,
 // appended to the scope's meter file (lib/engine/metrics/meter.ts), then enforced. A job scope runs the budget
-// checkpoint `session-meter`; the inbox, the office and the chats stop at their daemon.dailyUsd cap (forge dash's gate
+// checkpoint `session-meter`; the inbox and the chats stop at their daemon.dailyUsd cap (forge dash's office and gate
 // runs share the office's through officeCapRefusal and officeCapLeft, and every chat the project's one chat cap,
 // summed), and when a meter it sums can't be read the cap can't be checked, so they stop too. claude reports its cost
 // itself, so a session's own reporting never moves what is enforced (docs/architecture/daemon-security.md). Each result
@@ -68,7 +68,7 @@ function capScopes(root: string, shared: Family): string[] {
 
 /** The stop text when a family's cap can't be checked, so it fails closed. */
 function unchecked(shared: Family, problem: string, fix: string): string {
-  const whose = shared === 'chat' ? "the chat sessions'" : `the ${shared} session's`;
+  const whose = shared === 'chat' ? "the chat sessions'" : shared === 'office' ? "the office's" : `the ${shared} session's`;
   return `meter: ${problem}, so ${whose} daily cap (daemon.dailyUsd.${shared}) can't be checked and it stops; ${fix}, then start it again`;
 }
 
@@ -101,12 +101,12 @@ function familyOverCap(root: string, c: Config, shared: Family, at: number): { m
   if ('problem' in s) return { message: s.problem, announce: null };
   if (s.spent < cap) return null;
   const day = new Date(at).toISOString().slice(0, 10);
-  const who = shared === 'office' ? 'the office session and its gate runs' : shared === 'chat' ? 'the chat sessions' : 'the inbox session';
+  const who = shared === 'office' ? 'the office runs and gate runs' : shared === 'chat' ? 'the chat sessions' : 'the inbox session';
   return { message: `daemon stopped: ${who} spent $${s.spent.toFixed(2)} of the $${cap.toFixed(2)} daily cap (daemon.dailyUsd.${shared}) on ${day} (UTC); start it again after midnight UTC, or raise the cap`, announce: 'daily-cap' };
 }
 
 /**
- * Why the office family (the office session and forge dash's gate runs, which share daemon.dailyUsd.office) may not
+ * Why the office family (forge dash's office runs and gate runs, which share daemon.dailyUsd.office) may not
  * spend at `at`, else null: today's metered spend reached the cap, or a meter it sums can't be read (fails closed).
  */
 export function officeCapRefusal(root: string, c: Config, at: number): { message: string } | null {

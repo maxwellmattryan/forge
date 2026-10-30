@@ -87,7 +87,7 @@ test('metered sessions join the ledger without double counting', (t) => {
   assert.deepEqual(Object.keys(ledger[id].metered), [`${D}|job-session|usd-model`]);
   assert.equal(ledger[id].metered[`${D}|job-session|usd-model`].usd, 4, 'the meter less the covered builder run');
   assert.equal(ledger[id].metered[`${D}|job-session|usd-model`].tokens, 4);
-  assert.deepEqual([ledger._office.kind, ledger._office.title, ledger._office.metered[`${D}|office|usd-model`].usd], ['session', 'Office session', 5]);
+  assert.deepEqual([ledger._office.kind, ledger._office.title, ledger._office.metered[`${D}|office|usd-model`].usd], ['session', 'Office runs', 5]);
   assert.deepEqual([ledger._inbox.kind, ledger._inbox.title, ledger._inbox.metered[`${D}|inbox|usd-model`].usd], ['session', 'Inbox session', 1]);
   assert.deepEqual([ledger['_assistant-1'].kind, ledger['_assistant-1'].title, ledger['_assistant-1'].metered[`${D}|assistant|usd-model`].usd], ['session', 'Assistant foreman 1', 2]);
   assert.deepEqual([ledger._gates.kind, ledger._gates.title, ledger._gates.metered[`${D}|assistant|usd-model`].usd], ['session', 'Foreman gates', 4]);
@@ -158,14 +158,14 @@ test('session usage joins the ledger as role orchestrator, outside every total a
   const ledger = spendLedger(root, config, { write: false });
   assert.deepEqual(ledger[job.id].orchestrator, { [`${D}|orchestrator|usd-model`]: { runs: 1, tokens: 2, input: 2, output: 0, cacheRead: 0, cacheWrite: 0, usd: 2 } });
   assert.equal(ledger._inbox.orchestrator[`${D}|orchestrator|usd-model`].usd, 1);
-  assert.deepEqual([ledger._office.kind, ledger._office.title, ledger._office.metered, ledger._office.orchestrator[`${D}|orchestrator|usd-model`].usd], ['session', 'Office session', {}, 4]);
+  assert.deepEqual([ledger._office.kind, ledger._office.title, ledger._office.metered, ledger._office.orchestrator[`${D}|orchestrator|usd-model`].usd], ['session', 'Office runs', {}, 4]);
   const csv = (by: string) => statsCsv(root, config, { csv: true, by }).split('\r\n');
   assert.ok(csv('role').includes('orchestrator,session-usage,3,7,7,0,0,0,7.0000'), csv('role').join('\n'));
   assert.ok(csv('role').includes('job-session,supervisor,1,4,4,0,0,0,4.0000'));
   assert.ok(csv('model').includes('usd-model,session-usage,3,7,7,0,0,0,7.0000'));
   assert.ok(csv('day').includes(`${D},session-usage,3,7,7,0,0,0,7.0000`));
   assert.ok(csv('job').includes(`${job.id},${job.kind ?? ''},own turns,session-usage,1,2,2,0,0,0,2.0000`), csv('job').join('\n'));
-  assert.ok(csv('job').includes('_office,session,Office session,session-usage,1,4,4,0,0,0,4.0000'));
+  assert.ok(csv('job').includes('_office,session,Office runs,session-usage,1,4,4,0,0,0,4.0000'));
 
   // A spend.json from before session usage (version 2) is rebuilt.
   spendLedger(root, config);

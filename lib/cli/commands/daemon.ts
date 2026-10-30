@@ -31,10 +31,10 @@ const DAEMON: HelpGroup = {
     {
       command: 'daemon log',
       args: '<job>|--inbox|--office|--gates [--lines N] [--follow]',
-      summary: "a session's log, or the gate runs' log, from the terminal",
+      summary: "a session's log, or the office runs' or gate runs' log, from the terminal",
       flags: [
         ['--inbox', "the inbox session's log instead of a job's"],
-        ['--office', "the Foreman's office session's log instead of a job's"],
+        ['--office', "the office runs' log (office-start, office-step, office-child, office-end, office-held and error lines) instead of a job's"],
         ['--gates', "the gate runs' log (gate-start, gate-end, gate-held and error lines) instead of a job's"],
         ['--lines N', 'the last N lines (default 100, at most 5000)'],
         ['--follow', 'keep printing lines as they are written'],
@@ -121,7 +121,7 @@ function status(root: string): DaemonStatusOut {
     : raw && typeof raw.pid === 'number' && Number.isInteger(raw.pid)
       ? { pid: raw.pid, url: null, alive: false, permissionMode: null }
       : null;
-  // _inbox, then _office, before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
+  // _inbox, then _office (a record of the retired office session an older dash left), before every job id ('_' > 'Z' in code points, so they are placed first explicitly).
   const rank = (s: string) => (s === INBOX_SCOPE ? 0 : s === OFFICE_SCOPE ? 1 : 2);
   const records = sessionRecords(root).sort((a, b) => rank(a.scope) - rank(b.scope) || (a.scope < b.scope ? -1 : a.scope > b.scope ? 1 : 0));
   const sessions = records.map((r) => {

@@ -196,7 +196,7 @@ test('prepare and record run only in the office or outside the daemon', async ()
         const res = await forgeInProcess(root, ['mandate', 'draft', action, 'g1', '--request', rid], { env });
         assert.equal(res.status, 1, `${env.FORGE_DAEMON_SCOPE} ${action}`);
         // With no scope, the dispatcher refuses every command first.
-        const want = env.FORGE_DAEMON_SCOPE === undefined ? /^forge refuses: FORGE_DAEMON_SCOPE is missing or invalid/ : new RegExp(`^forge mandate draft ${action} runs in the office session or a person's own terminal, not the ${env.FORGE_DAEMON_SCOPE} session$`);
+        const want = env.FORGE_DAEMON_SCOPE === undefined ? /^forge refuses: FORGE_DAEMON_SCOPE is missing or invalid/ : new RegExp(`^forge mandate draft ${action} runs in an office run or a person's own terminal, not the ${env.FORGE_DAEMON_SCOPE} session$`);
         assert.match(res.error?.message ?? '', want);
         assert.deepEqual(files(root, 'g1'), before, `${env.FORGE_DAEMON_SCOPE} ${action}: nothing written`);
       }
@@ -367,7 +367,7 @@ test('draft show reports each status', async () => {
     const status = async (id: string) => ok(root, ['mandate', 'draft', 'show', id]);
     const rid = await goalMandate(root, 'g1', false);
     const queued = await status('g1');
-    assert.deepEqual([queued.status, queued.note, queued.draft, queued.request.id], ['queued', 'the office session drafts it once daemon.enabled and foreman.enabled are on', null, rid]);
+    assert.deepEqual([queued.status, queued.note, queued.draft, queued.request.id], ['queued', 'forge dash drafts it once daemon.enabled and foreman.enabled are on', null, rid]);
     assert.deepEqual(queued.spend, { runs: 0, withUsage: 0, tokens: 0, usd: 0, metered: 0 });
     claimRequest(root, rid, 'office-1');
     assert.deepEqual([(await status('g1')).status, (await status('g1')).note], ['drafting', null]);

@@ -1,5 +1,5 @@
 // The Foreman's policy side: who owns a gate for the dashboard, the checks on a foreman decision and on
-// the office session's `forge job set`, and hand-offs; the gate policy is
+// `forge job set` in the office (scope `_office`), and hand-offs; the gate policy is
 // lib/engine/pipeline/moves/foreman-gates.ts. With `foreman.enabled`, a job parking on a gate the foreman
 // decides becomes a `gate` request routed to `_gates`, which forge dash's gate runner (./run.ts) takes,
 // hands to one headless forge:assistant and records the verdict of in-process. An `until: released`
@@ -318,7 +318,7 @@ export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {
   'reject-repos': [undefined],
 };
 
-/** Only these `forge job` subcommands run in the office session: they read and note, nothing more (assist and human then refuse there too). */
+/** Only these `forge job` subcommands run in the office (scope `_office`): they read and note, nothing more (assist and human then refuse there too). */
 export const OFFICE_JOB_COMMANDS: readonly string[] = ['assist', 'human', 'set', 'note', 'show', 'get', 'list', 'step'];
 
 /** The longest hand-off reason kept, after safeText. */
@@ -354,9 +354,9 @@ export function foremanHandoffFor(root: string, job: Pick<Job, 'id' | 'state' | 
 }
 
 /**
- * In the office session, `forge job set` only carries out a foreman decision: the job still waits, its latest
+ * In the office (scope `_office`), `forge job set` only carries out a foreman decision: the job still waits, its latest
  * `human` event is the foreman's and came after the job parked, and the change is that action's
- * `--state running` (with its stage) and nothing else. So a misled office session can't move a job
+ * `--state running` (with its stage) and nothing else. So a misled office child can't move a job
  * off a gate the policy refused, or that a human owns. Throws ForgeError (exit 1) before any write.
  */
 function checkOfficeSet(

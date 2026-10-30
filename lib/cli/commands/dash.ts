@@ -52,7 +52,7 @@ export const HELP: HelpGroup[] = [
           ['--stop', "stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything"],
           ['--port N', "the first port to try (default: this repo's dashboard.port, 7400)"],
           ['--foreground', 'run in the foreground even when one is running'],
-          ['--permission-mode MODE', 'the permission mode every job, inbox and office session of every project starts in until it stops: default (ask), auto or dontAsk (refuse); a running dashboard with another mode is reported, never changed; refused in a daemon session'],
+          ['--permission-mode MODE', 'the permission mode every job and inbox session of every project starts in until it stops: default (ask), auto or dontAsk (refuse); a running dashboard with another mode is reported, never changed; refused in a daemon session'],
           ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
           [

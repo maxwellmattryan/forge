@@ -4,7 +4,7 @@
 // `until: released` mandate's release at the `release` gate class (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write
 // and `draft start` is refused in a daemon session, before anything is read: a session misled by tracker
 // or PR text must not widen or create what directs the Office, or spend on drafting. `draft
-// prepare|record` run only in the office session or a person's terminal; `draft approve|revise|reject` are
+// prepare|record` run only in an office run or a person's terminal; `draft approve|revise|reject` are
 // a person's: `--actor foreman` is refused in every scope, as is `release approve`, which is only the
 // foreman's: forge dash's gate runner records the Foreman's decisions in-process.
 import fs from 'node:fs';
@@ -132,7 +132,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate draft start',
       args: '<id>',
       summary:
-        "queue a drafting run for an active goal mandate, for the office session to turn ({ok, changed, request}; changed false with the request already pending or in progress)",
+        "queue a drafting run for an active goal mandate, which forge dash runs as an office run ({ok, changed, request}; changed false with the request already pending or in progress)",
       exits: [[1, `no such mandate (not_found), it can't be read, is not active, has no goal or its draft is filed, or ${DAEMON_EXIT}`]],
       docs: INTAKE,
     },
@@ -140,7 +140,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate draft prepare',
       args: '<id> --request R',
       summary:
-        "the office session's first call of a drafting run: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}; a revision request's brief adds the previous draft's path and its title and the note, both fenced as data), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused, has no goal or is filed",
+        "a draft office run's first step: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}; a revision request's brief adds the previous draft's path and its title and the note, both fenced as data), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused, has no goal or is filed",
       flags: [['--request R', "the claimed draft request (required): in progress, for this mandate"]],
       exits: [[1, "run in a daemon session other than the office, R is not an in-progress draft request for this mandate, R's revision note breaks the note rules, or a link or a file sits at the drafts dir"]],
       docs: INTAKE,
@@ -149,10 +149,10 @@ const MANDATE: HelpGroup = {
       command: 'mandate draft record',
       args: '<id> --request R [--agent-id A]',
       summary:
-        "the office session's last call of a drafting run: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, digest, draft: {issues, waves, existing}, spend, file}); notifies that the draft waits for approval, and queues its milestone-approval gate request when the project and the mandate delegate the class",
+        "a draft office run's last step: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, digest, draft: {issues, waves, existing}, spend, file}); notifies that the draft waits for approval, and queues its milestone-approval gate request when the project and the mandate delegate the class",
       flags: [
         ['--request R', 'the claimed draft request (required): in progress, for this mandate'],
-        ['--agent-id A', "the drafter's agent id, whose transcript gives the run's usage"],
+        ['--agent-id A', "the drafter's agent or session id, whose transcript (a sub-agent's, else a headless session's own) gives the run's usage"],
       ],
       exits: [[1, "run in a daemon session other than the office, R is not an in-progress draft request for this mandate, the mandate can't be read, is closed or has no goal, or the draft breaks the rules (every problem named, at most 20; the spend stays recorded)"]],
       docs: INTAKE,
@@ -319,7 +319,7 @@ function write(ctx: CliContext, sub: MandateOp, id: string | null, flags: Record
     const goal = goalFrom(flags);
     const input = { ...inputFrom(ctx, { ...flags, title: req(flags.title, '--title') }), ...(goal === undefined ? {} : { goal }) };
     const { id: made } = mandateWrite(root, config, 'new', id, { input });
-    // A goal mandate's first drafting run, for the office session to turn.
+    // A goal mandate's first drafting run, which forge dash runs as an office run.
     if (goal !== undefined) return { ...written(root, made, true), draft: { request: queueDraftRequest(root, made).request } };
     return written(root, made, true);
   }
@@ -487,7 +487,7 @@ async function draftCmd(ctx: CliContext, rest: string[], flags: Record<string, a
     return assistDraft(root, config, rest[1], req(str(flags.request, '--request'), '--request'));
   }
   if (action === 'prepare' || action === 'record') {
-    // Only the office session, or a person outside the daemon. Checked before anything is read.
+    // Only an office run (scope `_office`), or a person outside the daemon. Checked before anything is read.
     const { daemon } = refuseOutsideOffice(`mandate draft ${action}`, env);
     if (rest.length !== 2) throw usageError(MANDATE, `draft ${action}`);
     const id = rest[1];

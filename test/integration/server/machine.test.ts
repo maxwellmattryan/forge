@@ -21,6 +21,7 @@ import { addProject, removeProject, setMachineSettings } from '#engine/project/m
 import { approveTrust, trustApproved } from '#engine/project/trust-approval.ts';
 import { createPool } from '#office/pool.ts';
 import { startServer } from '../../../lib/server/start.ts';
+import { officeStatus } from '../../../lib/server/machine.ts';
 import type { RunningServer } from '../../../lib/server/types.ts';
 import { FIXTURE_DIST } from '../../dist.ts';
 
@@ -529,6 +530,12 @@ test('/api/projects and its stream', async () => {
       daemon: ['enabled', 'foreman', 'live', 'maxConcurrent', 'office', 'wanted'],
     });
     assert.equal(pa.daemon.office, 'off');
+    // From the office runs, with no office session: busy while one is live, idle while the pool is wanted with the foreman on.
+    const runs = (live: number) => ({ enabled: true, live, held: null, runs: [] });
+    assert.deepEqual(
+      [officeStatus({ office: runs(1), wanted: true, foreman: true }), officeStatus({ office: runs(0), wanted: true, foreman: true }), officeStatus({ office: runs(0), wanted: true, foreman: false }), officeStatus({ office: runs(0), wanted: false, foreman: true })],
+      ['busy', 'idle', 'off', 'off'],
+    );
     assert.deepEqual(pg, { name: 'gone', path: gone.dir, status: 'missing', loaded: false, jobs: null, latest: null, daemon: null });
 
     const events = stream(s, '/api/projects/events');

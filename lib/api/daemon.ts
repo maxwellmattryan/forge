@@ -1,7 +1,7 @@
 // The session pools: /api/daemon, /api/daemon/mode, /api/daemon/permission, /api/daemons/log and the /api/events SSE frames,
 // plus the machine dashboard's own GET and POST /api/projects, /api/projects/events and /api/projects/stats, the machine cap every pool reports,
 // and the owner's chats with the Foreman (/api/p/<project>/chats…).
-import type { Effort, GateClass, GateRunOutcome, JobState, Stage } from './enums.ts';
+import type { Effort, GateClass, GateRunOutcome, JobState, OfficeRunOutcome, Stage } from './enums.ts';
 
 /** The machine cap as a pool reports it: DaemonPoolState.machine. */
 export interface MachineSlotsState {
@@ -23,7 +23,7 @@ export interface MachineProjectSummary {
   jobs: { active: number; waiting: number } | null;
   /** The newest non-eval job by updatedAt (its own title, unaltered: job text, rendered escaped), null with none or while not loaded. */
   latest: { id: string; title: string; at: string; stage: Stage; state: JobState } | null;
-  /** `office`: the `_office` session's status. */
+  /** `office`: from the office runs: busy while one is live, idle while the pool is wanted and the foreman is on, else off. */
   daemon: { enabled: boolean; wanted: boolean; foreman: boolean; office: DaemonStatus; live: number; maxConcurrent: number } | null;
 }
 
@@ -213,6 +213,38 @@ export interface GateRunsState {
   runs: GateRunState[];
 }
 
+/** One office run of forge dash's office runner (lib/office/foreman/runs/runner.ts): running, or one of the 50 last kept. */
+export interface OfficeRunState {
+  /** The draft or direct request's id. */
+  request: string;
+  type: 'draft' | 'direct';
+  /** A draft run's mandate; null for a direct run, which may touch every mandate. */
+  mandate: string | null;
+  status: 'running' | 'done';
+  /** Null while it runs. */
+  outcome: OfficeRunOutcome | null;
+  /** The ack's text, a refusal's or why it failed: CLI or model text, at most 200 characters, rendered as text. */
+  reason: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  /** The model children the run started: the drafter, the surveyors and the director call. */
+  calls: number;
+  /** Metered spend of its model children. */
+  usd: number;
+  tokens: number;
+}
+
+/** DaemonPoolState.office: the office runner's state, its hold, and its runs, newest first. */
+export interface OfficeRunsState {
+  /** daemon.enabled and foreman.enabled: the runner takes draft and direct requests. */
+  enabled: boolean;
+  /** Runs live now: 0 or 1. */
+  live: number;
+  /** Why no new run starts now: the office's daily cap, a failure's backoff or a usage limit; null when none holds. */
+  held: { reason: 'daily-cap' | 'retry' | 'limit'; until: string | null; message: string } | null;
+  runs: OfficeRunState[];
+}
+
 /** The session pool as the dashboard sees it: state() in lib/office/pool.ts plus `clients` from createContext in lib/server/start.ts. */
 export interface DaemonPoolState {
   enabled: boolean;
@@ -224,8 +256,8 @@ export interface DaemonPoolState {
   /** The pool is off only because no human has approved the files Forge trusts as they are now (the machine dashboard boots a project's pool only while its approval matches); Start approves them. */
   needsApproval: boolean;
   inbox: DaemonSessionState;
-  /** The Foreman's office session (scope `_office`), never counted against maxConcurrent. */
-  office: DaemonSessionState;
+  /** forge dash's office runner, which runs draft and direct requests in code (lib/office/foreman/runs/runner.ts); the office session is retired. */
+  office: OfficeRunsState;
   /** foreman.enabled, from the latest read of config.yml: the dashboard shows the office only then. */
   foreman: boolean;
   /** forge dash's gate runner: its cap, hold and runs (lib/office/foreman/run.ts). Gate runs count against neither maxConcurrent nor the machine cap. */

@@ -19,11 +19,11 @@ import { list, oneOf, requireJob, str } from '../args.ts';
 const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer', 'approve-repos', 'reject-repos', 'approve-release'] as const;
 const REPO_ACTIONS: readonly string[] = ['approve-repos', 'reject-repos'];
 
-/** What the office session gets for any `forge job human`: it decides no gate. */
-export const OFFICE_HUMAN_REFUSAL = "the office session records no gate decisions: forge dash's gate runner decides gates";
+/** What an office run's child (scope `_office`) gets for any `forge job human`: it decides no gate. */
+export const OFFICE_HUMAN_REFUSAL = "the office records no gate decisions: forge dash's gate runner decides gates";
 
 export async function human(root: string, config: Config, rest: string[], flags: Record<string, any>) {
-  // Before anything is read: the office session reads tracker titles and mandate guidance, so it records no decision at all.
+  // Before anything is read: the office's children read tracker titles and mandate guidance, so they record no decision at all.
   if (inOffice()) throw new ForgeError(OFFICE_HUMAN_REFUSAL, 1);
   const id = rest[0];
   const job = requireJob(root, id);
