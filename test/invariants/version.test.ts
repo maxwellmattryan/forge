@@ -34,7 +34,12 @@ function registryProblems(registry: readonly DeprecatedKey[], docs: string): str
 }
 
 test('deprecated config keys', () => {
-  assert.deepEqual(DEPRECATED_CONFIG_KEYS, [], 'empty today');
+  assert.deepEqual(
+    DEPRECATED_CONFIG_KEYS.map((d) => d.key),
+    ['project.description', 'project.kinds', 'project.notes', 'infra.notes', 'usage.track', 'runtime.host'],
+    "the registry's keys are these six",
+  );
+  for (const d of DEPRECATED_CONFIG_KEYS) assert.deepEqual([d.since, d.removeIn, d.replacement], ['0.23.0', '1.0.0', null], d.key);
   const docs = fs.readFileSync(path.join(REPO, 'docs', 'CONFIG.md'), 'utf8');
   assert.deepEqual(registryProblems(DEPRECATED_CONFIG_KEYS, docs), []);
 

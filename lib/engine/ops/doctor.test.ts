@@ -55,6 +55,29 @@ test('doctor hints at an existing policy that leaves instruction files out', asy
   assert.equal(await row(withPolicy(null)), undefined);
 });
 
+test('doctor warns on deprecated and unknown config keys', async (t) => {
+  if (process.platform === 'win32') return;
+  const repo = tempRepo();
+  const gh = fakeBin('gh', 'exit 1');
+  const PATH = process.env.PATH;
+  process.env.PATH = `${gh.dir}${path.delimiter}${PATH}`;
+  t.after(() => {
+    process.env.PATH = PATH;
+    repo.cleanup();
+  });
+  fs.mkdirSync(path.join(repo.dir, '.forge'));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), 'project:\n  notes: read by nobody\npiplene: {}\n');
+  const report = await doctor(repo.dir, withPolicy(null), true);
+  const rows = report.checks.filter((c) => /^(deprecated|unknown) config key /.test(c.name));
+  assert.deepEqual(
+    rows.map(({ name, ok, warn }) => ({ name, ok, warn })),
+    [
+      { name: 'deprecated config key project.notes', ok: true, warn: true },
+      { name: 'unknown config key piplene', ok: true, warn: true },
+    ],
+  );
+});
+
 test('worktrees.copy that can copy .env files is a warning', () => {
   const cfg = (copy: string[]) => ({ worktrees: { copy } }) as unknown as Pick<Config, 'worktrees'>;
   const warns = [['.env'], ['apps/web/.env.local'], ['.envrc'], ['**/.env*'], ['.*'], ['config/.env/'], ['CLAUDE.md', '.env?production']];

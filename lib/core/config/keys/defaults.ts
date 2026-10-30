@@ -42,10 +42,7 @@ export function defaults(): Config {
     schemaVersion: CONFIG_SCHEMA_VERSION,
     project: {
       name: null,
-      description: null,
-      kinds: [],
       instructions: { default: ['AGENTS.md', 'CLAUDE.md'] },
-      notes: null,
     },
     git: {
       base: 'main',
@@ -105,7 +102,6 @@ export function defaults(): Config {
     ports: { base: 4100, span: 100 },
     runtime: {
       provider: 'anthropic',
-      host: 'claude-code',
       maxParallelJobs: 3,
       // Warn (never block) when the approver or a lens shares the builder's model family.
       diversity: false,
@@ -221,10 +217,8 @@ export function defaults(): Config {
     infra: {
       mode: 'human',
       allowed: [],
-      notes: null,
     },
     usage: {
-      track: true,
       pricing: {},
     },
     improve: {

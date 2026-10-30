@@ -19,13 +19,10 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   project: { doc: 'the project every agent works on' },
   'project.name': { doc: 'display name' },
-  'project.description': { doc: 'a one-line summary of the project (informational)' },
-  'project.kinds': { doc: 'free-form tags (web-ui, rust, embedded, …); help pick lenses' },
   'project.instructions': {
     doc: 'files each agent reads first, if present: `default` for every role, or a role name\n(planner, spec-writer, builder, reviewer, …) whose list replaces it; a plain list is every role\'s',
     uniform: true,
   },
-  'project.notes': { doc: 'one-paragraph context every agent should know' },
 
   git: { doc: 'the branches and remote jobs work against' },
   'git.base': { doc: 'PR target / integration branch' },
@@ -92,7 +89,6 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
 
   runtime: { doc: 'the agent runtime: how many jobs run, and each role\'s model and effort' },
   'runtime.provider': { doc: 'informational; the roster is provider-neutral markdown' },
-  'runtime.host': { doc: 'the agent host Forge runs in (informational)' },
   'runtime.maxParallelJobs': { doc: 'jobs the orchestrator runs at once (1-16)' },
   'runtime.diversity': { doc: "warn when the approver or a lens shares the builder's model family (never blocks)" },
   'runtime.effort': {
@@ -270,10 +266,8 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   infra: { doc: "what agents may do to infrastructure; their briefs carry mode and allowed" },
   'infra.mode': { doc: 'human | plan-only | agent' },
   'infra.allowed': { doc: 'commands agents may run under plan-only/agent, e.g. ["terraform plan", "kubectl get"]' },
-  'infra.notes': { doc: 'free-form notes on how infrastructure is run here (informational)' },
 
   usage: { doc: 'token and cost accounting' },
-  'usage.track': { doc: "informational: agent runs' usage is recorded either way" },
   'usage.pricing': {
     doc: 'overrides for lib/integrations/claude/pricing.json: { models: { <id>: {input, output, cacheRead, cacheWrite} }, aliases: {…} }',
   },
