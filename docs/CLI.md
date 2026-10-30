@@ -640,7 +640,7 @@ The dashboard's headless sessions, from the terminal.
 |---|---|
 | `--follow` | keep printing lines as they are written |
 | `--gates` | the gate runs' log (gate-start, gate-end, gate-held and error lines) instead of a job's |
-| `--inbox` | the inbox session's log instead of a job's |
+| `--inbox` | the inbox's log (its session's and the intake runner's lines) instead of a job's |
 | `--lines N` | the last N lines (default 100, at most 5000) |
 | `--office` | the Foreman's office session's log instead of a job's |
 
