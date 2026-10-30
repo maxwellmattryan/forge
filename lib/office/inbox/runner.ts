@@ -131,12 +131,14 @@ export function createIntakeRunner(
     lastTurnAt = new Date(claimedAt).toISOString();
     log('intake-start', { request: r.id, type: r.type });
     deps.changed();
-    const env = intakeEnv(root, o.env, c, trusted);
+    let env: NodeJS.ProcessEnv | null = null;
     const stop = { signal: entry.abort.signal, graceMs: o.graceMs };
     const call: Call = async (args) => {
       let res: ForgeCall;
       if (entry.abort.signal.aborted) return { code: null, signal: 'SIGTERM', json: null, error: 'the pool stopped', ms: 0 };
       try {
+        // Built at the first call, inside the catch: write roots that can't be built are a call that never ran.
+        env ??= intakeEnv(root, o.env, c, trusted);
         res = await runForge(args, { env, stop });
       } catch (e) {
         res = { code: null, signal: null, json: null, error: errText(e), ms: 0 };
@@ -156,7 +158,11 @@ export function createIntakeRunner(
     let waitMs: number | null = null;
     if (entry.abort.signal.aborted || 'stopped' in outcome) {
       // A stop, close or human Stop (or a protected path that changed): no fault of the request, nothing acked.
-      releaseClaim(root, r.id, S);
+      try {
+        releaseClaim(root, r.id, S);
+      } catch (e) {
+        log('error', { message: `release ${r.id}: ${errText(e)}` });
+      }
       end = { status: 'released', result: 'the run was stopped' };
     } else if ('infra' in outcome) {
       end = requeue(r, outcome.infra);
