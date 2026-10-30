@@ -12,6 +12,9 @@ test('findingTitle normalises a finding to its first words', () => {
     ['.forge/config.yml:136 — The security lens `paths` still lists only `lib/step.ts`, which', 'security lens lists only'],
     ['lib/release-run.ts:328: carried over from round 1', 'carried over from round'],
     ['lib/a.ts — see docs/A.md and build.md here please', 'see here please'],
+    // A round 2+ reviewer's markers sit before the separator, so the title stays the unmarked one.
+    ["lib/api/versions.ts:2 (unresolved from round 1) — the header comment's second line runs well past", 'header comment second line'],
+    ["lib/api/versions.ts:2 (missed earlier) — the header comment's second line runs well past", 'header comment second line'],
     ['The new terms are missing', 'new terms missing'],
     ['comment', null],
     ['lib/x.ts — a b', null],
