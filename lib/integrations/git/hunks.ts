@@ -5,6 +5,9 @@
 /** A base-side line span, 1-based and inclusive: `[k, k+1]` is the gap after line k, where an insertion lands. */
 export type Span = [number, number];
 
+/** The most spans one path may have in a diff. A fork PR's author can make a 2 MB diff of hundreds of thousands, so past this the diff is not compared. */
+export const MAX_SPANS = 20_000;
+
 const HUNK = /^@@ -(\d{1,9})(?:,(\d{1,9}))? \+\d{1,9}(?:,(\d{1,9}))? @@/;
 
 /**
@@ -39,9 +42,11 @@ function mark(spans: Span[], a: number, b: number): void {
  * Base-side spans per path. A hunk body is walked counting old-side lines: each `-` line marks its own
  * line; a run of `+` lines with no `-` in the same block (a pure insertion after old line k) marks
  * `[k, k+1]`; adjacent marks merge. A new file's path comes from `+++`, a deleted file's from `---`. A
- * binary file has no hunks and so no spans, and a C-quoted path is dropped.
+ * binary file has no hunks and so no spans, and a C-quoted path is dropped. Each path's spans come out
+ * sorted and disjoint (the shape `sharedSpans` needs), or the whole result is null when one path has more
+ * than MAX_SPANS of them: parsing stops there, and the caller records a `hunks-unread` gap.
  */
-export function diffSpans(text: string): Map<string, Span[]> {
+export function diffSpans(text: string): Map<string, Span[]> | null {
   const out = new Map<string, Span[]>();
   let minus: string | null = null;
   // The current file's spans; null while no file is open or its path was dropped.
@@ -51,19 +56,26 @@ export function diffSpans(text: string): Map<string, Span[]> {
   let newLeft = 0;
   let removed = false;
   let added = false;
+  let over = false;
+  const put = (a: number, b: number) => {
+    if (!spans) return;
+    mark(spans, a, b);
+    if (spans.length > MAX_SPANS) over = true;
+  };
   const endBlock = () => {
-    if (spans && added && !removed) mark(spans, old, old + 1);
+    if (added && !removed) put(old, old + 1);
     removed = false;
     added = false;
   };
   for (const line of text.split('\n')) {
+    if (over) return null;
     if (oldLeft > 0 || newLeft > 0) {
       const c = line[0];
       if (c === '-') {
         old++;
         oldLeft--;
         removed = true;
-        if (spans) mark(spans, old, old);
+        put(old, old);
         continue;
       }
       if (c === '+') {
@@ -107,6 +119,7 @@ export function diffSpans(text: string): Map<string, Span[]> {
     }
   }
   endBlock();
+  if (over) return null;
   for (const [p, s] of out) if (!s.length) out.delete(p);
   return out;
 }
@@ -155,18 +168,36 @@ export function diffPaths(text: string): string[] {
   return [...out].sort();
 }
 
-/** For each intersecting pair of `a` and `b`, the span covering both: `[min(start), max(end)]`. Sorted, unique. */
-export function sharedSpans(a: readonly Span[], b: readonly Span[]): Span[] {
+/** `spans` sorted by start, with any that touch or overlap merged: the disjoint list `sharedSpans` needs from a union of several diffs. */
+export function mergeSpans(spans: readonly Span[]): Span[] {
   const out: Span[] = [];
-  const seen = new Set<string>();
-  for (const [s1, e1] of a)
-    for (const [s2, e2] of b) {
-      if (s1 > e2 || s2 > e1) continue;
-      const s: Span = [Math.min(s1, s2), Math.max(e1, e2)];
-      const k = `${s[0]}:${s[1]}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
-      out.push(s);
+  for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0])) mark(out, a, b);
+  return out;
+}
+
+/**
+ * For each intersecting pair of `a` and `b`, the span covering both: `[min(start), max(end)]`. Sorted,
+ * unique, and at most `limit` long. Both lists must be sorted and disjoint, as `diffSpans` and
+ * `mergeSpans` return them, so one pass of two pointers visits every pair in linear time and in output
+ * order: a list a fork PR's author shaped can't make this quadratic, and it stops once `limit` spans exist.
+ */
+export function sharedSpans(a: readonly Span[], b: readonly Span[], limit = Number.POSITIVE_INFINITY): Span[] {
+  const out: Span[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length && out.length < limit) {
+    const [s1, e1] = a[i];
+    const [s2, e2] = b[j];
+    if (s1 <= e2 && s2 <= e1) {
+      const lo = Math.min(s1, s2);
+      const hi = Math.max(e1, e2);
+      const last = out[out.length - 1];
+      // Pairs come in key order, so a repeat is always the last one.
+      if (!last || last[0] !== lo || last[1] !== hi) out.push([lo, hi]);
     }
-  return out.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
+    // The span that ends first can meet nothing further in the other list.
+    if (e1 < e2) i++;
+    else j++;
+  }
+  return out;
 }

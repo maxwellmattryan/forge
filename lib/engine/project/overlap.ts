@@ -12,7 +12,7 @@ import { paths } from '#core/paths.ts';
 import { SAFE_REF, isSha } from '#core/text.ts';
 import { OVERLAP_SCHEMA_VERSION, OVERLAP_STEPS } from '#core/versions/overlap.ts';
 import { runSteps } from '#core/versions/steps.ts';
-import { diffPaths, diffSpans, sharedSpans } from '#integrations/git/hunks.ts';
+import { MAX_SPANS, diffPaths, diffSpans, mergeSpans, sharedSpans } from '#integrations/git/hunks.ts';
 import type { Span } from '#integrations/git/hunks.ts';
 import { git, historyEnv } from '#integrations/git/runner.ts';
 import { safePath } from '#integrations/github/activity.ts';
@@ -134,7 +134,10 @@ function sharedHunks(a: Side, b: Side, files: readonly string[]): OverlapCounter
   const sb = sa === null ? null : b.spans();
   if (sa === null || sb === null) return [];
   const out: OverlapCounterpart['sharedHunks'] = [];
-  for (const p of files) for (const [start, end] of sharedSpans(sa.get(p) ?? [], sb.get(p) ?? [])) if (out.length < MAX_HUNKS) out.push({ path: p, start, end });
+  for (const p of files) {
+    if (out.length >= MAX_HUNKS) break;
+    for (const [start, end] of sharedSpans(sa.get(p) ?? [], sb.get(p) ?? [], MAX_HUNKS - out.length)) out.push({ path: p, start, end });
+  }
   return out;
 }
 
@@ -175,6 +178,13 @@ function keepSafe(ps: readonly string[], ref: string, gaps: Gaps): string[] {
   return [...out].sort();
 }
 
+/** A diff's spans, or null with a `hunks-unread` gap for `ref` when the diff was not read or has too many spans to compare. */
+function readSpans(text: string | null, ref: string, gaps: Gaps): Map<string, Span[]> | null {
+  const spans = text === null ? null : diffSpans(text);
+  if (spans === null) gaps.add('hunks-unread', ref);
+  return spans;
+}
+
 /** The commit `refs/heads/<branch>` names in the main checkout, or null: the branch must be a plain ref name. */
 function branchSha(root: string, branch: string | null): string | null {
   if (!branch || !SAFE_REF.test(branch) || branch.includes('..')) return null;
@@ -199,11 +209,7 @@ function branchSide(root: string, config: Config, job: LoadedJob, sha: string, g
   const spans = once(() => {
     // No pathspec: `:(…)` magic never applies, and the spans cover every file at once.
     const r = git(root, ['diff', ...PINNED_DIFF_OPTS, '--no-renames', '-U0', mergeBase, sha, '--'], { env, allowFail: true });
-    if (!r.ok || r.stdout.length > MAX_LOCAL_DIFF) {
-      gaps.add('hunks-unread', job.id);
-      return null;
-    }
-    return diffSpans(r.stdout);
+    return readSpans(r.ok && r.stdout.length <= MAX_LOCAL_DIFF ? r.stdout : null, job.id, gaps);
   });
   return { source: 'diff', files, spans };
 }
@@ -225,14 +231,7 @@ function prSide(remote: Remote, pr: OpenPr, ref: string, gaps: Gaps): Side {
     if (text === null) gaps.add('truncated', ref);
     else files = keepSafe([...files, ...diffPaths(text)], ref, gaps);
   }
-  const spans = once(() => {
-    const text = remote.diff(pr.number as number);
-    if (text === null) {
-      gaps.add('hunks-unread', ref);
-      return null;
-    }
-    return diffSpans(text);
-  });
+  const spans = once(() => readSpans(remote.diff(pr.number as number), ref, gaps));
   return { source: 'diff', files: [...new Set(files)].sort(), spans };
 }
 
@@ -266,14 +265,18 @@ function pushSides(github: GitHub, root: string, remote: Remote, pushes: Push[],
     const newest = [...push.commits].sort((a, b) => b.at - a.at)[0];
     const ref = `${push.branch}@${newest.oid ? newest.oid.slice(0, 12) : 'unknown'}`;
     const files = new Set<string>();
-    const spans = new Map<string, Span[]>();
+    // Each path's spans from every commit, unioned; unusable once a diff has too many or a path would.
+    const union = new Map<string, Span[]>();
+    let spansRead = true;
     for (const c of push.commits) {
       if (c.oid === null) {
         gaps.add('github-unread', ref);
         continue;
       }
       if (budget-- <= 0) {
+        // A person's commit nobody read can't be ruled out, as with one whose read failed: fail closed.
         gaps.add('truncated', ref);
+        gaps.add('github-unread', ref);
         break;
       }
       let text: string;
@@ -286,11 +289,29 @@ function pushSides(github: GitHub, root: string, remote: Remote, pushes: Push[],
         continue;
       }
       for (const p of keepSafe(diffPaths(text), ref, gaps)) files.add(p);
-      for (const [p, s] of diffSpans(text)) spans.set(p, [...(spans.get(p) ?? []), ...s].sort((x, y) => x[0] - y[0]));
+      const spans = diffSpans(text);
+      if (spansRead && (spans === null || !addSpans(union, spans))) spansRead = false;
     }
-    if (files.size) out.push({ ref, side: { source: 'diff', files: [...files].sort(), spans: () => spans }, at: newest.at });
+    if (!files.size) continue;
+    const merged = spansRead ? new Map([...union].map(([p, s]): [string, Span[]] => [p, mergeSpans(s)])) : null;
+    // Like the other sides, the gap is recorded only if a comparison asks for the spans.
+    const spans = () => {
+      if (merged === null) gaps.add('hunks-unread', ref);
+      return merged;
+    };
+    out.push({ ref, side: { source: 'diff', files: [...files].sort(), spans }, at: newest.at });
   }
   return out;
+}
+
+/** Adds `from`'s spans to `into`, path by path; false when a path would pass MAX_SPANS (`into` is then partial). */
+function addSpans(into: Map<string, Span[]>, from: Map<string, Span[]>): boolean {
+  for (const [p, s] of from) {
+    const all = (into.get(p) ?? []).concat(s);
+    if (all.length > MAX_SPANS) return false;
+    into.set(p, all);
+  }
+  return true;
 }
 
 /**
@@ -402,7 +423,7 @@ export function overlap(root: string, config: Config, github: GitHub, subject: O
       // Past the first page of open PRs: its diff names its files.
       const text = r.diff(prNumber as number);
       if (text === null) throw new ForgeError(`gh pr diff #${prNumber} failed`, 'external');
-      subjectSide = { source: 'diff', files: keepSafe(diffPaths(text), subjectRef, gaps), spans: once(() => diffSpans(text)) };
+      subjectSide = { source: 'diff', files: keepSafe(diffPaths(text), subjectRef, gaps), spans: once(() => readSpans(text, subjectRef, gaps)) };
     }
     subjectCreated = self?.createdAt ?? null;
   }

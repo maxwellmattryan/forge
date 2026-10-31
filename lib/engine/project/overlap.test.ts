@@ -6,6 +6,7 @@ import path from 'node:path';
 import { ghPr, jobAt, memoryGitHub, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { jobDir, listJobs } from '#core/job/store.ts';
+import { MAX_SPANS } from '#integrations/git/hunks.ts';
 import { overlap, overlapTiming } from './overlap.ts';
 import type { TimingInput } from './overlap.ts';
 import type { Config, OverlapCounterpart } from '#core/types.ts';
@@ -320,5 +321,67 @@ test("Forge's commits are not human pushes", () => {
     } finally {
       s.cleanup();
     }
+  }
+});
+
+test("a person's commits past the diff budget are unread, so the timing fails closed", () => {
+  const rows: { name: string; commits: number; timing: string; reasons: string[]; gaps: boolean }[] = [
+    { name: 'every commit read', commits: 50, timing: 'merge-now', reasons: ['no-overlap'], gaps: false },
+    { name: 'one commit past the budget', commits: 51, timing: 'needs-human', reasons: ['github-unread'], gaps: true },
+  ];
+  for (const row of rows) {
+    const s = scenario();
+    try {
+      const a = s.job('build', 'job a');
+      s.edit(a.branch!, 'lib/a.ts', 5);
+      const gh = memoryGitHub();
+      // The newest 50 touch lib/b.ts; the oldest, never read, touches the subject's lib/a.ts.
+      const oids = Array.from({ length: row.commits }, (_, i) => (i + 1).toString(16).padStart(40, '0'));
+      gh.setHistory(
+        'main',
+        oids.map((oid) => ({ oid, committedDate: hoursAgo(1), author: { user: { login: 'dev' } }, associatedPullRequests: { nodes: [] } })),
+      );
+      oids.forEach((oid, i) => gh.setCommitDiff(oid, udiff(i < 50 ? 'lib/b.ts' : 'lib/a.ts', 5)));
+      const r = overlap(s.root, config, gh, { job: a.id }, { now }).report;
+      assert.equal(gh.calls.filter((c) => c.op === 'commitDiff').length, 50, row.name);
+      assert.equal(r.timing.kind, row.timing, row.name);
+      assert.deepEqual(r.reasons, row.reasons, row.name);
+      const ref = `main@${oids[0].slice(0, 12)}`;
+      assert.deepEqual(
+        r.gaps,
+        row.gaps
+          ? [
+              { code: 'truncated', ref },
+              { code: 'github-unread', ref },
+            ]
+          : [],
+        row.name,
+      );
+      assert.equal(r.idle, false, row.name);
+    } finally {
+      s.cleanup();
+    }
+  }
+});
+
+test('a diff with too many spans is not compared, and says so', () => {
+  const s = scenario();
+  try {
+    const a = s.job('build', 'job a');
+    s.edit(a.branch!, 'lib/a.ts', 5);
+    const gh = memoryGitHub();
+    gh.put(ghPr({ number: 30, url: 'https://github.com/fork/r/pull/30', isCrossRepository: true, headRefName: 'fork/topic', files: [{ path: 'lib/a.ts' }], changedFiles: 1, createdAt: hoursAgo(5) }));
+    const n = MAX_SPANS + 1;
+    let body = `@@ -1,${2 * n} +1,${n} @@\n`;
+    for (let i = 0; i < n; i++) body += `-r${i}\n c${i}\n`;
+    gh.setDiff(30, `diff --git a/lib/a.ts b/lib/a.ts\nindex 1..2 100644\n--- a/lib/a.ts\n+++ b/lib/a.ts\n${body}`);
+    const r = overlap(s.root, config, gh, { job: a.id }, { now }).report;
+    // The files still count; only the line comparison is skipped.
+    const fork = byRef(r.counterparts, '#30');
+    assert.deepEqual([fork?.files, fork?.sharedHunks], [['lib/a.ts'], []]);
+    assert.deepEqual(r.gaps, [{ code: 'hunks-unread', ref: '#30' }]);
+    assert.equal(r.timing.kind, 'needs-human');
+  } finally {
+    s.cleanup();
   }
 });

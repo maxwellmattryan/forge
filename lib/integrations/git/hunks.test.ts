@@ -1,10 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diffPaths, diffSpans, sharedSpans } from './hunks.ts';
+import { MAX_SPANS, diffPaths, diffSpans, mergeSpans, sharedSpans } from './hunks.ts';
 import type { Span } from './hunks.ts';
 
 const file = (p: string, body: string, minus = `a/${p}`, plus = `b/${p}`) => `diff --git a/${p} b/${p}\nindex 1111111..2222222 100644\n--- ${minus}\n+++ ${plus}\n${body}`;
-const spans = (text: string) => Object.fromEntries(diffSpans(text));
+const spans = (text: string) => Object.fromEntries(diffSpans(text) ?? []);
+/** One hunk of `n` removals, each followed by a context line: `n` one-line spans, at old lines `from`, `from + 2`, …. */
+const alternating = (n: number, from: number) => {
+  let body = `@@ -${from},${2 * n} +${from},${n} @@\n`;
+  for (let i = 0; i < n; i++) body += `-r${i}\n c${i}\n`;
+  return body;
+};
 
 test('diffSpans rows', () => {
   const rows: [string, string, Record<string, Span[]>][] = [
@@ -46,4 +52,48 @@ test('sharedSpans rows', () => {
     [[], [[1, 1]], []],
   ];
   for (const [a, b, want] of rows) assert.deepEqual(sharedSpans(a, b), want, JSON.stringify([a, b]));
+});
+
+test('mergeSpans sorts and joins spans that touch or overlap', () => {
+  const rows: [Span[], Span[]][] = [
+    [[[20, 30], [1, 2], [3, 4]], [[1, 4], [20, 30]]],
+    [[[1, 10], [3, 5], [12, 13]], [[1, 10], [12, 13]]],
+    [[[5, 6]], [[5, 6]]],
+    [[], []],
+  ];
+  for (const [spans, want] of rows) assert.deepEqual(mergeSpans(spans), want, JSON.stringify(spans));
+});
+
+test('diffSpans gives up on a path with more than MAX_SPANS spans', () => {
+  const rows: [string, string, number | null][] = [
+    ['at the cap', file('a.ts', alternating(MAX_SPANS, 1)), MAX_SPANS],
+    ['past the cap', file('a.ts', alternating(MAX_SPANS + 1, 1)), null],
+    // The cap is per path, not per diff.
+    ['two paths at the cap', file('a.ts', alternating(MAX_SPANS, 1)) + file('b.ts', alternating(MAX_SPANS, 1)), MAX_SPANS],
+    // A path split over two file blocks counts together.
+    ['one path in two blocks', file('a.ts', alternating(MAX_SPANS, 1)) + file('a.ts', alternating(2, 2 * MAX_SPANS + 10)), null],
+  ];
+  for (const [name, text, want] of rows) {
+    const got = diffSpans(text);
+    assert.equal(got === null ? null : Math.max(...[...got.values()].map((s) => s.length)), want, name);
+  }
+});
+
+test('sharedSpans stays linear on the most spans a diff can hold, and stops at its limit', () => {
+  const take = (from: number, n = MAX_SPANS) => diffSpans(file('a.ts', alternating(n, from)))?.get('a.ts') ?? [];
+  const odd = take(1);
+  assert.equal(odd.length, MAX_SPANS);
+  const started = performance.now();
+  // Interleaved, never touching: nothing is shared.
+  assert.deepEqual(sharedSpans(odd, take(2)), []);
+  // Identical: each span meets only its twin.
+  assert.equal(sharedSpans(odd, take(1)).length, MAX_SPANS);
+  assert.deepEqual(sharedSpans(odd, take(1), 3), [[1, 1], [3, 3], [5, 5]]);
+  assert.deepEqual(sharedSpans(odd, take(1), 0), []);
+  // 200k spans a side, as a 2 MB diff could hold: a pair-by-pair search needs 4 x 10^10 steps.
+  const huge = (from: number): Span[] => Array.from({ length: 200_000 }, (_, i) => [from + 2 * i, from + 2 * i]);
+  assert.deepEqual(sharedSpans(huge(1), huge(2)), []);
+  assert.equal(sharedSpans(huge(1), huge(1), 50).length, 50);
+  assert.equal(sharedSpans(huge(1), huge(1)).length, 200_000);
+  assert.ok(performance.now() - started < 2000, 'a linear pass takes milliseconds');
 });
