@@ -1,6 +1,7 @@
 // One job, end to end, under `daemon.driver: code`: from a queued resume through intake, the spec gate, build, verify,
 // review and decide to the PR gate, with every role a role run of the stub claude (test/fixtures/fake-roles.mjs writes
-// its output) and no orchestrator session. The hand-off times it logs are printed for build.md.
+// its output) and no orchestrator session; the spec gate is passed by a dashboard approve request the driver applies.
+// The hand-off times it logs, and the time from that approve to the builder's start, are printed for build.md.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { codeDriverRig, forgeSync, waitFor } from '../../helpers.ts';
@@ -23,10 +24,14 @@ test('a job goes from intake to the PR gate with no orchestrator session', { tim
   enqueue(root, loadConfig(root).config, { type: 'resume', job: id, from: 'dashboard' });
   pool.start('boot');
 
-  // Intake and the spec, then the spec gate.
+  // Intake and the spec, then the spec gate, passed by the dashboard's approve request alone: the driver applies it.
   await waitFor(() => loadJob(root, id).waitingOn === 'spec-approval', { timeoutMs: FLOW_MS, what: 'the spec gate' });
-  forge('job', 'human', id, 'approve-spec', '--link', 'none', '--reason', 'a test job');
-  enqueue(root, loadConfig(root).config, { type: 'resume', job: id, from: 'dashboard' });
+  await waitFor(() => pool.state().jobs[id]?.status !== 'busy', { what: 'the first turn to end' });
+  const approve = enqueue(root, loadConfig(root).config, { type: 'approve', job: id, text: 'none a test job', from: 'dashboard' });
+  const builderStart = await waitFor(() => rig.log(id).find((l) => l.event === 'role-start' && l.role === 'builder'), { timeoutMs: FLOW_MS, what: "the builder's role-start" });
+  const approveToStart = Date.parse(builderStart.at) - Date.parse(approve.createdAt);
+  assert.ok(approveToStart >= 0, String(approveToStart));
+  t.diagnostic(`approveToAgentStartMs=${approveToStart}`);
 
   // Build, verify, review and decide, then the PR gate.
   await waitFor(

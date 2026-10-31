@@ -1,14 +1,13 @@
-// A job scope's Session under `daemon.driver: code`: forge dash drives the job's resume turns itself, running
-// `forge job advance` and one `forge job agent run` per spawn as child processes until a gate or `done`, with no
-// orchestrator session (./turn.ts). It wraps an inner createSession, which takes every other turn (a procedure step, and
-// the request types and job states the driver does not take) exactly as a job session does, and every call under
-// `daemon.driver: session`. docs/architecture/daemon-runtime.md "Code driver" describes the loop.
+// A job scope's Session under `daemon.driver: code`: forge dash drives every turn of the job itself, applying its
+// requests with `forge job apply`, then running `forge job advance` and one `forge job agent run` per spawn as child
+// processes until a gate or `done`, with no orchestrator session (./turn.ts). It wraps an inner createSession, which takes
+// only the turn of a procedure step the driver handed off (RC1's recall eval) exactly as a job session does, and every
+// call under `daemon.driver: session`. docs/architecture/daemon-runtime.md "Code driver" describes the loop.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { defaults } from '#core/config/keys/defaults.ts';
 import { readInfo, sessionFiles } from '#core/job/session-files.ts';
 import { enqueue, listRequests, sharedScope } from '#core/job/requests.ts';
-import { loadJob } from '#core/job/store.ts';
 import { writeJsonAtomic } from '#core/os/fs.ts';
 import { driverIdOf, releaseSession } from '../driver.ts';
 import { createSession } from '../session/lifecycle.ts';
@@ -23,8 +22,6 @@ import type { Config, DaemonSessionState, ForgeRequest } from '#core/types.ts';
 export const HANDOFF_TEXT = 'The code driver reached a procedure step; claim the job and run the step loop.';
 /** Where that resume comes from: a resume from here always goes to a session, never back to the driver. */
 const HANDOFF_FROM = 'code-driver';
-/** Job states whose resume is a dashboard button or a score run the code driver does not take yet (#299). */
-const SESSION_WAITS = ['infra', 'external', 'conflicts'];
 
 /** A turn in flight: the loop's state and the promise that settles once it ended and let everything go. */
 interface Running {
@@ -85,27 +82,19 @@ export function createCodeDriver(root: string, scope: string, ctx: SessionContex
     }
   };
 
-  /** Why `ids` go to the session rather than the code driver, or null when the driver takes them. */
+  /**
+   * Why `ids` go to the session rather than the code driver, or null when the driver takes them: only the turn holding
+   * the driver's own hand-off resume does. Requests that can't be read go to the driver, whose claim and apply say why.
+   */
   function fallbackReason(ids: readonly string[]): string | null {
     const wanted = new Set(ids);
     let reqs: ForgeRequest[];
     try {
       reqs = listRequests(root).filter((r) => wanted.has(r.id));
-    } catch (e) {
-      return `the requests can't be read: ${(e as Error).message}`;
-    }
-    const other = reqs.find((r) => r.type !== 'resume');
-    if (other) return `a ${other.type} request is for a session`;
-    if (reqs.some((r) => r.from === HANDOFF_FROM)) return 'a procedure step the driver handed off';
-    let job;
-    try {
-      job = loadJob(root, scope);
     } catch {
-      return 'its job is unreadable';
+      return null;
     }
-    if (job.state === 'done' || job.state === 'failed') return `its job is ${job.state}`;
-    if (job.state === 'waiting' && SESSION_WAITS.includes(String(job.waitingOn))) return `its job waits on ${job.waitingOn}`;
-    return null;
+    return reqs.some((r) => r.from === HANDOFF_FROM) ? 'a procedure step the driver handed off' : null;
   }
 
   /** Lets go of everything the turn held, closes its requests unless they must run again, and hands the scope back. */
@@ -151,7 +140,7 @@ export function createCodeDriver(root: string, scope: string, ctx: SessionContex
   async function runTurn(t: Turn): Promise<void> {
     let why: TurnEnd = 'stopped';
     try {
-      log('driver-start', `driving ${t.ids.length} resume request${t.ids.length === 1 ? '' : 's'} in code`, { requests: t.ids.length });
+      log('driver-start', `driving ${t.ids.length} request${t.ids.length === 1 ? '' : 's'} in code`, { requests: t.ids.length });
       // The driver and the inner session never run at once: a session left from a fallback turn stops first.
       if (session.running) await session.kill('stop', true, 'code-driver');
       why = await driveTurn(deps, t);

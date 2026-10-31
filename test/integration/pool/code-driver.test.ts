@@ -1,15 +1,16 @@
-// The pool under `daemon.driver: code` (lib/office/code/job-driver.ts): its claim under a stable id, the turns it hands
-// to a session, parks for role children that die, role failures, another session's lease, a role child's permission
-// prompt answered from the pool, and a stop. Sessions are in-memory (fakeClaude); role runs are the stub claude.
+// The pool under `daemon.driver: code` (lib/office/code/job-driver.ts): its claim under a stable id, the requests it
+// applies in code, the split, retro and adopted-PR rows it runs, the one turn it hands to a session (RC1), parks for role
+// children that die, role failures, another session's lease, a role child's permission prompt answered from the pool,
+// and a stop. Sessions are in-memory (fakeClaude); role runs are the stub claude.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { codeDriverRig, forgeInProcess, jobAt, pidGone, waitFor, withLease, type CodeDriverRig } from '../../helpers.ts';
+import { codeDriverRig, editConfigFile, forgeInProcess, jobAt, pidGone, waitFor, withLease, type CodeDriverRig } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { RESUME_TAKEN_UP, enqueue, listRequests } from '#core/job/requests.ts';
-import { leaseStatus, loadJob, readEvents } from '#core/job/store.ts';
+import { leaseStatus, loadJob, readEvents, setJob } from '#core/job/store.ts';
 import { whoDrives } from '#office/driver.ts';
 import { HANDOFF_TEXT } from '#office/code/job-driver.ts';
 import { TRUST_CHANGED } from '#office/session/launch.ts';
@@ -101,21 +102,150 @@ describe('the code driver', { concurrency: 4 }, () => {
     assert.ok(!rig.log(id).some((l) => l.event === 'fallback'), 'the hand-off is no fallback');
   });
 
-  test('unported requests fall back to a session', async (t) => {
-    for (const row of ['an approve request', 'a resume on a failed job'] as const) {
+  test('requests are applied in code', async (t) => {
+    const add = (rig: CodeDriverRig, type: string, job: string, o: { text?: string; from?: string } = {}) => enqueue(rig.root, loadConfig(rig.root).config, { type, job, text: o.text ?? null, from: o.from ?? 'dashboard' });
+    type Row = { name: string; arrange: (rig: CodeDriverRig) => Promise<{ id: string; req: string }>; check: (rig: CodeDriverRig, id: string, req: string) => Promise<void> };
+    const rows: Row[] = [
+      {
+        name: "a dashboard approve at the spec gate starts the builder",
+        arrange: async (rig) => {
+          const { id } = jobAt(rig.root, 'backlog', { state: 'queued' });
+          resume(rig, id);
+          rig.pool.start('boot');
+          await waitFor(() => loadJob(rig.root, id).waitingOn === 'spec-approval', { timeoutMs: 60_000, what: 'the spec gate' });
+          await turnEnded(rig, id);
+          return { id, req: add(rig, 'approve', id, { text: 'none a test job' }).id };
+        },
+        check: async (rig, id, req) => {
+          await waitFor(() => rig.log(id).some((l) => l.event === 'role-start' && l.role === 'builder'), { timeoutMs: 60_000, what: "the builder's role-start" });
+          const applied = rig.log(id).find((l) => l.event === 'applied' && l.request === req);
+          assert.deepEqual([applied?.requestType, applied?.status, applied?.createdAt], ['approve', 'done', request(rig, req).createdAt]);
+          assert.ok(readEvents(rig.root, id).some((e) => e.type === 'human' && e.action === 'approve-spec'));
+        },
+      },
+      {
+        name: 'a cancel on a waiting job cancels it',
+        arrange: async (rig) => {
+          const { id } = jobAt(rig.root, 'decide', { state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated' });
+          return { id, req: add(rig, 'cancel', id, { text: 'not needed after all' }).id };
+        },
+        check: async (rig, id, req) => {
+          await turnEnded(rig, id);
+          assert.deepEqual([loadJob(rig.root, id).state, loadJob(rig.root, id).reason, request(rig, req).status], ['cancelled', 'not needed after all', 'done']);
+          assert.ok(!rig.log(id).some((l) => l.event === 'role-start'), 'no runner');
+        },
+      },
+      {
+        name: 'a resume on a failed job runs it again',
+        arrange: async (rig) => {
+          const id = await atBuild(rig);
+          setJob(rig.root, id, { state: 'failed', reason: 'it broke' });
+          return { id, req: resume(rig, id).id };
+        },
+        check: async (rig, id, req) => {
+          await waitFor(() => rig.log(id).some((l) => l.event === 'role-start' && l.role === 'builder'), { timeoutMs: 60_000, what: 'the builder after the retry' });
+          assert.equal(rig.log(id).find((l) => l.event === 'applied')?.status, 'done');
+          await turnEnded(rig, id);
+          assert.equal(request(rig, req).status, 'done');
+        },
+      },
+      {
+        name: "an approve from a daemon scope is rejected and moves nothing",
+        arrange: async (rig) => {
+          const { id } = jobAt(rig.root, 'decide', { state: 'waiting', waitingOn: 'escalation', reason: 'approver escalated' });
+          return { id, req: add(rig, 'approve', id, { from: 'daemon:x', text: 'ship it' }).id };
+        },
+        check: async (rig, id, req) => {
+          await turnEnded(rig, id);
+          assert.deepEqual([request(rig, req).status, request(rig, req).result], ['rejected', 'human decisions come from a person (this approve came from daemon:x)']);
+          const job = loadJob(rig.root, id);
+          assert.deepEqual([job.stage, job.state, job.waitingOn], ['decide', 'waiting', 'escalation']);
+          assert.ok(!readEvents(rig.root, id).some((e) => e.type === 'human'), 'no decision recorded');
+        },
+      },
+      {
+        name: 'a cancel on a job its dependency blocks still cancels it',
+        arrange: async (rig) => {
+          const dep = jobAt(rig.root, 'backlog', { title: 'the dependency', state: 'queued' }).id;
+          const { id } = jobAt(rig.root, 'build', { fields: { dependsOn: [dep] } });
+          return { id, req: add(rig, 'cancel', id).id };
+        },
+        check: async (rig, id, req) => {
+          await turnEnded(rig, id);
+          assert.ok(rig.log(id).some((l) => l.event === 'claim' && l.claimed === false), 'the claim was refused');
+          assert.deepEqual([loadJob(rig.root, id).state, request(rig, req).status], ['cancelled', 'done']);
+        },
+      },
+    ];
+    for (const row of rows) {
       const rig = codeDriverRig(t);
+      const { id, req } = await row.arrange(rig);
+      rig.pool.start('boot');
+      await row.check(rig, id, req);
+      assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], `${row.name}: no session child`);
+      assert.ok(!rig.log(id).some((l) => l.event === 'fallback'), `${row.name}: no fallback line`);
+      await rig.pool.close();
+    }
+  });
+
+  test('the split runs in code', async (t) => {
+    const rig = codeDriverRig(t, { env: { FAKE_PLAN_SPLIT: '1' } });
+    const { root, pool } = rig;
+    editConfigFile(root, (c) => {
+      c.tracker.kind = 'none';
+      c.pipeline.plan = 'always';
+      c.pipeline.split = 'auto';
+    });
+    const { id } = jobAt(root, 'backlog', { state: 'queued' });
+    resume(rig, id);
+    pool.start('boot');
+    await waitFor(() => loadJob(root, id).waitingOn === 'external', { timeoutMs: 60_000, what: 'the umbrella park' });
+    const parent = loadJob(root, id);
+    assert.deepEqual([parent.stage, parent.reason, parent.children.length], ['plan', 'split into 2 jobs', 2]);
+    const [first, second] = parent.children.map((c) => loadJob(root, c));
+    assert.deepEqual(second.dependsOn, [first.id]);
+    assert.deepEqual(listRequests(root).filter((r) => r.from === 'forge' && r.type === 'resume').map((r) => r.job), [first.id], 'a resume for the unblocked child only');
+    await turnEnded(rig, id);
+    assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], 'no session child');
+  });
+
+  test('a retro runs in code', async (t) => {
+    for (const row of ['a retro with a spec', 'a retro that proposes nothing'] as const) {
+      const rig = codeDriverRig(t, { env: row === 'a retro that proposes nothing' ? { FAKE_RETRO_EMPTY: '1' } : {} });
       const { root, pool } = rig;
-      const { id } = row === 'an approve request' ? jobAt(root, 'spec', { state: 'waiting', waitingOn: 'spec-approval' }) : jobAt(root, 'build', { state: 'failed' });
-      const r = enqueue(root, loadConfig(root).config, row === 'an approve request' ? { type: 'approve', job: id, from: 'dashboard' } : { type: 'resume', job: id, from: 'dashboard' });
+      const { id } = jobAt(root, 'backlog', { state: 'queued', create: { kind: 'retro' } });
+      resume(rig, id);
       pool.start('boot');
-      await waitFor(() => rig.sessions.children.some((c) => c.scope === id && c.turns === 1), { timeoutMs: 30_000, what: `${row}: the session turn` });
-      assert.equal(request(rig, r.id).status, 'pending', `${row}: the session claims it, not the driver`);
-      await waitFor(() => rig.log(id).some((l) => l.event === 'fallback'), { what: `${row}: the fallback line` });
-      assert.ok(!rig.log(id).some((l) => l.event === 'claim' || l.event === 'driver-start'), `${row}: no claim`);
-      assert.ok(!readEvents(root, id).some((e) => e.type === 'claimed'), `${row}: no claimed event`);
-      assert.deepEqual(rig.stub(), [], `${row}: no forge child ran a role`);
+      if (row === 'a retro with a spec') await waitFor(() => loadJob(root, id).waitingOn === 'spec-approval', { timeoutMs: 60_000, what: `${row}: the spec gate` });
+      else await waitFor(() => loadJob(root, id).state === 'cancelled', { timeoutMs: 60_000, what: `${row}: the cancel` });
+      await turnEnded(rig, id);
+      const ran = rig.log(id).filter((l) => l.event === 'ran').map((l) => l.rule);
+      assert.ok(['K1b', 'K1c'].every((r) => ran.includes(r)), `${row}: ${ran.join(', ')}`);
+      assert.ok(rig.log(id).some((l) => l.event === 'role-start' && l.role === 'retro'), `${row}: the retro ran`);
+      if (row === 'a retro that proposes nothing') assert.equal(loadJob(root, id).reason, 'the retro proposed nothing: it wrote no spec.md');
+      else assert.equal(loadJob(root, id).stage, 'spec');
+      assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], `${row}: no session child`);
       await pool.close();
     }
+  });
+
+  test('an adopted PR is read in code', async (t) => {
+    const rig = codeDriverRig(t);
+    const { root, pool } = rig;
+    editConfigFile(root, (c) => void (c.tracker.kind = 'none'));
+    const { id, branch } = jobAt(root, 'backlog', { state: 'queued' });
+    const pr = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, isCrossRepository: false, headRefName: branch, baseRefName: 'main' };
+    rig.gh.set('pr list', JSON.stringify([pr]));
+    rig.gh.set('pr view', JSON.stringify({ ...pr, headRefOid: null, mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', reviewDecision: null, statusCheckRollup: [], mergedAt: null }));
+    rig.gh.set('api graphql', JSON.stringify({ data: { repository: { pullRequest: { reviewThreads: { nodes: [] }, reviews: { nodes: [] }, comments: { nodes: [] } } } } }));
+    resume(rig, id);
+    pool.start('boot');
+    await waitFor(() => loadJob(root, id).waitingOn === 'pr-review', { timeoutMs: 60_000, what: 'the pr-review park' });
+    const job = loadJob(root, id);
+    assert.deepEqual([job.stage, job.state, job.reason], ['pr', 'waiting', 'adopted PR 7 waits on review']);
+    assert.ok(readEvents(root, id).some((e) => e.type === 'pr-synced'), 'a pr-synced event');
+    await turnEnded(rig, id);
+    assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], 'no session child');
   });
 
   test('a killed role child parks the job', async (t) => {
