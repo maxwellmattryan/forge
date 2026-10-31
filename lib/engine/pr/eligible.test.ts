@@ -303,8 +303,14 @@ test("reviewCurrent binds HEAD to the head the round's review was given", () => 
     const scoped = (n: number, head: string) => event('scope', n, { round: 1, head });
     const verdicts = (sha: string) => event('verdicts', 5, { round: 1, outcome: 'PASS', sha });
     const opened = (n: number) => event('round', n, { round: 1 });
+    // review.startAfter fast: the first panel started on the partial pass of D, a late failure cancelled it, the builder
+    // committed P, a second partial pass and its panel followed, and the full verify ended alongside it. The live panel is the second.
+    const partial = (sha: string, n: number): VerifyRun => ({ ...verifyRun(sha, n), partial: true });
+    const lateRuns = [partial(h.D, 0), partial(h.P, 4), verifyRun(h.P, 7)];
+    const lateEvents = [opened(0), scoped(1, h.D), start(2), event('agent-cancelled', 3, { role: 'reviewer:code', round: 1, wasRunning: true }), move(3, 'review', 'build'), scoped(5, h.P), start(6), event('verdicts', 8, { round: 1, outcome: 'PASS', sha: h.P })];
     rows.push(
-      ['a commit, a verify and RV2\'s fresh scope after a reviewer started', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      ['a late failure cancelled the first panel: the second partial pass anchors, HEAD is its head', h.P, lateEvents, true, lateRuns],
+      ["a late failure cancelled the first panel: the cancelled panel's head no longer answers", h.D, lateEvents, false, lateRuns],      ['a commit, a verify and RV2\'s fresh scope after a reviewer started', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
       ['the same with no entry into review in the log', h.P, [scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
       ['reviewers started and one retried after the scope event', h.D, [move(0, 'verify'), scoped(1, h.D), start(2), start(2, 'reviewer:security'), start(3), verdicts(h.D)], true],
       ['clean base merges on the head the reviewers started on', h.M2, [move(0, 'verify'), scoped(1, h.D), start(2), start(3), verdicts(h.D)], true],
@@ -318,6 +324,13 @@ test("reviewCurrent binds HEAD to the head the round's review was given", () => 
       assert.equal(reviewCurrent(h.repo.dir, config, runs ? { ...job, verifyRuns: runs } : job, events), want, name);
     }
     assert.equal(fs.existsSync(outside), false, 'the option never reached git');
+
+    // A commit after the second panel of a late-failure round is unreviewed.
+    at(h.P);
+    fs.writeFileSync(path.join(h.repo.dir, 'later.txt'), 'later\n');
+    h.repo.git('add', '-A');
+    h.repo.git('commit', '-qm', 'a commit after the second panel');
+    assert.equal(reviewCurrent(h.repo.dir, config, { ...job, verifyRuns: lateRuns }, lateEvents), false, 'a commit after the second panel');
 
     at(h.P);
     const round2 = { ...job, round: 2 };

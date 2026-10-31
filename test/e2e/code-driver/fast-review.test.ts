@@ -1,7 +1,7 @@
 // review.startAfter fast under `daemon.driver: code`, end to end: the panel starts on the partial pass of
 // `verify: [build, [test]]`, the full verify runs alongside it, and its late failure (a `test` that fails once)
-// cancels the round's lens runs and sends the round back to the builder; the next pass reviews again and the job
-// reaches the PR gate. Every role is a role run of the stub claude (test/fixtures/fake-roles.mjs).
+// cancels the round's lens runs and sends the round back to the builder; the next pass reviews again, in the same
+// round, and the job reaches the PR gate. Every role is a role run of the stub claude (test/fixtures/fake-roles.mjs).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
@@ -51,6 +51,11 @@ test('under review.startAfter fast the panel starts after build and a late test 
   assert.ok(firstReviewer >= 0 && firstReviewer < firstFail, 'a reviewer started before test ran');
   assert.ok(events.some((e) => e.type === 'agent-cancelled' && e.round === 1), 'the late failure cancelled a lens run of round 1');
   const job = loadJob(root, id);
+  // The late failure sends the round back, not on: the second panel reviewed the second partial pass in the same
+  // round, and that review is current (reviewCurrent), so no commit-after-review round 2 follows.
+  assert.equal(job.round, 1, 'the job stayed in round 1');
+  assert.ok(!events.some((e) => e.type === 'round' && e.round === 2), 'no second round opened');
+  assert.equal(events.filter((e) => e.type === 'panel' && e.round === 1).length, 2, 'exactly two panels ran in round 1');
   assert.ok((job.agents.builder?.runHistory ?? []).filter((r) => r.round === 1).length >= 2, 'the builder ran again in round 1');
   assert.ok(
     events.slice(firstFail).some((e) => e.type === 'command' && e.name === 'build' && e.cached === true && e.durationMs === 0),
