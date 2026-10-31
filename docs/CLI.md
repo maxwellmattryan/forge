@@ -2273,11 +2273,15 @@ See [Verifiers](VERIFIERS.md).
 
 Run the verify commands on a job's worktree.
 
-**`forge verify <id>`**: run the configured verify commands in the job's worktree and record the result for its HEAD
+**`forge verify <id> [--fast]`**: run the configured verify commands in the job's worktree and record the result for its HEAD; a root step reuses a pass the check cache holds for the same command on the same clean committed tree (the step says cached, or why it missed: cacheMiss)
+
+| Flag | Meaning |
+|---|---|
+| `--fast` | run every verify group but the last and record a partial run (result: partial, pending), which verifies no HEAD; with fewer than two groups it runs everything |
 
 | Exit | When |
 |---|---|
-| 1 | a check failed (the result says which), or the job has no worktree |
+| 1 | a check failed (the result says which), the job has no worktree, or --fast was given a value |
 
 ### `forge version`
 

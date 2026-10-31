@@ -94,6 +94,10 @@ export const EVENT_STEPS: readonly Step[] = [
   // v26 adds the `advance-ran` event ({ ran: [{ rule, command, ok, text }] }): what one `forge job advance` call ran,
   // which the Thread shows as one progress row. It is no progress event; an older Forge reads it as a generic event.
   { id: 'advance-ran-event', up: (e) => e },
+  // v27 adds `cached`, `cachedAt`, `cachedDurationMs` and `cacheMiss` to `command` (the check cache), `partial` and
+  // `durationMs` to `verify`, the `agent-cancelled` event ({ role, round, wasRunning }), and `cancelled` as an
+  // `agent-end` status. An older Forge reads a cached `command` as a run of 0 ms and the new event as a generic one.
+  { id: 'partial-verify', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

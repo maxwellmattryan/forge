@@ -111,6 +111,10 @@ export const JOB_STEPS: readonly Step[] = [
   // v23 adds the context sessions `forge job agent run` starts and forks (lib/engine/workspace/context-session.ts).
   // A v22 job never had one, so its role runs start cold or a new context, as a new job's do.
   { id: 'context-sessions', up: (j) => ({ ...j, contexts: j.contexts ?? [] }) },
+  // v24 adds VerifyRun.partial (`forge verify --fast`) and VerifyRun.durationMs, and the `cancelled` agent status (a lens
+  // run a late verify failure voided). A v23 job has none of them. The bump lets an older Forge refuse a job whose
+  // partial pass it would read as a verified HEAD.
+  { id: 'partial-verify', up: (j) => j },
 ];
 
 export const JOB_SCHEMA_VERSION = versionOf(JOB_STEPS);

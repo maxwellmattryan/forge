@@ -1,7 +1,12 @@
 // validateConfig's checks for sections that have no validator file of their own.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
+import { tempRepo } from '../../../test/helpers.ts';
+import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { loadConfig } from './load.ts';
 import { foremanProblems, validateConfig } from './validate.ts';
 import { defaults } from './keys/defaults.ts';
 import { setConfigValue } from './set.ts';
@@ -223,6 +228,27 @@ test('validates approver.skipWhenClean', () => {
   for (const bad of ['true', 1, null, {}]) assert.deepEqual(problems(bad), [`approver.skipWhenClean must be true or false (got ${JSON.stringify(bad)})`], String(bad));
   const f = FIELDS.find((x) => x.key === 'approver.skipWhenClean');
   assert.ok(f && f.type === 'boolean' && !f.editable && f.lockedReason && f.default === false);
+});
+
+test('validates review.startAfter', (t) => {
+  const problems = (v: unknown) => {
+    const c: any = defaults();
+    c.review.startAfter = v;
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith('review.startAfter'));
+  };
+  assert.equal(defaults().review.startAfter, 'verify');
+  for (const ok of ['verify', 'fast']) assert.deepEqual(problems(ok), [], ok);
+  for (const bad of ['FAST', 'partial', '', true, null]) assert.deepEqual(problems(bad), [`review.startAfter must be one of verify | fast (got ${JSON.stringify(bad)})`], JSON.stringify(bad));
+  assert.equal(FIELDS.find((x) => x.key === 'review.startAfter')?.editable, true);
+  // forge config set writes it, and refuses any other value before anything is read.
+  const repo = tempRepo();
+  t.after(repo.cleanup);
+  fs.mkdirSync(path.join(repo.dir, '.forge'));
+  fs.writeFileSync(path.join(repo.dir, '.forge', 'config.yml'), `schemaVersion: ${CONFIG_SCHEMA_VERSION}\n`);
+  const actor = () => ({ login: null, source: 'unknown' as const });
+  assert.equal(setConfigValue(repo.dir, 'review.startAfter', 'fast', actor).changed, true);
+  assert.equal(loadConfig(repo.dir).config.review.startAfter, 'fast');
+  assert.throws(() => setConfigValue(repo.dir, 'review.startAfter', 'soon', actor), (e: any) => e.reason === 'invalid');
 });
 
 test('validates overlap.recentHours', () => {
