@@ -1,11 +1,12 @@
 <!-- One readable mandate on the Office page: its title, id, state and reason; its scope; its chain (with the active link
-     marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and every line the
-     config capped; its live jobs (each opens the drawer); its merge queue when it lists any open PR (each overlap group
-     in merge order, then the merge-now and unchecked PRs; each id opens the drawer); a goal mandate's draft and gate, pointing at Needs you, which
-     decides it. Then the actions its status offers (mandateActions): Pause and Close open a confirm row with an optional
-     one-line reason (Close says it is final and starts the next link); focus moves to Confirm, and Cancel hands it back to
-     the button that opened the row. A refusal is the server's error as a toast and changes nothing; a success reloads the
-     mandates and the state. Every mandate string is owner or tracker text and renders as Svelte text. -->
+     marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and
+     every line the config capped; its live jobs (each opens the drawer); its merge queue when it lists any open PR (each
+     overlap group in merge order, then the merge-now and unchecked PRs; each id opens the drawer); a goal mandate's draft
+     and gate, pointing at Needs you, which decides it. Then the actions its status offers (mandateActions): Pause and
+     Close open a confirm row with an optional one-line reason (Close says it is final and starts the next link); focus
+     moves to Confirm, and Cancel hands it back to the button that opened the row. A refusal is the server's error as a
+     toast and changes nothing; a success reloads the mandates and the state. Every mandate string is owner or tracker
+     text and renders as Svelte text. -->
 <script lang="ts">
   import { tick } from 'svelte';
   import Chip from '../ui/Chip.svelte';
