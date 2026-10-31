@@ -32,7 +32,7 @@ const OTHER_PROJECT = 'other-project';
 /** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
 const GONE_PROJECT = 'gone-project';
 
-export type RenderCheckId = ViewId | 'login' | 'relogin' | 'overview' | 'machine' | 'switch' | 'add' | 'drawer' | 'issue';
+export type RenderCheckId = ViewId | 'login' | 'relogin' | 'overview' | 'machine' | 'switch' | 'add' | 'shortcut' | 'drawer' | 'issue';
 
 export interface RenderProblem {
   scenario: string;
@@ -122,7 +122,10 @@ async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: st
  * from its Issues row, closed by Escape), then the machine's pages (the Overview and the
  * Machine page, which must list all three projects), a switch to the companion through the sidebar switcher and its Add
  * project entry, which must open the Add project dialog in place without becoming the selection, refuse a relative
- * directory inline and, given the companion's directory, land on its Project page. Throws
+ * directory inline and, given the companion's directory, land on its Project page. Last, the Cmd/Ctrl+O shortcut: from a
+ * focused control it opens the sidebar switcher with the current project active, a second press, Escape and Enter on the
+ * current project close it in place, Settings blocks it, ArrowUp and Enter switch to the companion, on the rail it opens the
+ * palette with `project ` typed, and at 600px the phone strip's switcher. Throws
  * a RenderError for an unknown scenario (exit 2), and for a build without manifest.json or a Chrome that won't start
  * (exit 1): neither ever passes.
  */
@@ -343,6 +346,95 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
               await add.click({ timeout });
               await page.waitForURL((u) => u.hash === `#/p/${OTHER_PROJECT}/project`, { timeout });
               await dialog.waitFor({ state: 'hidden', timeout });
+            });
+          }),
+        );
+        // Cmd/Ctrl+O opens the visible project switcher, even from a focused control: the sidebar's list with the current
+        // project active (a second press closes it), nothing while Settings is open, the palette with `project ` typed on
+        // the rail, and the phone strip's list below md. Last: it collapses the sidebar and narrows the viewport.
+        await timed(name, 'shortcut', () =>
+          checkPage(context, at('issues'), async (page, p) => {
+            const issues = `#/p/${project.name}/issues`;
+            const chord = 'ControlOrMeta+o';
+            const until = (expr: string) => page.waitForFunction(expr, undefined, { timeout });
+            const el = (id: string) => `document.getElementById(${JSON.stringify(id)})`;
+            const state = (id: string, expanded: boolean) => `document.activeElement === ${el(id)} && ${el(id)}.getAttribute('aria-expanded') === '${expanded}'`;
+            const step = async (what: string, run: () => Promise<void>): Promise<boolean> => {
+              try {
+                await run();
+                return true;
+              } catch {
+                p.push(what);
+                return false;
+              }
+            };
+            const field = 'project-switcher';
+            const opened = () => until(state(field, true));
+            const closed = () => until(state(field, false));
+            // The list's option whose label is `name`, by its id.
+            const optionId = (name: string) =>
+              `[...document.querySelectorAll('#' + ${el(field)}.getAttribute('aria-controls') + ' [role=option]')].find((o) => o.querySelector('.truncate')?.textContent === ${JSON.stringify(name)})?.id`;
+            if (!(await step('the chord did not open the sidebar switcher from #sidebar-command with the current project active', async () => {
+              await until(`${el(field)}?.getAttribute('role') === 'combobox' && !${el(field)}.disabled`);
+              await page.locator('#sidebar-command').focus({ timeout });
+              await page.keyboard.press(chord);
+              await opened();
+              await until(`${el(field)}.getAttribute('aria-activedescendant') === ${optionId(project.name)}`);
+            })))
+              return;
+            await step('a second chord did not close the switcher with focus on it', async () => {
+              await page.keyboard.press(chord);
+              await closed();
+            });
+            await step('Escape did not close the switcher with focus on it', async () => {
+              await page.keyboard.press(chord);
+              await opened();
+              await page.keyboard.press('Escape');
+              await closed();
+            });
+            await step('Enter on the current project did not close the switcher in place', async () => {
+              await page.keyboard.press(chord);
+              await opened();
+              await page.keyboard.press('Enter');
+              await closed();
+              if (new URL(page.url()).hash !== issues) throw new Error('moved');
+            });
+            const settings = page.locator('[role=dialog][aria-labelledby=settings-title]');
+            await step('the chord opened the switcher under Settings, or Escape did not close Settings', async () => {
+              await page.keyboard.press('ControlOrMeta+Comma');
+              await settings.waitFor({ state: 'visible', timeout });
+              await page.keyboard.press(chord);
+              await page.waitForTimeout(SETTLE_MS);
+              if ((await page.locator(`#${field}`).getAttribute('aria-expanded', { timeout })) !== 'false') throw new Error('opened');
+              await page.keyboard.press('Escape');
+              await settings.waitFor({ state: 'hidden', timeout });
+            });
+            await step(`the chord, ArrowUp and Enter did not open ${OTHER_PROJECT}`, async () => {
+              await page.locator(`#${field}`).focus({ timeout });
+              await page.keyboard.press(chord);
+              await opened();
+              await page.keyboard.press('ArrowUp');
+              await page.keyboard.press('Enter');
+              await page.waitForURL((u) => u.hash === `#/p/${OTHER_PROJECT}/issues`, { timeout });
+            });
+            await step('on the rail the chord did not open the palette with `project ` typed, or Escape did not return to the rail button', async () => {
+              await page.goto(at('issues'), { waitUntil: 'load', timeout: LOAD_TIMEOUT_MS });
+              await page.waitForURL((u) => u.hash === issues, { timeout });
+              await page.locator('[role=separator][aria-controls=sidebar]').focus({ timeout });
+              await page.keyboard.press('Home');
+              await until(`${el(field)} && ${el(field)}.getAttribute('role') !== 'combobox'`);
+              await page.keyboard.press(chord);
+              await until(`${el('command-input')}?.value === 'project '`);
+              await page.keyboard.press('Escape');
+              await until(`document.activeElement === ${el(field)}`);
+            });
+            await step('at 600px the chord did not open the phone strip switcher', async () => {
+              await page.setViewportSize({ width: 600, height: 800 });
+              // The breakpoint's change event lands on a later frame than the resize.
+              await page.locator('#project-switcher-mobile').waitFor({ state: 'visible', timeout });
+              await page.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
+              await page.keyboard.press(chord);
+              await until(state('project-switcher-mobile', true));
             });
           }),
         );
