@@ -24,7 +24,7 @@ export interface MachineProject {
 
 /** Machine-wide settings: never a project's policy. */
 export interface MachineSettings {
-  /** The machine cap on job sessions across every project (1–64); null: the highest loaded project's daemon.maxConcurrent. */
+  /** The explicit machine cap on job sessions across every project (1–64); null: no machine cap, so each project runs up to its own daemon.maxConcurrent. */
   maxConcurrent: number | null;
 }
 
@@ -224,7 +224,7 @@ export function removeProject(home: string, arg: string, cwd: string = process.c
 
 /** Writes the machine settings under the index lock and returns them; a cap outside null or 1–64 is a usage error. */
 export function setMachineSettings(home: string, settings: MachineSettings): MachineSettings {
-  if (!validCap(settings.maxConcurrent)) throw new ForgeError(`--max-concurrent must be an integer 1-${MACHINE_MAX_CONCURRENT} or auto`, 'usage', 'forge help project settings');
+  if (!validCap(settings.maxConcurrent)) throw new ForgeError(`--max-concurrent must be an integer 1-${MACHINE_MAX_CONCURRENT} or off`, 'usage', 'forge help project settings');
   readMachineIndex(home);
   return update(home, (index) => ({ index: { ...index, schemaVersion: MACHINE_INDEX_VERSION, settings: { maxConcurrent: settings.maxConcurrent } }, result: { maxConcurrent: settings.maxConcurrent } }));
 }
