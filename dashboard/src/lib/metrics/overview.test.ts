@@ -1,7 +1,7 @@
 // The Overview's model: cards sorted by what waits on you, and the stacked bars and legend of the cross-project graphs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OVERVIEW_WINDOWS, SERIES, overviewCards, stackedSeries } from './overview.ts';
+import { OVERVIEW_WINDOWS, SERIES, machineMeter, overviewCards, stackedSeries } from './overview.ts';
 import type { MachineProjectSummary, ProjectStatsSeries, ProjectsResponse, ProjectsStatsResponse } from '../core/types.ts';
 
 const latest = (at: string): MachineProjectSummary['latest'] => ({ id: `j-${at}`, title: `job of ${at}`, at, stage: 'build', state: 'running' });
@@ -15,7 +15,7 @@ const project = (name: string, over: Partial<MachineProjectSummary> = {}): Machi
   daemon: { enabled: true, wanted: true, foreman: true, office: 'idle', live: 0, maxConcurrent: 3 },
   ...over,
 });
-const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, source: 'auto', live: 0, launchPermissionMode: null }, projects });
+const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, live: 0, launchPermissionMode: null }, projects });
 const unloaded = { loaded: false, jobs: null, latest: null, daemon: null } as const;
 
 test('overviewCards sorts what waits first and missing last', () => {
@@ -94,6 +94,16 @@ test('stackedSeries stacks each project and gives its share', () => {
   assert.deepEqual(none.legend.map((l) => l.series), [...SERIES, 'series-1', 'series-2'], 'the classes cycle');
   assert.ok(none.legend.every((l) => l.share === null), 'no share when the total is 0');
   assert.equal(none.max, 0);
+});
+
+test('machineMeter with and without a machine cap', () => {
+  const m = (maxConcurrent: number | null, live: number) => ({ maxConcurrent, live, launchPermissionMode: null });
+  assert.equal(machineMeter(null), null);
+  assert.equal(machineMeter(undefined), null);
+  assert.deepEqual(machineMeter(m(null, 7)), { live: 7, cap: null, percent: 0 }, 'no cap: no meter');
+  assert.deepEqual(machineMeter(m(4, 1)), { live: 1, cap: 4, percent: 25 });
+  assert.deepEqual(machineMeter(m(2, 3)), { live: 3, cap: 2, percent: 100 }, 'capped at 100');
+  assert.deepEqual(machineMeter(m(0, 1)), { live: 1, cap: null, percent: 0 }, 'a cap below 1 is none');
 });
 
 test('OVERVIEW_WINDOWS', () => {

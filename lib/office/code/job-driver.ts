@@ -276,7 +276,7 @@ export function createCodeDriver(root: string, scope: string, ctx: SessionContex
       if (ours) changed();
     },
     logEvent: (event, extra) => session.logEvent(event, extra),
-    setWaiting: (w) => session.setWaiting(w),
+    setWaiting: (w, machineCap) => session.setWaiting(w, machineCap),
     setWanted: (w) => session.setWanted(w),
     reset() {
       retryAt = null;

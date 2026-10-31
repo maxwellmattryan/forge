@@ -140,6 +140,9 @@ export const API_CHANGES = [
   { id: 'prompt-role' },
   // JobDetail.overlap (OverlapReport | null, OverlapCounterpart, OverlapSharedHunk): the job's cached `forge overlap` report.
   { id: 'overlap-report' },
+  // Per-project pools: DaemonSessionState.waitingFor ('project' | 'machine' | null); DaemonPoolState.machine is null
+  // without an explicit machine cap; ProjectsResponse.machine.maxConcurrent is number | null and .source is gone.
+  { id: 'pool-per-project' },
 ] as const;
 
 /**

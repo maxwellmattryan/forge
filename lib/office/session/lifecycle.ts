@@ -42,7 +42,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
   let lastResultAt: string | null = null;
   let lastError: string | null = null;
   let held: 'budget' | 'repo-budget' | null = null;
-  let waiting = false;
+  let waitingFor: DaemonSessionState['waitingFor'] = null;
   let failures = 0;
   /** Request ids a working turn has already covered; pruned to ids still pending. */
   const committed = new Set<string>();
@@ -133,7 +133,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       turns,
       failures,
       held,
-      waiting,
+      waiting: waitingFor !== null, waitingFor,
       lastError,
       permissions: control.permissions(),
       timedOut: control.timedOut(),
@@ -213,7 +213,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     proc = { claude, meta };
     child = proc;
     status = 'idle';
-    waiting = false;
+    waitingFor = null;
     liveMode = launchMode ?? commandPermissionMode(c.daemon.command);
     spawnEffort = effort.level;
     spawnCap = cap;
@@ -520,7 +520,7 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
       return status;
     },
     get waiting() {
-      return waiting;
+      return waitingFor !== null;
     },
     get held() {
       return held;
@@ -558,16 +558,16 @@ export function createSession(root: string, scope: string, ctx: SessionContext, 
     setPermissionMode,
     kill,
     logEvent,
-    setWaiting(w) {
-      if (w === waiting) return;
-      waiting = w;
-      if (w) logEvent('waiting', { maxConcurrent: ctx.config().daemon?.maxConcurrent ?? null });
+    setWaiting(w, machineCap = null) {
+      const next = !w ? null : machineCap === null ? 'project' : 'machine';
+      if (next === waitingFor) return;
+      if ((waitingFor = next)) logEvent('waiting', { cap: next, maxConcurrent: next === 'machine' ? machineCap : (ctx.config().daemon?.maxConcurrent ?? null) });
       changed();
     },
     setWanted(w) {
       if (w === wanted) return;
       wanted = w;
-      if (!w) waiting = false;
+      if (!w) waitingFor = null;
       changed();
     },
     reset() {

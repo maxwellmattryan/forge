@@ -1,5 +1,5 @@
-// The Overview page: project cards sorted by what waits on you, and the stacked bars of jobs shipped and cost per
-// UTC day across projects (GET /api/projects/stats). No DOM access.
+// The Overview page: project cards sorted by what waits on you, the stacked bars of jobs shipped and cost per
+// UTC day across projects (GET /api/projects/stats), and the machine section's meter. No DOM access.
 import { STATS_WINDOWS } from './analytics.ts';
 import { switcherEntries, type SwitcherEntry } from '../shell/switcher.ts';
 import type { DaemonStatus, MachineProjectSummary, ProjectsResponse, ProjectsStatsResponse } from '../core/types.ts';
@@ -46,6 +46,23 @@ export function overviewCards(r: ProjectsResponse | null): OverviewCard[] {
       }
       return byName(a, b);
     });
+}
+
+export interface MachineMeter {
+  /** Job sessions running across every loaded project. */
+  live: number;
+  /** The explicit machine cap, or null without one (each project runs up to its own daemon.maxConcurrent). */
+  cap: number | null;
+  /** live over cap, rounded and capped at 100; 0 without a cap. */
+  percent: number;
+}
+
+/** The Overview's machine section from ProjectsResponse.machine; null before the response loads. */
+export function machineMeter(m: ProjectsResponse['machine'] | null | undefined): MachineMeter | null {
+  if (!m) return null;
+  const live = typeof m.live === 'number' && Number.isFinite(m.live) && m.live > 0 ? m.live : 0;
+  const cap = Number.isInteger(m.maxConcurrent) && (m.maxConcurrent as number) >= 1 ? (m.maxConcurrent as number) : null;
+  return { live, cap, percent: cap === null ? 0 : Math.min(100, Math.round((live / cap) * 100)) };
 }
 
 /** The series classes, whole literals so Tailwind sees them; style.css gives each its fill and background. */
