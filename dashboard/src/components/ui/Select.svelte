@@ -3,9 +3,9 @@
      button) controls a listbox that opens in the top layer (popover="manual"), so the drawer, the settings dialog and
      overflow-hidden parents never clip it. The list is a compact menu panel that fades and grows from the trigger edge it
      opened against (`menu-pop` in style.css); its first and last rows follow the plate's cut corners (`menu-list`).
-     Entries are dense rows: a check column, then the label with an optional
-     icon, hint line and an option `badge` (an ember dot after the label), or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries of one
-     `group` sit under its name; an `action` entry calls onchange but never becomes the value, and
+     Entries are dense rows: a check column, then the label with an optional icon, hint line and an option `badge` (an
+     ember dot after the label), or the caller's `entry` snippet; `separator` rules an entry off and consecutive entries
+     of one `group` sit under its name; an `action` entry calls onchange but never becomes the value, and
      its icon takes the check column it never needs, so its label lines up with the others'. Focus never leaves the
      button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
      see one control. src/lib/ui/select.ts decides what each key does, src/lib/ui/overlay/menu.ts placeMenu where the list opens, and
