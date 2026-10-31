@@ -1,5 +1,5 @@
 // The Office page (#/p/<project>/office): its mandates, pending gates and directives,
-// the editor's POST bodies, the mandate badge on a job, and the GETs and POSTs of /api/mandates
+// the editor's POST bodies, a mandate's merge queue as its card lists it, the mandate badge on a job, and the GETs and POSTs of /api/mandates
 // (lib/server/routes/mandates.ts). Every string from a mandate, a directive or a request is owner, session or tracker
 // text: the components render it as text. Plain TS, so a test can pin it.
 import { post } from '../project/focus.ts';
@@ -10,6 +10,8 @@ import type {
   ForgeRequest,
   MandateDetailResponse,
   MandateRow,
+  MergeQueue,
+  MergeQueueEntry,
   MandatesResponse,
   PostMandateBody,
   PostMandateEditBody,
@@ -198,6 +200,37 @@ export function mandateActions(m: MandateRow | UnreadableMandateRow): MandateAct
   if (m.status === 'active') return ['edit', 'pause', 'close'];
   if (m.status === 'paused') return ['edit', 'resume', 'close'];
   return [];
+}
+
+// ---------- the merge queue ----------
+
+/** One open PR as the card's merge queue lists it: `waitsFor` only when Forge merges (hold) and a ready PR ranks ahead. */
+export interface MergeQueueRow {
+  job: string;
+  pr: number;
+  tokens: number;
+  ready: boolean;
+  waitsFor: string | null;
+  reason: string;
+}
+
+/** A list the card renders: an overlap group in merge order, or the merge-now or unchecked PRs. */
+export interface MergeQueueSection {
+  kind: 'group' | 'merge-now' | 'unchecked';
+  entries: MergeQueueRow[];
+}
+
+/** The card's Merge queue section: the groups in order, then merge-now, then unchecked; null when every list is empty (no section). */
+export function mergeQueueView(q: MergeQueue | null | undefined): { hold: boolean; sections: MergeQueueSection[] } | null {
+  if (!q) return null;
+  const rows = (entries: readonly MergeQueueEntry[]): MergeQueueRow[] =>
+    entries.map((e) => ({ job: e.job, pr: e.pr, tokens: e.tokens, ready: e.ready, waitsFor: q.hold ? e.ahead : null, reason: e.reasons.join(' · ') }));
+  const sections: MergeQueueSection[] = [
+    ...q.groups.filter((g) => g.length).map((g) => ({ kind: 'group' as const, entries: rows(g) })),
+    ...(q.mergeNow.length ? [{ kind: 'merge-now' as const, entries: rows(q.mergeNow) }] : []),
+    ...(q.unchecked.length ? [{ kind: 'unchecked' as const, entries: rows(q.unchecked) }] : []),
+  ];
+  return sections.length ? { hold: q.hold, sections } : null;
 }
 
 // ---------- gate runs ----------
