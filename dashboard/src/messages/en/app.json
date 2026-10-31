@@ -31,6 +31,7 @@
     "missing": "missing",
     "unavailable": "unavailable",
     "rail": "Switch project",
+    "shortcut": "Switch project ({key})",
     "add": "Add project",
     "othersWaiting": {
       "one": "{count} waiting on you elsewhere",

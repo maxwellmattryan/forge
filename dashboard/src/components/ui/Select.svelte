@@ -10,7 +10,8 @@
      button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
      see one control. src/lib/ui/select.ts decides what each key does, src/lib/ui/overlay/menu.ts placeMenu where the list opens, and
      dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
-     moves the button or unmounting close it without a change. -->
+     moves the button or unmounting close it without a change. The exported toggle() opens or closes the list from outside
+     (a keyboard shortcut) along the click's own path, and `keyshortcuts` names that shortcut in aria-keyshortcuts. -->
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import Icon from './Icon.svelte';
@@ -36,6 +37,7 @@
     text,
     placeholder,
     title,
+    keyshortcuts,
     badge = false,
     badgeTone = 'spark',
     align = 'start',
@@ -60,6 +62,8 @@
     /** The muted trigger text while no entry is chosen, in place of the generic "Choose…". */
     placeholder?: string;
     title?: string;
+    /** The trigger's `aria-keyshortcuts`: a shortcut elsewhere that calls toggle(). */
+    keyshortcuts?: string;
     /** A dot on the trigger: the button variant's corner dot, as MenuButton's, or the field variant's dot before the chevron. */
     badge?: boolean;
     /** The trigger dot's colour: spark (the default), or ember for something waiting on you. */
@@ -160,10 +164,17 @@
     if (e.key === ' ') setTimeout(() => (swallowClick = false));
   }
 
-  function click(): void {
-    if (swallowClick) return;
+  /** Opens the list as a click does (focus on the button, the chosen entry active), or closes it when open; a disabled Select does nothing. */
+  export function toggle(): void {
+    if (disabled || !trigger) return;
+    trigger.focus();
     if (st.open) close(true);
     else void apply({ ...CLOSED, open: true, active: openAt(options, selected) });
+  }
+
+  function click(): void {
+    if (swallowClick) return;
+    toggle();
   }
 
   function pick(i: number): void {
@@ -232,6 +243,7 @@
   aria-label={label}
   aria-labelledby={labelledby}
   {title}
+  aria-keyshortcuts={keyshortcuts}
   {disabled}
   class="{variant === 'button' ? 'btn sm' : 'input inline-flex items-center justify-between gap-2 text-left'} {cls}"
   onclick={click}
