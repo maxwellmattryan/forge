@@ -46,6 +46,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `mandate.ts` | `forge mandate new\|edit\|pause\|resume\|close\|list\|show`, `forge mandate draft start\|prepare\|record\|show\|approve\|revise\|reject\|assist` and `forge mandate release assist\|approve`: the owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate, and an `until: released` mandate's release at the `release` gate class (lib/office/mandates/, docs/CONFIG.md "Mandates"). |
 | `notify.ts` | `forge notify test\|send`: a sample notification to every configured target, and the detached sender lib/office/notify.ts queueNotify spawns. |
 | `office.ts` | `forge office pass\|survey\|board\|start\|resume\|note`: the Office's director loop (lib/office/mandates/pass.ts and director.ts). |
+| `overlap.ts` | `forge overlap`: which jobs, open PRs and people's recent pushes touch the same code as a job or a PR, and when to merge it, from a fixed rule (lib/engine/project/overlap.ts, docs/architecture/overlap.md). |
 | `project.ts` | `forge project add\|remove\|list\|settings`: the machine index of registered projects and the machine settings (lib/engine/project/machine-index.ts). |
 | `release.ts` | `forge release plan\|run\|status`: a release a human runs from the CLI, single- or multi-repo (lib/engine/release/plan.ts plans it, lib/engine/release/run.ts runs it; docs/RELEASES.md "Releasing a project"). |
 | `render.ts` | Human output mode (docs/CLI.md "Output mode"): the generic renderer for results and errors. |
@@ -54,6 +55,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `render/doctor.ts` | `forge doctor` in human mode: what is broken first, each with its fix under it. |
 | `render/job.ts` | `forge job list\|show\|step\|claim\|note` in human mode. |
 | `render/kit.ts` | Shared pieces of the hand-written human-mode renderers (docs/CLI.md "Output mode"). |
+| `render/overlap.ts` | `forge overlap` in human mode: the timing and its refs, why, one line per counterpart, idle, gaps and the report. |
 | `render/pr.ts` | `forge pr open\|sync\|merge` in human mode. |
 | `render/registry.ts` | The hand-written human-mode renderers, keyed by command path (docs/CLI.md "Output mode"). |
 | `render/status.ts` | `forge status`, `forge stats` and `forge requests list` in human mode. |

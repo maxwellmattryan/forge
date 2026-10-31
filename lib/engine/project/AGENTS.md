@@ -1,6 +1,8 @@
 # lib/engine/project/
 
-Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks, the machine index of registered projects, and the machine's login service and uptime record.
+Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks, the machine index of registered projects, the machine's login service and uptime record, and the overlap check.
+
+- `overlap.ts` is `forge overlap`: which jobs, open PRs and people's pushes share files with a job or PR, and the timing rule. It reads git and GitHub only; the span parsing is `lib/integrations/git/hunks.ts` and the GitHub reads `lib/integrations/github/activity.ts` (docs/architecture/overlap.md).
 
 - `member-repos.ts` holds the member repo validators that `lib/core/` still reads through allowed upward edges; they move down into `lib/core/config/` later (docs/design/lib-layout.md › Today's upward edges).
 - Design: [Job repos](../../../docs/architecture/job-repos.md), [Interim strategies](../../../docs/architecture/interim-strategies.md).
@@ -16,6 +18,7 @@ Multi-repo projects: member repos and trackers, a job's repos and their order, p
 | `machine-index.ts` | The machine index: the projects registered on this machine in `<FORGE_HOME>/projects.json`, never their config, commands or secrets. |
 | `member-repos.ts` | Member repos: the other repos a project spans (`config.repos`), and where each is cloned on this machine (`.forge/local.yml`, gitignored). |
 | `member-trackers.ts` | Member repo trackers: the GitHub issue trackers of config `repos` entries, read and written beside the root's. |
+| `overlap.ts` | The overlap check (`forge overlap`, docs/architecture/overlap.md): which other jobs, open PRs and people's recent pushes touch the files a job or PR changes, and one timing from a fixed rule. |
 | `repo-order.ts` | The merge order of a multi-repo job's PRs, from config `components[].dependsOn`: repo A depends on repo B when a component in A depends on one in B. |
 | `repo-proposals.ts` | Repo proposals: a planner or spec-writer that finds the job needs a change in another member repo proposes it (`forge job repo propose`), and the job parks (step RP1) until a human, or the foreman when `repo-proposal` is in foreman.decides, approves or rejects it (`forge job human … approve-repos \| reject-repos`, or the dashboard). |
 | `trust-approval.ts` | What a human last approved for each project: the trustDigest of the files Forge trusts (config, notes, reviewers, CLAUDE.md, AGENTS.md…) its pool ran under when they pressed Start, or as they were when `forge dash` in that repo started the dashboard or registered the repo. |

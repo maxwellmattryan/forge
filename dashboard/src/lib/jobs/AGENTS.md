@@ -13,6 +13,7 @@ A job as the board and the drawer show it: its state, card and table, dependenci
 | `deps.ts` | Dependency links between jobs (`dependsOn`), derived from /api/state jobs. |
 | `drawer.ts` | The job drawer: its tabs and width with their keyboard rules, the file it shows, timeline lines and the verdict matrix, as plain functions node:test can pin. |
 | `effort.ts` | Reasoning effort as the dashboard shows it. |
+| `overlap.ts` | The drawer's Overlaps with card: the job's last `forge overlap` report (GET /api/jobs/:id `overlap`) as rows. |
 | `protected.ts` | The protected-paths flag as the board, the drawer and the Needs-you card show it. |
 | `repos.ts` | The drawer's Repos table and the card's member PR chips, for a job with member repos (job.repos: the root repo first, then members). |
 | `screenshots.ts` | The drawer's Screenshots card: UI evidence that agents saved to the job's screenshots/ dir. |

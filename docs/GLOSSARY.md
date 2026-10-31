@@ -161,8 +161,8 @@ Words for automations (planned, M011; #508, #509, #510): deterministic work that
 | **outside PR** | A pull request Forge didn't open: a bot's (dependabot, renovate), a teammate's or a contributor's, same-repo or fork (planned, #509). | - |
 | **assessment** | A read-only agent's summary, risk, timing and recommendation for an outside PR. Assessing never adopts (planned, #509). | - |
 | **shepherd** | To adopt a granted author's same-repo outside PR as a job that keeps it mergeable and green. Never a fork PR (planned, #510). | - |
-| **overlap** | Where two pieces of work (jobs, PRs, human pushes) change the same files or hunks (planned, #508). | - |
-| **timing** | The overlap check's fixed-rule answer for one job or PR: `merge-now`, `wait-for`, `merge-first` or `needs-human`. Not a verdict (planned, #508). | - |
+| **overlap** | Where two pieces of work (jobs, PRs, human pushes) change the same files or hunks; `forge overlap` checks one job or PR against the rest. | - |
+| **timing** | The overlap check's fixed-rule answer for one job or PR: `merge-now`, `wait-for`, `merge-first` or `needs-human`. Not a verdict. | - |
 | **tick** | One pass that fires every due automation (`forge automation tick`, or `forge dash`'s poll; both planned). | - |
 
 ## Collisions we avoid

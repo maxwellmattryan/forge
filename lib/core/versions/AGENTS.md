@@ -22,6 +22,7 @@ The version lists: one append-only list of named steps per persisted shape, whos
 | `machine.ts` | The machine index version steps: `<FORGE_HOME>/projects.json`'s schemaVersion is this list's length plus one. |
 | `mandate-summary.ts` | The closing summary version steps: a closed mandate's summary.json `schemaVersion` (`.forge/runtime/mandates/<id>/summary.json`) is this list's length plus one. |
 | `mandate.ts` | The mandate version steps: a mandate file's `schemaVersion` (`.forge/runtime/mandates/<id>.md`) is this list's length plus one. |
+| `overlap.ts` | The overlap report version steps: a `forge overlap` report's `schemaVersion` (`.forge/runtime/overlap/jobs/<id>.json`, `.forge/runtime/overlap/prs/<n>.json`) is this list's length plus one. |
 | `prompt-history.ts` | The prompt history version steps: a `.forge/runtime/permission-prompts.jsonl` line's `v` is PROMPT_HISTORY_STEPS' length plus one. |
 | `steps.ts` | Version steps: a shape's version is its append-only list of named steps, length plus one. |
 <!-- forge:map:end -->

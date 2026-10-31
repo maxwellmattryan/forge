@@ -12,6 +12,7 @@ The job panel's Details tab cards: the environment, repos, dependencies, screens
 | `DepSection.svelte` | The drawer's Dependencies card: "Depends on" and "Blocks" rows, each only when non-empty. |
 | `EnvironmentSection.svelte` | The drawer's Environment card, for active jobs only: Focus or Unfocus (a pointer, POST /api/focus), Open in editor (the worktree in FORGE_EDITOR on the machine running forge dash), the job's component endpoints (an Open link, the dev server's with a live dot), the dev server row and the backing services list (GET /api/jobs/:id/environment, polled every 5 s while the tab is visible) with their Start, Stop, Restart and Logs controls, and one log viewer at a time. |
 | `MergeNowSection.svelte` | The drawer's Merge now card, above Delete job, for a job whose PR is open: a person's override of the merge checks. |
+| `OverlapSection.svelte` | The drawer's Overlaps with card, below Dependencies: the job's last `forge overlap` report, its timing with refs, when it was checked, and one row per job, PR or push that shares files with it; nothing without counterparts. |
 | `RepoSection.svelte` | The drawer's Repos table for a job with member repos: one row per job repo, root first. |
 | `ScreenshotsPanel.svelte` | The drawer's Screenshots card: a tile per file in the job's screenshots/ dir, each opening the image in a new tab; nothing without files. |
 <!-- forge:map:end -->
