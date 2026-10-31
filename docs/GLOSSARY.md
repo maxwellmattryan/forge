@@ -162,6 +162,8 @@ Words for automations (planned, M011; #508, #509, #510): deterministic work that
 | **assessment** | A read-only agent's summary, risk, timing and recommendation for an outside PR. Assessing never adopts (planned, #509). | - |
 | **shepherd** | To adopt a granted author's same-repo outside PR as a job that keeps it mergeable and green. Never a fork PR (planned, #510). | - |
 | **overlap** | Where two pieces of work (jobs, PRs, human pushes) change the same files or hunks; `forge overlap` checks one job or PR against the rest. | - |
+| **overlap group** | Open PRs of one mandate linked by a shared file or hunk (their overlap reports) or a dependency, transitively. A PR in no group overlaps nothing in its mandate. | - |
+| **merge queue** | A mandate's ranked order for landing the PRs of each overlap group: dependencies first, then the ready ones, then the most input + output tokens spent. Advisory when a person merges; when Forge merges, a PR waits (`overlap`) while a ready PR ranked ahead of it lands. | - |
 | **timing** | The overlap check's fixed-rule answer for one job or PR: `merge-now`, `wait-for`, `merge-first` or `needs-human`. Not a verdict. | - |
 | **tick** | One pass that fires every due automation (`forge automation tick`, or `forge dash`'s poll; both planned). | - |
 
@@ -185,6 +187,7 @@ Some of these words already mean something in Forge. They keep those meanings:
 - "Chat" is always the owner's conversation with the Foreman; it never means the job panel's Thread, whose messages are a job's agents and decisions.
 - "Layer" alone keeps [its meaning in the architecture docs](architecture/layers.md) (engine, roster, repo layer, runtime state). The folders of `lib/` are "lib layers".
 - An "agent run" is one run of a role's agent (`runHistory` on its agent record); a job's `runs[]` are orchestrator sessions' stints on the job, and a "verify run" is one `forge verify` attempt.
+- "Merge queue" is a mandate's ranked order for its overlapping PRs; GitHub's own merge queue, and a merge queued with `gh pr merge --auto`, always carry their names.
 - "backlog" means the local tracker (`tracker.kind: local`, `.forge/backlog.md` and its title-slug refs) and the pipeline's first stage (`backlog`); the dashboard page that lists any tracker's items is "Issues", and its data route `GET /api/backlog` keeps its name.
 - "Workers" is the status bar's pool of job sessions; "agent" stays a pipeline role's subagent (agent stages, the Agents view and tab), never a pool session.
 - "Rule" stays the step decider's pipeline rules (`RULES` in `lib/engine/pipeline/step/rules.ts`); automations have conditions, never rules.

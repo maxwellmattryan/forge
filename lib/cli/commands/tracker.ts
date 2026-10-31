@@ -120,7 +120,7 @@ export const HELP: HelpGroup[] = [
   {
     name: 'sync',
     summary: 'reconcile PRs and trackers for all jobs',
-    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs and every merged job of a mandate that scores all (scoring.sample, the mandate's scoring term; at most 5 per run), retarget stacked PRs, release dependency waits and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, the requests it requeued and the stale resume requests it closed" }],
+    commands: [{ command: 'sync', args: '', summary: "reconcile PRs and trackers for every job, measure merged jobs' outcomes (revert, follow-up bugs, churn; at most 10 per run), queue a post-merge judge score run for sampled merged jobs and every merged job of a mandate that scores all (scoring.sample, the mandate's scoring term; at most 5 per run), retarget stacked PRs, release dependency waits and the merge queue's holds, and finish umbrella jobs; a job's failure is reported in its result. Then the reconciler's pass, unless a running forge dash owns it: `reconcile` lists the running jobs it resumed or escalated for having nothing to drive them, the requests it requeued and the stale resume requests it closed" }],
   },
   TRACKER,
 ];
