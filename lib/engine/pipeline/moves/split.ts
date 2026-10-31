@@ -85,10 +85,11 @@ export function planJobs(text: string): { items: PlanItem[] } | { error: string 
         dependsOn = [...new Set(refs.map((r) => Number(r.slice(1))))];
       }
     }
-    const cut = SEPARATORS.map((s) => body.indexOf(s)).filter((i) => i >= 0).sort((a, b) => a - b)[0];
-    const sep = cut === undefined ? null : SEPARATORS.find((s) => body.startsWith(s, cut))!;
-    const title = oneLineTitle(cut === undefined ? body : body.slice(0, cut)).slice(0, MAX_TITLE).trim();
-    const scope = cut === undefined ? '' : body.slice(cut + sep!.length).trim();
+    const cut = SEPARATORS.map((sep) => ({ sep, at: body.indexOf(sep) }))
+      .filter((c) => c.at >= 0)
+      .sort((a, b) => a.at - b.at)[0];
+    const title = oneLineTitle(cut ? body.slice(0, cut.at) : body).slice(0, MAX_TITLE).trim();
+    const scope = cut ? body.slice(cut.at + cut.sep.length).trim() : '';
     if (!title) return { error: `item ${n} has no title` };
     items.push({ n, title, scope, dependsOn });
   }
