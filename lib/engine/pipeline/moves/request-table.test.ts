@@ -22,7 +22,13 @@ test('the human-command table', () => {
     ['an approve from sync', req('approve', { from: 'sync' }), parked('escalation'), { refuse: 'human decisions come from a person (this approve came from sync)' }],
     ['a cancel from the code driver', req('cancel', { from: 'code-driver' }), job(), { refuse: 'human decisions come from a person (this cancel came from code-driver)' }],
     ['a rework with no from', req('rework', { from: undefined as unknown as string }), parked('escalation'), { refuse: 'human decisions come from a person (this rework came from nowhere)' }],
-    ['a resume from sync on an infra park', req('resume', { from: 'sync' }), parked('infra'), { steps: [{ human: 'approve', note: 'steps done' }] }],
+    // A resume's button rows are a person's: from any other source it only moves the job on (the step loop answers it).
+    ['a resume from sync on an infra park', req('resume', { from: 'sync' }), parked('infra'), { none: true }],
+    ['a resume from a job session on an infra park', req('resume', { from: 'daemon:other' }), parked('infra'), { none: true }],
+    ['a resume from forge on a conflicts park', req('resume', { from: 'forge' }), parked('conflicts'), { none: true }],
+    ['a resume from the reconciler on an external park', req('resume', { from: 'reconciler' }), parked('external'), { none: true }],
+    ['a resume from budget on a failed job', req('resume', { from: 'budget' }), job({ state: 'failed' }), { none: true }],
+    ['a resume from the cli on a conflicts park', req('resume', { from: 'cli' }), parked('conflicts'), { steps: [{ set: { stage: 'decide', state: 'running', note: 'conflicts with base deferred' } }] }],
     // The shelf.
     ['an approve on a shelved job', req('approve', { from: 'cli' }), parked('shelved'), { refuse: 'job j is shelved; un-shelve it first (the Shelved list in Needs you, or forge job unshelve j in your own terminal)' }],
     ['a resume on a shelved job', req('resume'), parked('shelved'), { refuse: 'job j is shelved; un-shelve it first (the Shelved list in Needs you, or forge job unshelve j in your own terminal)' }],

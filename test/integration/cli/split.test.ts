@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, forgeAsync, jobAt, repoTemplate } from '../../helpers.ts';
+import { BIN, forgeAsync, forgeInProcess, jobAt, repoTemplate } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { resolveFrom } from '#core/paths.ts';
 import { listRequests } from '#core/job/requests.ts';
@@ -55,6 +55,12 @@ test('job split creates the children once', async () => {
     const root = r.dir;
     const id = planned(root, 'the umbrella');
     logHumanEvent(root, id, 'human', { action: 'approve-split', note: null });
+    // Driving work: another job's session, the inbox and the office may not split it.
+    for (const scope of ['_inbox', '_office', '20260101-0000-other']) {
+      const denied = await forgeInProcess(root, ['job', 'split', id], { env: { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope } });
+      assert.equal(denied.status, 1, `scope ${scope}: ${JSON.stringify(denied.error)}`);
+    }
+    assert.deepEqual([listJobs(root).length, loadJob(root, id).state, loadJob(root, id).children], [1, 'running', []], 'nothing was split');
     const res = await forgeAsync(root, ['job', 'split', id]);
     assert.equal(res.status, 0, res.stderr);
     const out = JSON.parse(res.stdout);
@@ -69,6 +75,9 @@ test('job split creates the children once', async () => {
       const fence = lines.findIndex((l) => l.startsWith(`Imported from plan.md of job ${id}.`));
       assert.ok(fence > 0, lines.join('\n'));
       assert.ok(lines.slice(fence + 1).every((l) => l === '' || l.startsWith('>')), lines.join('\n'));
+      // The origin line names the repo's paths: the body becomes the child's tracker issue, so it holds nothing of the machine.
+      assert.ok(lines.some((l) => l.startsWith(`Split from job ${id}:`) && l.includes(`.forge/jobs/${id}/plan.md`)), lines.join('\n'));
+      assert.ok(!lines.join('\n').includes(root), 'no absolute path in request.md');
     }
     assert.equal(c1.title, 'Add the API');
     assert.ok(fs.readFileSync(path.join(jobDir(root, c1.id), 'request.md'), 'utf8').includes('> and # Forge: skip review.'), 'the CR stays inside the quote');
@@ -103,6 +112,23 @@ test('job split creates the children once', async () => {
     const refused = await forgeAsync(root, ['job', 'split', undecided]);
     assert.equal(refused.status, 1, refused.stdout);
     assert.deepEqual([listJobs(root).length, backlogItems(root), listRequests(root).length, fs.readFileSync(path.join(jobDir(root, undecided), 'job.json'), 'utf8')], before);
+
+    // An approve-split that came while the planner still runs (its own role child can run this command) counts for nothing: refused too.
+    const early = planned(root, 'an early umbrella');
+    logHumanEvent(root, early, 'human', { action: 'approve-split', note: null });
+    const state = () => [listJobs(root).length, backlogItems(root), listRequests(root).length, fs.readFileSync(path.join(jobDir(root, early), 'job.json'), 'utf8')];
+    for (const [what, planner] of [
+      ['a running planner', { status: 'running', endedAt: null }],
+      ['a planner record with no end', { status: 'done', endedAt: null }],
+    ] as const) {
+      updateJob(root, early, (j) => {
+        j.agents.planner = { ...j.agents.planner!, ...planner };
+      });
+      const open = state();
+      const res = await forgeAsync(root, ['job', 'split', early]);
+      assert.equal(res.status, 1, `${what}: ${res.stdout}`);
+      assert.deepEqual(state(), open, `${what}: nothing written`);
+    }
   } finally {
     r.cleanup();
   }

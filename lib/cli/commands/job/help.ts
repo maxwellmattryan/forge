@@ -76,7 +76,7 @@ export const JOB: HelpGroup = {
       args: '<id>',
       summary:
         "turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing",
-      exits: [[1, "no such job, a job not at plan/running, a plan.md that is not a PLAN: SPLIT, a split not decided (split mode not auto and no approve-split after the planner ended), or a ## Jobs list that does not parse (no items, a duplicate number or title, an empty title, a dependency on an unknown item or itself, a cycle, or more than 20 items)"]],
+      exits: [[1, "no such job, a job not at plan/running, a planner still running, a plan.md that is not a PLAN: SPLIT, a split not decided (split mode not auto and no approve-split after the planner ended), a daemon session of another scope (a job session splits only its own job), or a ## Jobs list that does not parse (no items, a duplicate number or title, an empty title, a dependency on an unknown item or itself, a cycle, or more than 20 items)"]],
     },
     { command: 'job list', args: '[--all]', summary: 'active jobs, one object each', flags: [['--all', 'include finished and cancelled jobs']] },
     { command: 'job show', args: '<id> [--full]', summary: 'one job, compact (the whole job.json with --full)', flags: [['--full', 'print the whole job.json']], exits: [NO_JOB] },
@@ -204,7 +204,7 @@ export const JOB: HelpGroup = {
       command: 'job apply',
       args: '<id> --request <rid> --session S',
       summary:
-        "apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a plain resume the step loop answers is given back pending. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md \"Code driver\")",
+        "apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a resume is a person's only for the dashboard's buttons (infra, external, conflicts, failed), and a plain resume, or any from another source, is given back pending for the step loop to answer. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md \"Code driver\")",
       flags: [
         ['--request R', 'the request id (required)'],
         ['--session S', 'the session claiming the request (required)'],

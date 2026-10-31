@@ -295,7 +295,11 @@ const ours = (d: TurnDeps) => (q: ForgeRequest): boolean => q.job === d.scope &&
  */
 async function applyRequests(d: TurnDeps, t: Turn, only: (q: ForgeRequest) => boolean = () => true): Promise<void> {
   for (const q of turnRequests(d, t).filter(ours(d)).filter(only)) {
-    if (!validRequestId(q.id)) continue;
+    if (!validRequestId(q.id)) {
+      // Never into argv, and never silent: a request that stays open should say why.
+      d.log('apply-skipped', `request ${oneLine(q.id, 60)} has an id outside the request grammar: left open`, { requestType: oneLine(q.type, 20) });
+      continue;
+    }
     const r = await forge(d, t, ['job', 'apply', d.scope, '--request', q.id, '--session', d.id]);
     if (r === null) return;
     const out = record(r.json);

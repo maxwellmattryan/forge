@@ -7,7 +7,7 @@ import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { decideRepoProposals } from '#engine/project/repo-proposals.ts';
 import { approvalNotesPath, builderNoteRefusal, writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
-import { appendRequestAnswer, requestPlan, writeRequestFeedback, type RequestStep } from '#engine/pipeline/moves/request-table.ts';
+import { appendRequestAnswer, requestPlan, writeRequestFeedback, type RequestPlan, type RequestStep } from '#engine/pipeline/moves/request-table.ts';
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { isRepoHold } from '#engine/metrics/repo-budget.ts';
 import { JOB_REQUEST_TYPES, ackRequest, claimRequest, daemonScope, inChat, inOffice, readRequest, releaseClaim, validRequestId } from '#core/job/requests.ts';
@@ -153,9 +153,21 @@ export async function apply(root: string, config: Config, rest: string[], flags:
 
   // Exit 3 for another live session's claim, exit 1 for a closed request: both before any write.
   const rec = claimRequest(root, rid, session);
-  const job = loadJob(root, jobId);
-  const plan = requestPlan(rec, job, { stillExceeded: stillExceeded(root, config, job), now: new Date() });
   const out = (status: ApplyResult['status'], result: string, recorded: string[]): ApplyResult => ({ id: jobId, request: rid, type: rec.type, from: rec.from, createdAt: rec.createdAt, status, result, recorded });
+  /** A throw acks the request rejected with the error, so it never stays in progress under this session. */
+  const failed = (e: unknown, recorded: string[]): ApplyResult => {
+    // The steps before it stay done, and the result says which.
+    const result = `error: ${String((e as Error)?.message ?? e).split('\n')[0].slice(0, 300)}${recorded.length ? ` (already recorded: ${recorded.join(', ')})` : ''}`;
+    ackRequest(root, rid, { status: 'rejected', result });
+    return out('rejected', result, recorded);
+  };
+  let plan: RequestPlan;
+  try {
+    const job = loadJob(root, jobId);
+    plan = requestPlan(rec, job, { stillExceeded: stillExceeded(root, config, job), now: new Date() });
+  } catch (e) {
+    return failed(e, []);
+  }
   if ('none' in plan) {
     releaseClaim(root, rid, session);
     return out('pending', PENDING_RESULT, []);
@@ -169,10 +181,7 @@ export async function apply(root: string, config: Config, rest: string[], flags:
     try {
       recorded.push(await applyStep(root, config, jobId, rec, s));
     } catch (e) {
-      // The steps before it stay done, and the result says which.
-      const result = `error: ${String((e as Error)?.message ?? e).split('\n')[0].slice(0, 300)}${recorded.length ? ` (already recorded: ${recorded.join(', ')})` : ''}`;
-      ackRequest(root, rid, { status: 'rejected', result });
-      return out('rejected', result, recorded);
+      return failed(e, recorded);
     }
   }
   const result = `recorded ${recorded.join(', ')}`;

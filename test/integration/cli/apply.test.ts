@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { BIN, forgeAsync, forgeInProcess, jobAt, parkedAt, repoTemplate } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { claimRequest, enqueue, listRequests } from '#core/job/requests.ts';
-import { jobDir, readEvents } from '#core/job/store.ts';
+import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
 
 const scratch = repoTemplate((dir) => {
   const answers = path.join(dir, '.answers.json');
@@ -75,6 +75,35 @@ test('job apply records, fences and acks a request', async () => {
     // A request already closed is refused.
     const again = await run(spec, approve.id);
     assert.equal(again.status, 1, again.stdout);
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("job apply leaves a resume that is not a person's to the step loop", async () => {
+  const r = scratch();
+  try {
+    const root = r.dir;
+    // The Foreman records its approve at conflicts, then queues a resume from forge: that resume records nothing, so step's GA4 sends the job to the integrator.
+    const conflicts = parkedAt(root, 'conflicts').id;
+    assert.equal((await forgeInProcess(root, ['job', 'human', conflicts, 'approve'])).status, 0);
+    // A job session's resume at an infra park does not pass the gate.
+    const infra = parkedAt(root, 'infra').id;
+    const rows = [
+      { name: 'forge at conflicts', job: conflicts, req: add(root, 'resume', conflicts, { from: 'forge' }), waitingOn: 'conflicts' },
+      { name: 'a job session at infra', job: infra, req: add(root, 'resume', infra, { from: 'daemon:other' }), waitingOn: 'infra' },
+    ];
+    for (const row of rows) {
+      const res = await forgeInProcess(root, ['job', 'apply', row.job, '--request', row.req.id, '--session', 'me']);
+      assert.equal(res.status, 0, `${row.name}: ${JSON.stringify(res.error)}`);
+      assert.deepEqual([(res.data as any).status, (res.data as any).recorded], ['pending', []], row.name);
+      assert.equal(request(root, row.req.id).status, 'pending', row.name);
+      assert.deepEqual([loadJob(root, row.job).state, loadJob(root, row.job).waitingOn], ['waiting', row.waitingOn], `${row.name}: the park is untouched`);
+    }
+    assert.deepEqual(readEvents(root, infra).filter((e) => e.type === 'human'), [], 'no decision recorded at infra');
+    assert.deepEqual(readEvents(root, conflicts).filter((e) => e.type === 'human').map((e) => e.action), ['approve'], "only the Foreman's approve");
+    const step = (await forgeInProcess(root, ['job', 'step', conflicts])).data as any;
+    assert.deepEqual([step.rule, step.action, step.command], ['GA4', 'run', ['job', 'set', conflicts, '--stage', 'integrate', '--state', 'running']], JSON.stringify(step));
   } finally {
     r.cleanup();
   }

@@ -1041,7 +1041,7 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | 3 | another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end |
 | 5 | the role failed because claude never started (failure.class spawn) or closed without a result (exit) |
 
-**`forge job apply <id> --request <rid> --session S`**: apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a plain resume the step loop answers is given back pending. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md "Code driver")
+**`forge job apply <id> --request <rid> --session S`**: apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a resume is a person's only for the dashboard's buttons (infra, external, conflicts, failed), and a plain resume, or any from another source, is given back pending for the step loop to answer. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md "Code driver")
 
 | Flag | Meaning |
 |---|---|
@@ -1403,7 +1403,7 @@ See [Job repos](architecture/job-repos.md).
 
 | Exit | When |
 |---|---|
-| 1 | no such job, a job not at plan/running, a plan.md that is not a PLAN: SPLIT, a split not decided (split mode not auto and no approve-split after the planner ended), or a ## Jobs list that does not parse (no items, a duplicate number or title, an empty title, a dependency on an unknown item or itself, a cycle, or more than 20 items) |
+| 1 | no such job, a job not at plan/running, a planner still running, a plan.md that is not a PLAN: SPLIT, a split not decided (split mode not auto and no approve-split after the planner ended), a daemon session of another scope (a job session splits only its own job), or a ## Jobs list that does not parse (no items, a duplicate number or title, an empty title, a dependency on an unknown item or itself, a cycle, or more than 20 items) |
 
 **`forge job step <id> [--session S] [--epoch N]`**: the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease
 

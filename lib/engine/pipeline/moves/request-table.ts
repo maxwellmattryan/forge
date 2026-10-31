@@ -124,7 +124,8 @@ function approvePlan(req: ForgeRequest, job: Job, on: string | null, ctx: Reques
 
 /**
  * The plan for one request on its job: provenance first (a decision only from a person), then the shelf, then the row for
- * the request type and the gate the job waits at. `none` leaves a plain resume to the step loop.
+ * the request type and the gate the job waits at. `none` leaves a plain resume to the step loop; a resume's button rows
+ * (infra, external, conflicts, failed) are a person's too.
  */
 export function requestPlan(req: ForgeRequest, job: Job, ctx: RequestPlanContext): RequestPlan {
   const type = req.type;
@@ -148,6 +149,9 @@ export function requestPlan(req: ForgeRequest, job: Job, ctx: RequestPlanContext
     case 'cancel':
       return steps({ set: { state: 'cancelled', reason: oneLineTitle(textOf(req)).slice(0, 200) || 'cancelled by a person' } });
     case 'resume':
+      // The four rows are the dashboard's buttons, a person's choice. A resume from Forge, sync or a daemon session only
+      // moves the job on: the step loop answers it (the Foreman's approve at conflicts is GA4's, not a deferral).
+      if (!PERSON_SOURCES.includes(req.from)) return { none: true };
       if (on === 'infra') return steps(human('approve', 'steps done'));
       if (on === 'external') return steps({ set: { state: 'running' } });
       if (on === 'conflicts') return steps({ set: { stage: 'decide', state: 'running', note: 'conflicts with base deferred' } });

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { splitJob } from '#engine/pipeline/moves/split.ts';
 import { checkRepoBudget, parkForRepoBudget, repoBudgetBlock } from '#engine/metrics/repo-budget.ts';
 import { claimJob, createJob, jobDir, logEvent, logHumanEvent } from '#core/job/store.ts';
+import { daemonScope } from '#core/job/requests.ts';
 import { issueLinkStatus } from '#core/job/issue-link.ts';
 import { checkIssueRef, isSafeUrl, issueUrl } from '#core/job/issue-ref.ts';
 import { githubHost, localRepoSlug } from '#integrations/git/repo-slug.ts';
@@ -142,9 +143,16 @@ export async function link(root: string, config: Config, rest: string[], flags: 
   return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, refs);
 }
 
-/** `forge job split <id>`: a decided PLAN: SPLIT as child jobs (lib/engine/pipeline/moves/split.ts). */
+/**
+ * `forge job split <id>`: a decided PLAN: SPLIT as child jobs (lib/engine/pipeline/moves/split.ts). Driving work: a
+ * daemon session splits only its own job, never another's, the inbox's, a chat's or the office's.
+ */
 export function split(root: string, config: Config, rest: string[], flags: Record<string, any>) {
-  return splitJob(root, config, requireJob(root, rest[0]).id, { tracker: () => loadTracker(root, config) });
+  const id = req(rest[0], 'job id');
+  const scope = daemonScope();
+  if ('problem' in scope) throw new ForgeError(scope.problem, 1);
+  if (scope.daemon && scope.scope !== id) throw new ForgeError(`forge job split in scope ${scope.scope} splits no job but its own (${id})`, 1);
+  return splitJob(root, config, requireJob(root, id).id, { tracker: () => loadTracker(root, config) });
 }
 
 export async function fromRef(root: string, config: Config, rest: string[], flags: Record<string, any>) {
