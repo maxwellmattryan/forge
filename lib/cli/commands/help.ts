@@ -27,6 +27,7 @@ import { HELP as JOB } from './job/help.ts';
 import { HELP as MANDATE } from './mandate.ts';
 import { HELP as NOTIFY } from './notify.ts';
 import { HELP as OFFICE } from './office.ts';
+import { HELP as OVERLAP } from './overlap.ts';
 import { HELP as PROJECT } from './project.ts';
 import { HELP as RELEASE } from './release.ts';
 import { HELP as REQUESTS } from './requests.ts';
@@ -254,7 +255,7 @@ export const CORE: HelpGroup[] = [
   },
 ];
 
-const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...CHAT, ...OFFICE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
+const ALL = [...STATUS, ...TRACKER, ...JOB, ...CORE, ...BACKING, ...ENVIRONMENT, ...FOCUS, ...PROJECT, ...SERVICE, ...AUDIT, ...BUDGET, ...OVERLAP, ...SECRETS, ...VERIFIERS, ...GIT, ...EVAL, ...EXPERIMENT, ...MANDATE, ...CHAT, ...OFFICE, ...REQUESTS, ...DAEMON, ...NOTIFY, ...RELEASE, ...INIT, ...CONFIG, ...DOCTOR, ...DASH, ...UPDATE];
 const byName = (a: string, b: string): number => a.localeCompare(b, 'en');
 const flagKey = (f: string): string => f.replace(/^[-\s]+/, '');
 

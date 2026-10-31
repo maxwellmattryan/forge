@@ -36,6 +36,7 @@ import { agentRunCmd } from './commands/job/agent-run.ts';
 import { auditCmd } from './commands/audit.ts';
 import { backingCmd } from './commands/backing.ts';
 import { budgetCmd } from './commands/budget.ts';
+import { overlapCmd } from './commands/overlap.ts';
 import { environmentCmd } from './commands/environment.ts';
 import { num, out, outputMode, parseArgs, req, requireJob, resolveOutputMode, setOutputMode, setRenderKey, withoutJson, withoutMode } from './commands/args.ts';
 import { configCmd } from './commands/config.ts';
@@ -269,6 +270,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
     case 'budget':
       needInit();
       return ok(await budgetCmd(root, config, sub, flags));
+    case 'overlap':
+      needInit();
+      return ok(overlapCmd(root, config, pos.slice(1), flags, ghGitHub));
     case 'audit':
       needInit();
       return ok(auditCmd(root, pos.slice(1), flags));

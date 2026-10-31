@@ -7,6 +7,7 @@ import { backingStatus } from './backing.ts';
 import { configGet, configShow, configValidate } from './config.ts';
 import { doctor } from './doctor.ts';
 import { jobClaim, jobList, jobNote, jobShow, jobStep } from './job.ts';
+import { overlap } from './overlap.ts';
 import { prMerge, prOpen, prSync } from './pr.ts';
 import { requests, stats, status } from './status.ts';
 import { sync } from './sync.ts';
@@ -26,6 +27,7 @@ export const RENDERERS: Readonly<Record<string, Renderer>> = Object.freeze({
   doctor,
   sync,
   verify,
+  overlap,
   'requests list': requests,
   'job list': jobList,
   'job show': jobShow,
@@ -44,7 +46,7 @@ export const RENDERERS: Readonly<Record<string, Renderer>> = Object.freeze({
 });
 
 /** Commands whose key is their first word, whatever follows it (`verify <id>`). */
-const ONE_WORD = new Set(['version', 'update', 'status', 'stats', 'doctor', 'sync', 'verify']);
+const ONE_WORD = new Set(['version', 'update', 'status', 'stats', 'doctor', 'sync', 'verify', 'overlap']);
 /** The subcommand a group runs when none is given. */
 const DEFAULT_SUB: Readonly<Record<string, string>> = { config: 'show', requests: 'list' };
 
