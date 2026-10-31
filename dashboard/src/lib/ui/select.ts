@@ -1,7 +1,7 @@
 // The keyboard model of components/ui/Select.svelte, the dashboard's themed replacement for a native <select> (the WAI-ARIA
 // "select-only combobox"), as plain functions node:test can pin: which option opens active, how arrows, Home/End and
-// type-ahead move it, and which keys choose, close or are left to the page. An option's icon, hint, group and separator
-// are presentation only: indices stay flat over every option, and type-ahead matches `label` even when the component
+// type-ahead move it, and which keys choose, close or are left to the page. An option's icon, hint, group, separator and
+// badge are presentation only: indices stay flat over every option, and type-ahead matches `label` even when the component
 // renders the entry through a snippet. An `action` option is an ordinary enabled entry for every key here; the component
 // only never makes it the value, so `selectedIndex` never finds it.
 
@@ -22,6 +22,8 @@ export interface SelectOption {
   readonly separator?: boolean;
   /** An action, not a choice: choosing it calls onchange but never makes it the value (no check, trigger text unchanged). */
   readonly action?: boolean;
+  /** An ember dot after the label: something on it waits on you. */
+  readonly badge?: boolean;
 }
 export interface SelectState {
   readonly open: boolean;
