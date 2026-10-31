@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { enforceBudget } from '#engine/metrics/budget.ts';
-import { cancelLensRun } from '#engine/pipeline/moves/cancel-lens.ts';
+import { cancelLensRun } from '#engine/verify/cancel-lens.ts';
 import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, importCursor, jobDir, loadJob, recordAgent, renewLease, resolveAgentOutput, type Fence } from '#core/job/store.ts';
 import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';

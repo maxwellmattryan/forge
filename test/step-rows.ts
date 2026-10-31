@@ -2213,6 +2213,18 @@ export const rows: Row[] = [
   },
   { name: 'G4b human with another reason gets the generic tell', fx: { job: job({ stage: 'build', state: 'waiting', waitingOn: 'human', reason: 'protected path edited' }) }, want: { action: 'wait', waitingOn: 'human', tell: 'j needs a human: protected path edited. /forge approve j once it is resolved, or /forge rework j <note>' } },
   { name: 'PR4 merges an eligible PR', fx: { config: (c) => (c.merge.auto = true), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: run('pr', 'merge', 'j') },
+  {
+    name: 'PR20 holds behind a ready PR ranked ahead',
+    fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, mergeAhead: 'k', events: [APPROVED, ev('pr-opened', 11)] },
+    want: { ...run('job', 'set', 'j', '--state', 'waiting', '--waiting-on', 'overlap', '--reason', 'merge queue: waits for k to merge first, ranked ahead in its overlap group'), rule: 'PR20' },
+  },
+  { name: 'PR4 merges with nothing ahead', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, mergeAhead: null, events: [APPROVED, ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
+  { name: 'PR5 ship propose never holds', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'propose' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, mergeAhead: 'k', events: [APPROVED, ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
+  {
+    name: 'G4b overlap tell',
+    fx: { job: job({ stage: 'pr', state: 'waiting', waitingOn: 'overlap', reason: 'merge queue: waits for k to merge first, ranked ahead in its overlap group' }) },
+    want: { action: 'wait', waitingOn: 'overlap', tell: 'j waits in the merge queue (merge queue: waits for k to merge first, ranked ahead in its overlap group). forge sync lets it merge once the PR ahead merges or stops being ready' },
+  },
   { name: 'PR5 ship propose never merges (PR4 holds off)', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'propose' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { action: 'run', rule: 'PR5' } },
   { name: 'PR4 ship merge needs approver eligibility: eligible merges', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'merge' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },
   { name: 'PR4 ship release merges like merge', fx: { config: (c) => Object.assign(c.foreman, { enabled: true, ship: 'release' }), job: job({ stage: 'pr', round: 1, verifyRuns: [vr(1, 10, true)] }), decision: { decision: 'APPROVE' }, events: [APPROVED,ev('pr-opened', 11)] }, want: { ...run('pr', 'merge', 'j'), rule: 'PR4' } },

@@ -42,6 +42,9 @@ export const WAITING_ON = [
   'human',
   // A person set the job aside (`forge job shelve`): nothing resumes it, and only a person takes it off the shelf.
   'shelved',
+  // A mandate's merge queue holds the merge (step PR20) while a ready PR ranked ahead in its overlap group lands first;
+  // forge sync lets it go once that PR merges or stops being ready. Not a person's decision.
+  'overlap',
 ] as const;
 
 /**

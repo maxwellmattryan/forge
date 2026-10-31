@@ -111,7 +111,10 @@ export const JOB_STEPS: readonly Step[] = [
   // v23 adds the context sessions `forge job agent run` starts and forks (lib/engine/workspace/context-session.ts).
   // A v22 job never had one, so its role runs start cold or a new context, as a new job's do.
   { id: 'context-sessions', up: (j) => ({ ...j, contexts: j.contexts ?? [] }) },
-  // v24 adds VerifyRun.partial (`forge verify --fast`) and VerifyRun.durationMs, and the `cancelled` agent status (a lens
+  // v24 adds the `overlap` wait (a mandate's merge queue, step PR20). No v23 job waits on it; the bump makes an older
+  // Forge refuse a job parked there rather than read a wait it does not know.
+  { id: 'overlap-wait', up: (j) => j },
+  // v25 adds VerifyRun.partial (`forge verify --fast`) and VerifyRun.durationMs, and the `cancelled` agent status (a lens
   // run a late verify failure voided). A v23 job has none of them. The bump lets an older Forge refuse a job whose
   // partial pass it would read as a verified HEAD.
   { id: 'partial-verify', up: (j) => j },

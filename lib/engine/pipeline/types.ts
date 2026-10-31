@@ -113,6 +113,11 @@ export interface StepInput {
    */
   decisionCurrent: boolean | null;
   /**
+   * At stage pr, for a mandate job with an open PR while Forge merges (autoMerge): the ready PR ranked ahead of it
+   * in its overlap group, which merges first (mergeHold, lib/engine/pipeline/moves/merge-queue.ts); null otherwise.
+   */
+  mergeAhead: string | null;
+  /**
    * At stage decide or pr, state running, for a non-eval job: whether every job repo's HEAD still
    * follows the head the round's review was given (reviewCurrent); null otherwise, or when the round
    * has no recorded review.

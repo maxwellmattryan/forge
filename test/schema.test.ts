@@ -198,13 +198,7 @@ const JOB_ROWS: Row[] = [
     fields: { splitMode: null, effort: null, agents: { builder: { ...AGENTS.builder, legacyRuns: 2 } }, verifyRuns: [run(1, 1, false, 'abc')] },
   },
   { step: 'job-effort', input: { id: 'x' }, fields: { effort: null } },
-  {
-    step: 'human-gate',
-    input: { id: 'x', effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' },
-    fields: { effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' },
-    removed: ['_unsupported'],
-    note: 'v8 only adds the human gate',
-  },
+  { step: 'human-gate', input: { id: 'x', effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, fields: { effort: 'high', state: 'waiting', waitingOn: 'escalation', reason: 'r' }, removed: ['_unsupported'], note: 'v8 only adds the human gate' },
   { step: 'complexity', input: { id: 'x' }, fields: { complexity: null } },
   { step: 'protected-paths', input: { id: 'x' }, fields: { protectedPaths: null } },
   {
@@ -246,6 +240,7 @@ const JOB_ROWS: Row[] = [
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
   { step: 'pr-wait-reasons', input: { id: 'x', pr: { number: 7, state: 'OPEN', checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } } }, fields: { 'pr.number': 7, 'pr.checks.state': 'failing' }, removed: ['pr.failingChecks', 'pr.feedbackSinceRound'], note: 'an older PR record has neither until its next sync' },
   { step: 'context-sessions', input: { id: 'x', state: 'running', round: 2 }, fields: { contexts: [], round: 2 }, note: 'a job from before context sessions has none, so its role runs start a new one' },
+  { step: 'overlap-wait', input: { id: 'x', state: 'waiting', waitingOn: 'pr-review', reason: 'r' }, fields: { state: 'waiting', waitingOn: 'pr-review', reason: 'r' }, note: 'no v23 job waits on the merge queue' },
   { step: 'partial-verify', input: { id: 'x', round: 1, verifyRuns: [{ ...run(1, 1, true, 'a'.repeat(40)), failure: null }] }, fields: { 'verifyRuns.0.ok': true, 'verifyRuns.0.attempt': 1 }, removed: ['verifyRuns.0.partial', 'verifyRuns.0.durationMs'], note: 'an older run is a full run with no recorded duration' },
 ];
 

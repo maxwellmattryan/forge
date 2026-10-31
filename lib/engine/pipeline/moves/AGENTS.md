@@ -1,11 +1,12 @@
 # lib/engine/pipeline/moves/
 
-How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, dependency waits, the notes a spec approval carries to the builder, the clean pass that moves a job past decide without the approver, the human-command table a job request is applied by, and the split of a planned job into children.
+How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, dependency waits, the merge queue's wait, the notes a spec approval carries to the builder, the clean pass that moves a job past decide without the approver, the human-command table a job request is applied by, and the split of a planned job into children.
 
 - `request-table.ts` decides; `forge job apply` (`apply` in lib/cli/commands/job/decide.ts) carries the plan out through the `forge job human` and `forge job set` handlers, in-process. A decision is applied only from a person (`PERSON_SOURCES`), and request text reaches a file only fenced (`fenceImport`), never argv.
 
 - A stage, state or `waitingOn` change that needs effects (environment, the Foreman's gate request, the tracker mirror) goes through `moveJob` (`apply.ts`); `mirrorJob` runs the mirror alone. Notifications follow every transition through setJob's hook list (`lib/core/job/transitions.ts`), whoever writes.
 - Only tests call `useMoveEffects`; production always runs `realMoveEffects`.
+- `merge-queue.ts` is a mandate's merge queue, which step PR20 parks on (`overlap`) and forge sync releases, as it does dependency waits. It only ever delays a merge Forge makes, never causes one; a missing overlap report makes an entry unchecked (never held), and its reasons hold only entry job ids and integers.
 - `deps.ts` imports nothing from this folder: `lib/engine/workspace/worktree.ts` imports it, and anything more would risk a cycle.
 - Import order: `foreman-gates.ts` ← `effects.ts` ← `apply.ts`. `approval-notes.ts` imports nothing from this folder, and `../step/facts.ts` imports it.
 - `escalation.ts` is pure and imports nothing from this folder or from `lib/engine/guard/protected.ts`: protected.ts imports it. `gate-reasons.ts` is its I/O half (`forge job gate`).
@@ -16,13 +17,13 @@ How a job moves between stages and states: the one move with its effects, the Fo
 |---|---|
 | `apply.ts` | The one move: a locked write of a job's stage, state or waitingOn, then its effects in a fixed order (environment, the Foreman's gate request, the tracker mirror), so every caller gets the same follow-up whoever moves the job. |
 | `approval-notes.ts` | Approval notes: a person's spec-approval notes and `forge job note --for builder` hints, rendered from the job's events into approval-notes.md, which the builder brief lists. |
-| `cancel-lens.ts` | Cancelling a lens run: a late verify failure under review.startAfter fast voids the round's lens runs, running or ended, so the next pass reviews again (`forge job agent <id> cancel`, step's RV13). |
 | `clean-pass.ts` | The clean pass: when every lens passed and nothing can escalate, Forge records the APPROVE and renders decision.md and pr.md itself instead of running the approver (approver.skipWhenClean, rule DC13, `forge job decision --clean`). |
 | `deps.ts` | Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked branches and retargeting. |
 | `effects.ts` | A move's effects behind one seam: the environment a finished job leaves, the Foreman's gate request and the tracker mirror. |
 | `escalation.ts` | Escalation reasons as data: the one park reason that lists them (`escalation: <rules>`), its parser (today's form and the reasons the merge gates wrote before they collapsed), the `gate` events `forge job gate` logs, and the brief lines that carry them. |
 | `foreman-gates.ts` | The Foreman's gate policy: which gate class a job waits on, which classes the Foreman decides, what foreman.reserved and the security, total-round, retro and human-only holds keep with a human, and the `gate` requests a park queues. |
 | `gate-reasons.ts` | `forge job gate`: the mechanical reasons a job needs a person before merge (gate reasons), computed from job facts once per review and logged as a `gate` event that DC12, PR19, the briefs and the escalation park read. |
+| `merge-queue.ts` | A mandate's merge queue: within each overlap group of its open PRs, the order they should land in (dependencies, then ready ones, then the most input + output tokens spent), and the wait step PR20 parks a lower-ranked PR in while Forge merges, which forge sync releases once the PR ahead merges or stops being ready, as it does dependency waits (deps.ts). |
 | `request-table.ts` | The human-command table: what one job request (approve, revise-spec, answer, rework, cancel, resume) records on the job it names, as a plan `forge job apply` carries out, and the two files a request's text reaches (feedback.md and the questions.md answer), always fenced as data. |
 | `shelve.ts` | The shelf: a person setting a job aside (`forge job shelve`) and taking it off again (`forge job unshelve`, the dashboard's Shelved list). |
 | `split.ts` | The split (`forge job split`, step's P2 and P2b): plan.md's `## Jobs` items become child jobs, each with its issue, its dependencies and a resume, and the parent parks as their umbrella. |

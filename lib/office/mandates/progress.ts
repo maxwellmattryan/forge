@@ -113,8 +113,8 @@ export function readProgressCtx(root: string, config: Config, o: { tracker: Trac
 const SCOPE_LIMIT = 200;
 /** The window under graph and priority: at most this many candidates. */
 const WINDOW_MAX = 10;
-/** Waits that are a normal part of the work, never a bounce. */
-const UNCOUNTED = new Set(['pr-review', 'external']);
+/** Waits that are a normal part of the work, never a bounce: the merge queue's (overlap) included. */
+const UNCOUNTED = new Set(['pr-review', 'external', 'overlap']);
 
 const side = (s: unknown): Partial<TransitionSide> => (s && typeof s === 'object' ? (s as TransitionSide) : {});
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;
@@ -124,14 +124,14 @@ const latestTransition = (events: JobEvent[]): number => events.findLastIndex((e
 const issueOf = (job: Pick<Job, 'issues'>): string | null => job.issues.find((i) => typeof i.ref === 'string' && i.ref)?.ref ?? null;
 
 /**
- * reached (at its until: merge-ready is done, or a `pr` stage waiting on pr-review with a PR; merged is
+ * reached (at its until: merge-ready is done, or a `pr` stage waiting on pr-review or overlap with a PR; merged is
  * done; released is done too, as merged: the release belongs to the mandate, not a job, and the Office
  * pass waits for it once every job has merged), handled (cancelled, or failed with a `mandate-unfinishable` event after its latest transition),
  * unfinishable (failed and not handled), else in flight.
  */
 export function classifyJob(job: Pick<Job, 'state' | 'stage' | 'waitingOn' | 'pr'>, events: JobEvent[], until: MandateUntil): JobClass {
   if (job.state === 'done') return 'reached';
-  if (until === 'merge-ready' && job.stage === 'pr' && job.state === 'waiting' && job.waitingOn === 'pr-review' && typeof job.pr?.number === 'number') return 'reached';
+  if (until === 'merge-ready' && job.stage === 'pr' && job.state === 'waiting' && (job.waitingOn === 'pr-review' || job.waitingOn === 'overlap') && typeof job.pr?.number === 'number') return 'reached';
   if (job.state === 'cancelled') return 'handled';
   if (job.state === 'failed') {
     const t = latestTransition(events);
@@ -365,7 +365,7 @@ export function gateEntries(events: JobEvent[], waitingOn: string): number {
 
 /**
  * Why a mandate job's gate is left for a human because it keeps coming back: it waits on a counted gate
- * (not pr-review or external) it has entered at least `stall.bounces` times since a person decided.
+ * (not pr-review, external or overlap) it has entered at least `stall.bounces` times since a person decided.
  */
 export function bounceHold(job: Pick<Job, 'state' | 'waitingOn'>, events: JobEvent[], m: Pick<Mandate, 'id' | 'stall'>): string | null {
   const w = job.waitingOn;

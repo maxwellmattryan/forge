@@ -74,7 +74,7 @@ export function lensRepoAllowed(job: { repos?: Job['repos'] }, lens: string): bo
 }
 
 /**
- * Whether an agent end is the late end of a cancelled lens run (lib/engine/pipeline/moves/cancel-lens.ts), which
+ * Whether an agent end is the late end of a cancelled lens run (lib/engine/verify/cancel-lens.ts), which
  * recordAgent only bills: the record ended `cancelled`, or the lens runs again under another agent id while its last
  * finished run is the cancelled one. A race, not an attacker: without both agent ids the end is the running run's.
  */
