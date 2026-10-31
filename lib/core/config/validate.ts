@@ -175,6 +175,9 @@ export function validateConfig(c: unknown, root: string): string[] {
     problems.push(`pipeline.maxTotalRounds must be null or a positive integer (got ${JSON.stringify(total)})`);
   if (typeof c.pipeline.resumeRework !== 'boolean') problems.push(`pipeline.resumeRework must be true or false (got ${JSON.stringify(c.pipeline.resumeRework)})`);
   if (typeof c.approver?.skipWhenClean !== 'boolean') problems.push(`approver.skipWhenClean must be true or false (got ${JSON.stringify(c.approver?.skipWhenClean)})`);
+  const hours = c.overlap?.recentHours;
+  if (!(Number.isInteger(hours) && hours >= 1 && hours <= 720))
+    problems.push(`overlap.recentHours must be an integer from 1 to 720 (got ${JSON.stringify(hours)?.slice(0, 80)})`);
   const ci = c.pr.maxCiReworks;
   if (ci !== undefined && !(Number.isInteger(ci) && ci >= 0)) problems.push(`pr.maxCiReworks must be an integer >= 0 (got ${JSON.stringify(ci)})`);
   // The label reaches gh's argv: a plain name, never an option, a control character or an empty word.

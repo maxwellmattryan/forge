@@ -249,6 +249,7 @@ describe('scripts/scenario.ts', () => {
       FORGE_MODE: 'human',
       FORGE_RENDER_CHROME: '/chrome',
       FORGE_HOME: '/home/.forge',
+      GH_REPO: 'someone/real-repo',
     };
     const env = scenarioEnv(base, '/scratch');
     assert.deepEqual(env, {

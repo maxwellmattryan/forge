@@ -224,3 +224,16 @@ test('validates approver.skipWhenClean', () => {
   const f = FIELDS.find((x) => x.key === 'approver.skipWhenClean');
   assert.ok(f && f.type === 'boolean' && !f.editable && f.lockedReason && f.default === false);
 });
+
+test('validates overlap.recentHours', () => {
+  const problems = (v: unknown) => {
+    const c: any = defaults();
+    c.overlap.recentHours = v;
+    return validateConfig(c, process.cwd()).filter((p) => p.startsWith('overlap.recentHours'));
+  };
+  assert.equal(defaults().overlap.recentHours, 24);
+  for (const ok of [1, 24, 720]) assert.deepEqual(problems(ok), [], String(ok));
+  for (const bad of [0, -1, 1.5, 721, '24', null])
+    assert.deepEqual(problems(bad), [`overlap.recentHours must be an integer from 1 to 720 (got ${JSON.stringify(bad)})`], String(bad));
+  assert.equal(FIELDS.find((x) => x.key === 'overlap.recentHours'), undefined);
+});

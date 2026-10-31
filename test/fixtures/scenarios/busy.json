@@ -10,6 +10,9 @@
     {
       "key": "spec",
       "title": "Spec the retry policy",
+      "files": {
+        "spec.md": "# Retry policy\n\n## Approach\nFailed fetches back off and retry.\n\nFiles:\n| Path | Change |\n|---|---|\n| `lib/retry.ts` | new |\n| `docs/RETRY.md` | new |\n"
+      },
       "steps": [["job", "set", "{id}", "--stage", "spec", "--state", "running"]]
     },
     {
@@ -58,7 +61,13 @@
     {
       "key": "review",
       "title": "Review the parser rewrite",
-      "steps": [["job", "set", "{id}", "--stage", "review", "--state", "running"]]
+      "files": {
+        "spec.md": "# Parser rewrite\n\n## Approach\nThe parser retries a failed read once.\n\nFiles:\n| Path | Change |\n|---|---|\n| `lib/parser.ts` | rewrite |\n| `lib/retry.ts` | edit |\n"
+      },
+      "steps": [
+        ["job", "set", "{id}", "--stage", "review", "--state", "running"],
+        ["overlap", "{id}"]
+      ]
     },
     {
       "key": "integrate",

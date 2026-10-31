@@ -1,4 +1,20 @@
 {
+  "overlap": {
+    "title": "Overlaps with",
+    "checked": "checked {ago}",
+    "timing": "Timing",
+    "kindJob": "Job",
+    "kindPr": "PR",
+    "kindPush": "Push",
+    "person": "person",
+    "personHint": "An outside PR or a person's push, not a Forge job",
+    "fileMap": "from its file map",
+    "hunks": {
+      "one": "{count} shared hunk",
+      "other": "{count} shared hunks"
+    },
+    "more": "+{count}"
+  },
   "deleteJob": {
     "title": "Delete job",
     "open": "Delete…",

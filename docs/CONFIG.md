@@ -6,7 +6,7 @@ Command templates are POSIX `sh`: each runs as `/bin/sh -c <cmd>` with an allowl
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 51            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 52            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -205,6 +205,9 @@ pr:                          # the pull request each job opens
   integrationReview: code-only  # always | code-only: skip the integration review when only docs or generated files conflicted
   maxCiReworks: 3            # the CI rework cap: CI reworks forge sync starts in a row before a red head waits for a person (0: always a person; see "Open PRs")
   needsHumanLabel: forge:needs-human  # the label forge pr gate puts on a PR whose merge waits on a person, created when the repo lacks it; null: no label (see "Merge")
+
+overlap:                     # forge overlap: which jobs, PRs and pushes touch the same code (see "Overlap check")
+  recentHours: 24            # 1-720: how many hours back a person's commits count as a push the overlap check names
 
 merge:                       # whether and how Forge merges approved PRs
   auto: false                # let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")
@@ -573,6 +576,19 @@ A required check that is pending defers (or, when it comes from protection, queu
 `--now` is a human-only operation: a person confirming at a terminal by typing the job id (or **Merge now** in the dashboard). It skips all of this, check 2 included, never the merge order or a release gate, and is logged as `pr-merge-bypass` with who confirmed it. Every `pr-merged` event says who ran the merge, with or without `--now`: `actor`, plus `scope` (the `FORGE_DAEMON_SCOPE`) when a daemon session ran it and `via: sync` when `forge sync` continued it. A daemon session, an agent, a script or a configured command can't pass `--now` (code `human_only`; docs/architecture/daemon-security.md "Human-only operations"); a daemon session can't merge another job, and is refused when its scope is missing or invalid.
 
 **The backstop no session can change** is GitHub's own branch protection: required reviews and required status checks on your base branches. Forge never turns it on for you; with it on, a misled session or a forged job file still can't land a PR GitHub holds.
+
+## Overlap check
+
+`forge overlap <job>` (or `'#<n>'`, `--pr <n>`) checks a job or an open PR against every other job in flight, every other open PR into its base and people's recent commits, and gives one **timing**: `merge-now`, `wait-for`, `merge-first` or `needs-human` ([Overlap check](architecture/overlap.md)). It only reads, and writes nothing but its report under `.forge/runtime/overlap/`.
+
+```yaml
+overlap:
+  recentHours: 24   # 1-720: a person's commits this recent count as a push the check names
+```
+
+`overlap.recentHours` is the window for people's pushes: commits on the base branch that no Forge job's PR brought, and commits on a job's open PR after the last push Forge recorded. It is an integer from 1 to 720 and is not a Settings field: a later shepherd may act on the window, so it stays hand-edited. With `pr.enabled: false` the check skips GitHub (a `github-off` gap) and compares jobs only.
+
+- **Migration** (config `schemaVersion` 51 → 52): nothing changes. v52 adds `overlap.recentHours` (`24`) from the defaults; the bump lets older Forges refuse a config whose overlap section they would reject as an unknown key.
 
 ## Model profiles
 

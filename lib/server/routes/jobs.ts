@@ -13,6 +13,7 @@ import { mergePr } from '#engine/pr/merge.ts';
 import { fixFailingChecks, rerunFailedChecks } from '#engine/pr/ci.ts';
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
+import { readOverlapReport } from '#engine/project/overlap.ts';
 import { isShelved, shelfAction, shelvedRefusal } from '#engine/pipeline/moves/shelve.ts';
 import { SHELF_ACTIONS } from '#api/constants.ts';
 import { REPO_NAME } from '#engine/project/member-repos.ts';
@@ -523,6 +524,7 @@ function jobDetail(root: string, id: string, projects: string, drive: ServerCtx[
     requestFromTracker: fromTracker,
     agents: roundAgents(root, job, events, projects),
     ownerTranscript: ((o) => (o ? { session: o.session } : null))(interactiveOwner(root, job, projects)),
+    overlap: readOverlapReport(root, id),
   }, knownValues(root, id, loadConfig(root).config));
 }
 

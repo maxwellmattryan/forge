@@ -7,11 +7,12 @@ import { hasBinary } from '#core/os/process.ts';
 import type { RunResult } from '#core/os/process.ts';
 import { SAFE_REF, isSha, safeText } from '#core/text.ts';
 import type { Config, PrChecks } from '#core/types.ts';
+import { BRANCH_HISTORY_QUERY, MAX_DIFF_BYTES, OPEN_PR_FIELDS, parseBranchHistory, parseOpenPr, safeDate } from './activity.ts';
 import { SLUG_RE, gh, graphqlArgs, parseJsonOutput } from './gh.ts';
 import { HEAD_CHECKS_QUERY, parseHeadChecks, readBranchRules } from './protection.ts';
-import type { ClosingPr, FailingRun, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, PrBody, PrFeedback, PrSnapshot, PrState, RunSnapshot } from './types.ts';
+import type { ClosingPr, FailingRun, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, OpenPr, PrBody, PrFeedback, PrSnapshot, PrState, RunSnapshot } from './types.ts';
 
-export type { BranchRules, CheckObservation, ClosingPr, FailingRun, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, HeadChecks, MergeOutcome, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState, RequiredCheck, RerunOutcome, RunSnapshot } from './types.ts';
+export type { BranchCommit, BranchHistory, BranchRules, CheckObservation, ClosingPr, FailingRun, FeedbackComment, FeedbackReview, FeedbackThread, GitHub, HeadChecks, MergeOutcome, OpenPr, PrBody, PrCreate, PrFeedback, PrSnapshot, PrState, RequiredCheck, RerunOutcome, RunSnapshot } from './types.ts';
 export { SLUG_RE };
 
 export const MARKER = '<!-- forge -->';
@@ -90,6 +91,9 @@ export function parsePr(raw: unknown): PrSnapshot {
     failingRuns: failingRunsOf(rollup),
   };
 }
+
+/** gh's open PR JSON (OPEN_PR_FIELDS in activity.ts) as an OpenPr: parsePr's checks plus the overlap check's fields. */
+export const parseOpenPrRecord = (raw: unknown): OpenPr => parseOpenPr(raw, parsePr(raw));
 
 /** gh's run JSON as a RunSnapshot: a head that is not a sha becomes null, status and conclusion lower-case. */
 export function parseRun(raw: unknown): RunSnapshot {
@@ -323,7 +327,35 @@ export function createGhGitHub(run: GhRun = gh): GitHub {
       const r = run(cwd, ['run', 'rerun', id, '--failed', '-R', slug], { allowFail: true });
       return r.ok ? { ok: true } : { ok: false, error: (r.stderr || r.stdout).trim() };
     },
+    // The four overlap reads (activity.ts): every value that reaches argv is checked here, before gh runs.
+    openPrs(cwd, slug, base, limit) {
+      if (!SLUG_RE.test(slug) || !SAFE_REF.test(base) || !(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100)) throw refused('gh pr list', slug, base);
+      const out = json(cwd, ['pr', 'list', '-R', slug, '--state', 'open', '--base', base, '--limit', String(limit), '--json', OPEN_PR_FIELDS]);
+      return Array.isArray(out) ? out.filter(isRecord).map(parseOpenPrRecord) : [];
+    },
+    prDiff(cwd, slug, number) {
+      if (!SLUG_RE.test(slug) || safePrNumber(number) === null) throw refused('gh pr diff', slug, number);
+      return capped(call(cwd, ['pr', 'diff', String(number), '-R', slug, '--color', 'never']).stdout, 'gh pr diff');
+    },
+    branchHistory(cwd, slug, branch, since) {
+      if (!SLUG_RE.test(slug) || !SAFE_REF.test(branch) || safeDate(since) === null) throw refused('gh api graphql', slug, branch);
+      const [owner, name] = slug.split('/');
+      return parseBranchHistory(dig(json(cwd, graphqlArgs(BRANCH_HISTORY_QUERY, { owner, name, ref: `refs/heads/${branch}`, since })), 'data'));
+    },
+    commitDiff(cwd, slug, oid) {
+      if (!SLUG_RE.test(slug) || !isSha(oid)) throw refused('gh api', slug, oid);
+      return capped(call(cwd, ['api', '-H', 'Accept: application/vnd.github.diff', `repos/${slug}/commits/${oid}`]).stdout, 'gh api');
+    },
   };
+}
+
+const refused = (what: string, slug: unknown, arg: unknown): ForgeError =>
+  new ForgeError(`${what}: refusing ${JSON.stringify(arg).slice(0, 80)} in ${JSON.stringify(slug).slice(0, 80)}`, 'external');
+
+/** A diff as gh printed it, or `external` when it is longer than the overlap check reads. */
+function capped(text: string, what: string): string {
+  if (Buffer.byteLength(text) > MAX_DIFF_BYTES) throw new ForgeError(`${what}: the diff is over ${MAX_DIFF_BYTES / 1024 / 1024} MB`, 'external');
+  return text;
 }
 
 /** The production adapter. Only lib/cli/ passes it in; lib/engine/pr/ receives it as a parameter. */

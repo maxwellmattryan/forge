@@ -24,6 +24,7 @@
   import LiveDot from '../sessions/LiveDot.svelte';
   import MarkdownToggle from '../ui/MarkdownToggle.svelte';
   import MergeNowSection from './details/MergeNowSection.svelte';
+  import OverlapSection from './details/OverlapSection.svelte';
   import PrChip from '../jobs/PrChip.svelte';
   import ProgressBar from '../jobs/ProgressBar.svelte';
   import RepoSection from './details/RepoSection.svelte';
@@ -217,6 +218,7 @@
           </div>
           <RepoSection job={j} />
           <DepSection job={j} />
+          <OverlapSection report={d.overlap} />
           {#if matrix}
             <div class="plate flat"><div class="overflow-x-auto">
               <table class="tbl">

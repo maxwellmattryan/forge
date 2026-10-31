@@ -470,6 +470,7 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge mandate new [<id>] --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all and no quality floor; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id) (see [Mandates](CONFIG.md#mandates)) |
 | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](CONFIG.md#notifications)) |
 | `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary and one retro request over the mandate's jobs (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; for each closed mandate whose closing summary's card still has an open outcome, rewrite the card once when none is open (finalized); then queue one direct request, which forge dash runs as an office run, when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems, finalized}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
+| `forge overlap <id> \| '#<n>' \| --pr <n>` | check a job, or an open PR, against every other job in flight, every other open PR into its base and people's commits in the last overlap.recentHours hours: the counterparts that share files and line spans with it, whether nothing else is in flight (idle), and one timing (merge-now, wait-for, merge-first or needs-human) from a fixed rule; read-only apart from its report under .forge/runtime/overlap/, which `report` names (see [Overlap check](architecture/overlap.md)) |
 | `forge release plan [--job ID \| --since TAG \| --mandate ID] [--bump patch\|minor\|major] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; no release step runs. A repo with release.mechanism: script runs its release script's --draft-notes (the command environment, local git only) and gets a version bump (bumps: from, to, bump, inferred, reasons) and a notes file to edit, notes-root.md or notes-<repo>.md, which a re-plan of the same version keeps (notesKept). With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first, unless another plan in release.json holds the pass back), with the same event and gate request as the pass (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release run [--dry-run]` | run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow, and without a terminal they run only when the Foreman approved this exact plan (approvedBy: foreman). On a --job plan, each dependency repo whose last step finished in this run gets its release recorded on the job from the checks of this run (released: version, recorded, and a hint when no single version showed), which resumes the job to bump its consumers. Prints its own result. --dry-run recomputes and checks the plan as a run does and prints dryRun: true with each step (command, publish, manual, asks, check, status) and the bumps, running nothing and writing nothing (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release status` | the plan's progress: each step's status with the tags and versions its checks recorded, the next step, whether config or the repos have moved since planning, and the publish approval (owner, pending or approved) (see [Releasing a project](RELEASES.md#releasing-a-project)) |
@@ -1785,6 +1786,24 @@ See [Foreman › Director loop](architecture/foreman.md).
 | 1 | run in a daemon session other than the office, or with a missing or invalid scope |
 
 See [Foreman › Director loop](architecture/foreman.md).
+
+### `forge overlap`
+
+Which jobs, PRs and pushes touch the same code, and when to merge.
+
+**`forge overlap <id> | '#<n>' | --pr <n>`**: check a job, or an open PR, against every other job in flight, every other open PR into its base and people's commits in the last overlap.recentHours hours: the counterparts that share files and line spans with it, whether nothing else is in flight (idle), and one timing (merge-now, wait-for, merge-first or needs-human) from a fixed rule; read-only apart from its report under .forge/runtime/overlap/, which `report` names
+
+| Flag | Meaning |
+|---|---|
+| `--pr N` | the open PR to check, as '#N' does |
+
+| Exit | When |
+|---|---|
+| 1 | no such job, a job with no diff and no file map yet, or a PR that is not open (not_found) |
+| 2 | a PR number that is not a positive integer, both a job and a PR, or no subject |
+| 5 | a PR subject when gh is missing or GitHub could not be read |
+
+See [Overlap check](architecture/overlap.md).
 
 ### `forge pr`
 

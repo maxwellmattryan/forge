@@ -255,6 +255,8 @@ export interface Config {
     /** The label on a PR whose merge waits on a person's decision (a merge gate); null: none. */
     needsHumanLabel: string | null;
   };
+  /** `forge overlap` (lib/engine/project/overlap.ts): how far back a person's commits count, in hours. */
+  overlap: { recentHours: number };
   merge: {
     auto: boolean;
     method: 'squash' | 'merge' | 'rebase';

@@ -190,6 +190,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v51 adds daemon.driver (session), filled from defaults, so no v50 config changes; the bump lets older Forges
   // refuse a config whose driver they would reject as an unknown key.
   { id: 'daemon-driver', up: (c) => c },
+  // v52 adds overlap.recentHours (24), filled from defaults, so no v51 config changes; the bump lets older Forges
+  // refuse a config whose overlap section they would reject as an unknown key.
+  { id: 'overlap-recent-hours', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

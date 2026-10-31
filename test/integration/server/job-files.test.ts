@@ -14,6 +14,7 @@ import { serveProjects, tempRepo } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { createJob, jobDir, logEvent, readEvents } from '#core/job/store.ts';
 import { recordKnown } from '#engine/guard/known-secrets.ts';
+import { OVERLAP_SCHEMA_VERSION } from '#core/versions/overlap.ts';
 
 const POSIX = process.platform !== 'win32';
 const MAX_FILE = 2 * 1024 * 1024;
@@ -142,6 +143,36 @@ test("session-usage events stay out of a job's lastEvent and detail events", asy
     assert.ok(detail.events.length > 0);
     assert.equal(detail.events.filter((e: { type: string }) => e.type === 'session-usage').length, 0);
     assert.equal(detail.events.at(-1).type, 'transition');
+  } finally {
+    await s.cleanup();
+  }
+});
+
+test('job detail carries the cached overlap report', async () => {
+  const s = await setup();
+  try {
+    const file = path.join(s.repo.dir, '.forge', 'runtime', 'overlap', 'jobs', `${s.id}.json`);
+    const overlapOf = async () => JSON.parse((await get(s, `/api/p/a/jobs/${s.id}`)).text).overlap;
+    assert.equal(await overlapOf(), null, 'no cache file');
+    const report = {
+      schemaVersion: OVERLAP_SCHEMA_VERSION,
+      checkedAt: '2026-10-31T12:00:00.000Z',
+      subject: { kind: 'job', ref: s.id, source: 'diff', files: 1 },
+      base: 'main',
+      recentHours: 24,
+      counterparts: [{ kind: 'pr', ref: '#4', source: 'diff', human: true, stage: null, url: 'https://github.com/o/r/pull/4', files: ['lib/a.ts'], sharedHunks: [] }],
+      idle: false,
+      timing: { kind: 'needs-human', refs: ['#4'] },
+      reasons: ['outside-pr'],
+      gaps: [],
+    };
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(report));
+    assert.deepEqual(await overlapOf(), report);
+    fs.writeFileSync(file, '{ not json');
+    assert.equal(await overlapOf(), null, 'a malformed file');
+    fs.writeFileSync(file, JSON.stringify({ ...report, schemaVersion: OVERLAP_SCHEMA_VERSION + 1 }));
+    assert.equal(await overlapOf(), null, 'written by a newer Forge');
   } finally {
     await s.cleanup();
   }

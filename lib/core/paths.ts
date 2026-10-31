@@ -43,6 +43,8 @@ export interface ForgePaths {
   mandates: string;
   /** The owner's chats with the Foreman (lib/office/chat/), one `<id>/` each: written only by the dashboard server. */
   chats: string;
+  /** `forge overlap`'s cached reports (lib/engine/project/overlap.ts): `jobs/<id>.json` and `prs/<n>.json`, written only by the CLI. */
+  overlap: string;
   /**
    * The prompt history (lib/office/session/permissions/history.ts): one line per permission prompt a pool
    * session answered, with no input field (a suggested rule can still carry part of the command), which `forge daemon prompts` reads. Appended only by `forge dash`.
@@ -73,6 +75,7 @@ export function paths(root: string): ForgePaths {
     records: path.join(dir, 'runtime', 'job-records'),
     mandates: path.join(dir, 'runtime', 'mandates'),
     chats: path.join(dir, 'runtime', 'chats'),
+    overlap: path.join(dir, 'runtime', 'overlap'),
     permissionPrompts: path.join(dir, 'runtime', 'permission-prompts.jsonl'),
     backlog: path.join(dir, 'backlog.md'),
     notes: path.join(dir, 'notes'),
