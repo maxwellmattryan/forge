@@ -40,6 +40,7 @@ const GATE_STAGE: Record<WaitingOn, Stage> = {
   budget: 'build', // the round-start budget check
   human: 'build', // SC1b/RP1: any stage; PR13 and PR17 park in pr
   shelved: 'decide', // forge job shelve: any stage; keeps the one it had
+  overlap: 'pr', // PR20
 };
 
 const configOf = (root: string, opts: { config?: Config }): Config => opts.config ?? loadConfig(root).config;

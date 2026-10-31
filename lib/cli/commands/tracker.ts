@@ -2,7 +2,8 @@
 import { DEP_REASON, claimRespectingDeps, refreshDependencyWait, retargetPlan, unmetDependencies } from '#engine/pipeline/moves/deps.ts';
 import { createJob, isActive, leaseStatus, listJobs, loadJob, logEvent, readEvents, claimJob } from '#core/job/store.ts';
 import { approvedBy, escalationApproval } from '#engine/pr/body.ts';
-import { continueMerge, deferredMergeDue } from '#engine/pr/merge.ts';
+import { deferredMergeDue } from '#engine/pr/merge.ts';
+import { continueQueued, releaseOverlapWaits } from '#engine/pipeline/moves/merge-queue.ts';
 import { retargetPr } from '#engine/pr/open.ts';
 import { syncPr } from '#engine/pr/sync.ts';
 import { ghGitHub } from '#integrations/github/pull-requests.ts';
@@ -480,11 +481,17 @@ export async function syncAll(
         checks: r.pr?.checks?.state ?? null,
         mergeDeferred,
         newFeedback: (r.pr?.unresolvedThreads ?? 0) > (before.unresolvedThreads ?? 0) || (r.pr?.changesRequested ?? 0) > (before.changesRequested ?? 0),
-        cleaned, ...(mergeDeferred ? await continueMerge(root, config, ghGitHub, job.id) : {}),
+        cleaned, ...(mergeDeferred ? await continueQueued(root, config, ghGitHub, job.id) : {}),
       });
     } catch (e) {
       results.push({ id: job.id, error: (e as Error).message.slice(0, 300) });
     }
+  }
+  // After the PR loop, so a PR ahead that this sync saw merge, close or go red frees the jobs queued behind it.
+  try {
+    results.push(...(await releaseOverlapWaits(root, config)));
+  } catch (e) {
+    results.push({ mergeQueue: 'error', error: (e as Error).message.slice(0, 300) });
   }
   // After the PR loop, so a merge this sync recorded is measured in the same run.
   let outcomes: { measured: number; finalized: string[] } | null = null;

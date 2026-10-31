@@ -140,6 +140,9 @@ export const API_CHANGES = [
   { id: 'prompt-role' },
   // JobDetail.overlap (OverlapReport | null, OverlapCounterpart, OverlapSharedHunk): the job's cached `forge overlap` report.
   { id: 'overlap-report' },
+  // WaitingOn `overlap` (a mandate's merge queue holds the merge); MandateRow.mergeQueue (MergeQueue, MergeQueueEntry):
+  // the mandate's open PRs ranked within each overlap group, with the merge-now and unchecked ones.
+  { id: 'merge-queue' },
 ] as const;
 
 /**

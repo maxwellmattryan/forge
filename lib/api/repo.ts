@@ -330,6 +330,35 @@ export interface MandateRow extends MandateSummary {
   card: MandateReportCard;
   /** A closed mandate's card as its closing summary records it (rebuilt by closingCard); null for an open mandate, no summary, an unreadable one or a card that fails the check. */
   closing: MandateClosingCard | null;
+  /** The mandate's open PRs ranked within each overlap group (mergeQueue in lib/engine/pipeline/moves/merge-queue.ts); `forge mandate show` prints the same. */
+  mergeQueue: MergeQueue;
+}
+
+/** One open root PR of a mandate in its merge queue. Job ids, numbers and code-chosen reasons only: no report or tracker text. */
+export interface MergeQueueEntry {
+  job: string;
+  pr: number;
+  /** Σ job.usage.byRole input + output tokens; cache reads and writes left out. */
+  tokens: number;
+  /** Ready to merge now: stage pr, PR open, not a draft, checks passing or none, no changes requested, an eligible decision and no refused or failed merge since the last push. */
+  ready: boolean;
+  /** The highest-ranked ready entry above it in its group, which merges first; null for a group's first entry and when none above is ready. */
+  ahead: string | null;
+  /** One fixed sentence: why it sits where it does against the entry next to it. */
+  reasons: string[];
+}
+
+/**
+ * A mandate's merge queue. `groups`: its overlap groups (open PRs linked by a shared file or a dependency,
+ * transitively), each in merge order, sorted by their first entry's job id; `mergeNow`: PRs whose overlap report
+ * links them to no other; `unchecked`: PRs with no readable report and no link. `hold`: Forge merges (autoMerge),
+ * so a PR waits for the one ahead of it; false means the order is a suggestion for the person who merges.
+ */
+export interface MergeQueue {
+  hold: boolean;
+  groups: MergeQueueEntry[][];
+  mergeNow: MergeQueueEntry[];
+  unchecked: MergeQueueEntry[];
 }
 
 /** A mandate file that can't be read safely: never acted on. */

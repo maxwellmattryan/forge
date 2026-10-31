@@ -7,7 +7,8 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { addOrigin, jobAt, memoryGitHub, tempRepo } from '../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
-import { jobDir, loadJob, logEvent, readEvents, setJob } from '#core/job/store.ts';
+import { jobDir, loadJob, logEvent, readEvents, setJob, updateJob } from '#core/job/store.ts';
+import { paths } from '#core/paths.ts';
 import { GATE_END, GATE_START, prText } from './body.ts';
 import type { Config } from '#core/types.ts';
 import type { BranchRules } from '#integrations/github/types.ts';
@@ -95,6 +96,28 @@ describe('pr open warns when the base has no required checks', { concurrency: 4 
         s.cleanup();
       }
     });
+  }
+});
+
+test("pr open refreshes a mandate job's overlap report", () => {
+  const s = opening(() => {});
+  try {
+    const file = path.join(paths(s.root).overlap, 'jobs', `${s.id}.json`);
+    updateJob(s.root, s.id, (j) => {
+      j.mandate = 'm1';
+    });
+    // The opened path, then the updated one: each pushes, then checks the pushed head.
+    for (const created of [true, false]) {
+      fs.rmSync(file, { force: true });
+      const before = Date.now();
+      const r = s.open();
+      assert.equal(r.created, created);
+      const report = JSON.parse(fs.readFileSync(file, 'utf8'));
+      assert.ok(Date.parse(report.checkedAt) >= before, report.checkedAt);
+      assert.equal(report.subject.ref, s.id);
+    }
+  } finally {
+    s.cleanup();
   }
 });
 
