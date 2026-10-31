@@ -436,6 +436,20 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
               await page.keyboard.press(chord);
               await until(state('project-switcher-mobile', true));
             });
+            await step('with the phone strip scrolled past the switcher the chord did not leave its list open', async () => {
+              await page.keyboard.press('Escape');
+              await until(state('project-switcher-mobile', false));
+              await page.setViewportSize({ width: 700, height: 800 });
+              await page.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
+              const hidden = `(() => { const s = ${el('project-switcher-mobile')}.getBoundingClientRect(); const n = ${el('mobile-nav')}.getBoundingClientRect(); return s.right <= n.left || s.left >= n.right; })()`;
+              await page.evaluate(`(() => { const n = ${el('mobile-nav')}; n.scrollLeft = n.scrollWidth; })()`);
+              await until(hidden);
+              await page.locator('#mobile-command').focus({ timeout });
+              await page.keyboard.press(chord);
+              await until(state('project-switcher-mobile', true));
+              await page.waitForTimeout(SETTLE_MS);
+              await until(state('project-switcher-mobile', true));
+            });
           }),
         );
       } finally {

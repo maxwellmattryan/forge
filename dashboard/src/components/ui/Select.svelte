@@ -167,9 +167,20 @@
   /** Opens the list as a click does (focus on the button, the chosen entry active), or closes it when open; a disabled Select does nothing. */
   export function toggle(): void {
     if (disabled || !trigger) return;
-    trigger.focus();
-    if (st.open) close(true);
-    else void apply({ ...CLOSED, open: true, active: openAt(options, selected) });
+    if (st.open) {
+      trigger.focus();
+      close(true);
+      return;
+    }
+    // A button scrolled out of its strip or sidebar is scrolled into view first, and the list opens a frame later:
+    // the scroll event lands after the list is open and its open-only scroll listener would shut it again.
+    const before = trigger.getBoundingClientRect();
+    trigger.focus({ preventScroll: true });
+    trigger.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    const after = trigger.getBoundingClientRect();
+    const open = (): void => void apply({ ...CLOSED, open: true, active: openAt(options, selected) });
+    if (before.top !== after.top || before.left !== after.left) requestAnimationFrame(open);
+    else open();
   }
 
   function click(): void {
