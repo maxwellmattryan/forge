@@ -264,6 +264,14 @@ export const PR: Table<PrCtx> = {
       when: (c) => !c.gate && c.x.job.pr?.state === 'OPEN' && lastEvent(c.x, (e) => e.type === 'pr-gate')?.action === 'set',
       then: ({ x }) => run(x, 'PR18', ['pr', 'gate', x.job.id], 'the merge no longer waits on a decision: say so on the PR'),
     },
+    // PR20: Forge would merge, and a ready PR ranked ahead in this mandate's overlap group lands first (the merge
+    // queue). Only a delay in front of PR4: forge sync lets it go once that PR merges or stops being ready. The
+    // reason goes through shellLine, which allows no parenthesis.
+    {
+      id: 'PR20',
+      when: (c) => mergeable(c) && c.x.mergeAhead != null,
+      then: (c) => park(c.x, 'PR20', 'overlap', `merge queue: waits for ${safe(c.x.mergeAhead, SAFE_ELEMENT, 'the PR ahead')} to merge first, ranked ahead in its overlap group`),
+    },
     { id: 'PR4', when: mergeable, then: ({ x }) => run(x, 'PR4', ['pr', 'merge', x.job.id], 'the approver marked it auto-merge eligible') },
     {
       id: 'PR5',

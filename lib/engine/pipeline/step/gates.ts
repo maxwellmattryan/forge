@@ -116,6 +116,8 @@ function gateLine(x: StepInput, waitingOn: WaitingOn): string {
     }
     case 'pr-review':
       return prReviewTell(x);
+    case 'overlap':
+      return `${id} waits in the merge queue (${reason}). forge sync lets it merge once the PR ahead merges or stops being ready`;
     case 'human':
       if (reason.startsWith('repo proposal:'))
         return `${id} proposes repos (${reason}): ${path.join(x.jobDir, 'repo-proposals.md')}. Approve or reject in the dashboard, or in your own terminal: forge job human ${id} approve-repos|reject-repos --repo <names> --note …`;

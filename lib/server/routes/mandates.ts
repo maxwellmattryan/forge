@@ -18,6 +18,7 @@ import { dashboardActor } from '#integrations/github/actor.ts';
 import { allKnownValues, redactDeep } from '#engine/guard/known-secrets.ts';
 import { buildReportCard, closingCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
+import { mergeQueue } from '#engine/pipeline/moves/merge-queue.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { BODY_MAX, effectiveContract, fillDefaults, grantable, isMandateId, isReadable, mandateChain, mandateSummary } from '#office/mandates/contract.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
@@ -87,6 +88,8 @@ export function mandateRow(root: string, config: Config, m: Mandate, all: ReadMa
     card: buildReportCard(m, f, config, ctx.at),
     // Rebuilt from summary.json by closingCard, the same values only.
     closing: m.status === 'closed' ? closingOf(root, m.id) : null,
+    // Job ids, numbers and code-chosen reasons only: no report or tracker text.
+    mergeQueue: mergeQueue(root, config, m.id, ctx.jobs),
   };
 }
 

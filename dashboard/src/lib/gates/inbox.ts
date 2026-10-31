@@ -3,7 +3,7 @@ import { MANDATE_ID_SOURCE } from '../core/types.ts';
 import type { DraftGate, ForgeRequest, HandoffClass, JobPr, LastHuman, RequestType, StateJob, WaitingOn } from '../core/types.ts';
 import { isRepoHold } from '../metrics/repo-budget.ts';
 import { isRepoProposal } from './repo-proposals.ts';
-import { hasLinkedIssue, isDependencyPark, isShelved, needsHuman } from '../jobs/state.ts';
+import { hasLinkedIssue, isDependencyPark, isPrWait, isShelved, needsHuman } from '../jobs/state.ts';
 import type { JobLike } from '../jobs/state.ts';
 
 const obj = (v: unknown): Record<string, any> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, any>) : {});
@@ -13,7 +13,7 @@ const s = (v: unknown): string => String(v ?? '');
 export function inboxGroups<T extends JobLike>(jobs: T[]): { urgent: T[]; prs: T[]; parks: T[]; shelved: T[] } {
   return {
     urgent: jobs.filter((j) => needsHuman(j) || j.state === 'failed' || j.state === 'blocked'),
-    prs: jobs.filter((j) => j.state === 'waiting' && j.waitingOn === 'pr-review'),
+    prs: jobs.filter(isPrWait),
     parks: jobs.filter(isDependencyPark),
     shelved: jobs.filter(isShelved),
   };

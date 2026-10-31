@@ -40,7 +40,9 @@ Only `github-unread` changes the timing. `truncated`, `paths-dropped` and `hunks
 
 ## Output and cache
 
-Agent mode prints `{ subject, timing, idle, reasons, counterparts: [{ kind, ref, source, human, stage, files: <first 5>, fileCount, sharedHunks: <count> }], gaps, report }`; human mode the same, with one fixed sentence per reason. Every run writes the full report atomically to `.forge/runtime/overlap/jobs/<id>.json` or `prs/<n>.json` with its own `schemaVersion` (`lib/core/versions/overlap.ts`). `GET /api/jobs/:id` serves the job's report as `overlap` (null when there is none, it is malformed or a newer Forge wrote it), and the drawer's Details tab shows it as the **Overlaps with** card. Nothing refreshes the report but `forge overlap`.
+Agent mode prints `{ subject, timing, idle, reasons, counterparts: [{ kind, ref, source, human, stage, files: <first 5>, fileCount, sharedHunks: <count> }], gaps, report }`; human mode the same, with one fixed sentence per reason. Every run writes the full report atomically to `.forge/runtime/overlap/jobs/<id>.json` or `prs/<n>.json` with its own `schemaVersion` (`lib/core/versions/overlap.ts`). `GET /api/jobs/:id` serves the job's report as `overlap` (null when there is none, it is malformed or a newer Forge wrote it), and the drawer's Details tab shows it as the **Overlaps with** card. `forge overlap` refreshes a report, and so does `forge pr open` for a job in a mandate, after each push that opens or updates its PR, so the mandate's merge queue reads the pushed head; a check that fails there is swallowed and leaves the old report (or none).
+
+**Readers.** The drawer's **Overlaps with** card, and a mandate's merge queue (`lib/engine/pipeline/moves/merge-queue.ts`, ["Foreman"](foreman.md) › Ship policy), which links two of its open PRs when either one's report names the other as a `job` counterpart. A ref that is not another open PR of the same mandate adds no link and reaches no output. An entry with no readable report is `unchecked`, never `merge-now`.
 
 ## Limits
 

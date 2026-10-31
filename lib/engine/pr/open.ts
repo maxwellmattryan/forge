@@ -37,6 +37,7 @@ import { mergeGate } from '../pipeline/step/stages/pr.ts';
 import type { MergeGate } from '../pipeline/step/stages/pr.ts';
 import { pullPrHead, pushBranch, refreshBase } from './branch.ts';
 import { checkMemberPr, linkSiblingsQuietly, memberSlug, openMemberPr, recordMemberPr } from './members.ts';
+import { refreshQueueReport } from '../pipeline/moves/merge-queue.ts';
 import type { MemberPrPlan, MemberPrResult } from './members.ts';
 import { requiredChecksNote } from './required.ts';
 
@@ -153,6 +154,7 @@ export function openPr(
     logEvent(root, id, 'pr-updated', { number: existing.number });
     logDeferred();
     linkSiblingsQuietly(root, config, github, id);
+    refreshQueueReport(root, config, github, id);
     return { number: existing.number, url: existing.url, created: false, ...prLinkNote(job, config), ...repos, ...deferred, ...requiredChecksNote(config, github, job.worktree!, slug, job.base!) };
   }
   const bodyFile = path.join(jobDir(root, id), 'pr-body.md');
@@ -167,6 +169,8 @@ export function openPr(
   logDeferred();
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
   linkSiblingsQuietly(root, config, github, id);
+  // The mandate's merge queue reads the pushed head; a failed check changes nothing here.
+  refreshQueueReport(root, config, github, id);
   return { number, url, created: true, ...prLinkNote(job, config), ...repos, ...deferred, ...requiredChecksNote(config, github, job.worktree!, slug, job.base!) };
 }
 
