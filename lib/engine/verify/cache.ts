@@ -1,15 +1,18 @@
 // The check cache: passes of configured commands on a clean committed tree, which `forge verify`
 // reuses instead of running the command again.
-// The file sits in `.forge/runtime/checks/`, outside every session's write roots, but it is still
-// read as hostile: without following links, size-capped, every field checked, and nothing here
-// throws on a bad shape (a bad line is no pass). Only hashes are stored, never env values or the
-// command line. Imports nothing in lib/engine/verify/ and never ../workspace/run.ts, which imports it.
+// The file sits in `.forge/runtime/checks/`. Claude Code's file tools can't edit it (the
+// `Edit(.forge/runtime/**)` deny rule), but code a configured command runs can append to it, unattended
+// too (docs/architecture/daemon-security.md: configured commands are not sandboxed), so it is read as
+// hostile: without following links, size-capped, every field checked, and nothing here throws on a bad
+// shape (a bad line is no pass). Only hashes are stored, never env values or the command line. Imports
+// nothing in lib/engine/verify/ and never ../workspace/run.ts, which imports it.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { STATUS_ARGV, git } from '#integrations/git/runner.ts';
 import { hiddenChanges } from '../guard/integrity.ts';
 import { paths } from '#core/paths.ts';
+import { openAppend } from '#core/job/session-files.ts';
 import { confinedDir, readRegularText, writeTextAtomic } from '#core/os/fs.ts';
 import type { Config } from '#core/types.ts';
 import { now } from '#core/utils.ts';
@@ -25,6 +28,8 @@ const HASH = /^[0-9a-f]{64}$/;
 const TREE = /^[0-9a-f]{40,64}$/;
 const LOG = /^logs\/[A-Za-z0-9._-]{1,200}\.log$/;
 const JOB_ID = /^[A-Za-z0-9._-]{1,200}$/;
+/** The one shape `now()` writes: `at` flows into the verify report and the events, so it is never free text. */
+const AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const REDACTED = '\u0000redacted';
 
 /** Why verify ran a command it could have reused: the first key part that differs, in this order. */
@@ -111,7 +116,7 @@ function parsePass(line: string): CheckPass | null {
   if (e.v !== 1 || typeof e.name !== 'string' || !NAME.test(e.name)) return null;
   for (const k of ['args', 'cmd', 'env', 'config'] as const) if (typeof e[k] !== 'string' || !HASH.test(e[k])) return null;
   if (typeof e.tree !== 'string' || !TREE.test(e.tree) || typeof e.log !== 'string' || !LOG.test(e.log)) return null;
-  if (typeof e.at !== 'string' || !Number.isFinite(Date.parse(e.at))) return null;
+  if (typeof e.at !== 'string' || !AT.test(e.at) || !Number.isFinite(Date.parse(e.at))) return null;
   if (typeof e.durationMs !== 'number' || !Number.isFinite(e.durationMs) || e.durationMs < 0) return null;
   return { v: 1, name: e.name, args: e.args as string, cmd: e.cmd as string, env: e.env as string, config: e.config as string, tree: e.tree, at: e.at, durationMs: e.durationMs, log: e.log };
 }
@@ -166,7 +171,8 @@ export function recordPass(root: string, id: string, key: CheckKey, tree: string
     writeTextAtomic(file, [...lines.slice(-(KEEP_LINES - 1)), line].join('\n'), { root: paths(root).dir });
     return;
   }
-  const fd = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | (fs.constants.O_NOFOLLOW ?? 0), 0o600);
+  // openAppend: no link followed, no block on a FIFO swapped in since the read above, and a non-regular file refused.
+  const fd = openAppend(file);
   try {
     fs.writeSync(fd, line);
   } finally {
