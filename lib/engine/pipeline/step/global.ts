@@ -3,9 +3,9 @@
 import type { WaitingOn } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { SAFE_REF } from '#core/text.ts';
-import { SAFE_URL, done, procedure, run, safe, spawn, toStage, wait } from './actions.ts';
+import { SAFE_URL, done, run, safe, set, spawn, toStage, wait } from './actions.ts';
 import { ANSWERED } from './answered.ts';
-import { after, agent, ended, parkedRunning, pendingVerifiers, runningRoles } from './facts.ts';
+import { after, agent, nextDigest, parkedRunning, pendingVerifiers, runningRoles } from './facts.ts';
 import type { Facts } from './facts.ts';
 import { gateTell, prReviewTell } from './gates.ts';
 import type { Ctx, Table } from './rules.ts';
@@ -88,12 +88,27 @@ export const GLOBAL: Table = {
   ],
 };
 
-/** A retro job starts with the retro agent, which writes spec.md. */
+const retroStart = ({ x }: Ctx) => x.job.stage === 'backlog';
+const retroRun = ({ x }: Ctx) => agent(x, 'retro');
+
+/**
+ * A retro job starts in backlog: its worktree, `forge retro prepare`, one digest per batch prepare wrote (each once, in
+ * order, before the retro starts), then the retro agent, which writes spec.md; with none, the retro proposed nothing.
+ */
 export const KIND: Table = {
   name: 'kind',
   applies: ({ x }) => x.job.kind === 'retro',
   rules: [
-    { id: 'K1', when: ({ x }) => !ended(agent(x, 'retro')) || !x.files.spec, then: ({ x }) => procedure(x, 'K1', 'retro.md', 'a retro job starts with the retro agent') },
-    { id: 'K2', when: ({ x }) => x.job.stage === 'backlog', then: ({ x }) => toStage(x, 'K2', 'spec', 'the retro wrote spec.md') },
+    { id: 'K1b', when: (c) => retroStart(c) && !c.x.worktreeExists, then: ({ x }) => run(x, 'K1b', ['worktree', 'create', x.job.id], 'the retro job needs its worktree') },
+    { id: 'K1c', when: (c) => retroStart(c) && !c.x.retro?.stats, then: ({ x }) => run(x, 'K1c', ['retro', 'prepare', x.job.id], 'gather the stats, signals and transcripts the retro reads') },
+    { id: 'K1d', when: (c) => retroStart(c) && !retroRun(c) && nextDigest(c.x) !== null, then: ({ x }) => spawn(x, 'K1d', 'digest') },
+    // A retro that failed or was lost runs again, as L1 reruns other roles; the code driver parks after its second failure in a turn.
+    { id: 'K1', when: (c) => retroStart(c) && (!retroRun(c) || ['failed', 'lost'].includes(String(retroRun(c)!.status))), then: ({ x }) => spawn(x, 'K1', 'retro') },
+    {
+      id: 'K1e',
+      when: (c) => retroStart(c) && retroRun(c)?.status === 'done' && !c.x.files.spec,
+      then: ({ x }) => set(x, 'K1e', { state: 'cancelled', reason: 'the retro proposed nothing: it wrote no spec.md' }, 'the retro wrote no spec.md', `${x.job.id}: the retro proposed nothing`),
+    },
+    { id: 'K2', when: retroStart, then: ({ x }) => toStage(x, 'K2', 'spec', 'the retro wrote spec.md') },
   ],
 };

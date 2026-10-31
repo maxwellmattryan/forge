@@ -20,12 +20,12 @@ const LIB = path.resolve(import.meta.dirname, '..', 'lib', 'engine', 'pipeline')
 /** Changing precedence means editing this list: every table's IDs in evaluation order, shared rows where they run. */
 const PINNED: Record<string, string[]> = {
   global: ['JS2', 'JS1', 'JS3', 'G1', 'G2', 'GA1', 'GA2', 'GA2b', 'GA3', 'GA4', 'GA5', 'GA6', 'GA6b', 'GA7', 'GA8', 'GA9', 'GA10', 'GA11', 'G3', 'G3b', 'G3c', 'G4', 'G4b', 'E1', 'G5', 'L1'],
-  kind: ['K1', 'K2'],
+  kind: ['K1b', 'K1c', 'K1d', 'K1', 'K1e', 'K2'],
   secrets: ['SC2', 'SC1', 'SC1b', 'SC3', 'SC3b'],
   protected: ['PP2', 'PP2b', 'PP1'],
   proposals: ['RP1', 'RP2'],
   downstream: ['DS1'],
-  backlog: ['I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8'],
+  backlog: ['I1', 'I3', 'I4', 'I5', 'I6', 'I6b', 'I6c', 'I6d', 'I7', 'I8'],
   plan: ['P1', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'P2', 'P2b', 'P3', 'P4', 'P5'],
   spec: ['SP1', 'SP2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'SP8', 'SP3', 'SP4', 'SP5', 'SP7', 'SP6'],
   design: ['D1', 'M1', 'M2', 'D2', 'NP1', 'NP1b', 'N1', 'N1b', 'N2', 'M1', 'M2', 'D3'],

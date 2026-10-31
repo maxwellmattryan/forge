@@ -468,3 +468,36 @@ test("loadStepInput reads each rework role's last session from its runner sideca
   updateJob(repo.dir, id, (j) => void (j.stage = 'decide'));
   assert.deepEqual(loadStepInput(repo.dir, config, id).lastSessions, {}, 'any other stage');
 });
+
+test("loadStepInput reads a retro's digest batches", { skip: process.platform === 'win32' && 'symlinks' }, (t) => {
+  const repo = tempRepo();
+  t.after(() => repo.cleanup());
+  const config: Config = defaults();
+  config.tracker.kind = 'none';
+  const { id } = jobAt(repo.dir, 'backlog', { config, create: { kind: 'retro' } });
+  const dir = jobDir(repo.dir, id);
+  const at = (...p: string[]) => path.join(dir, ...p);
+  assert.deepEqual(loadStepInput(repo.dir, config, id).retro, { stats: false, batches: [] }, 'nothing prepared yet');
+
+  fs.mkdirSync(at('digest'));
+  for (const f of ['batch-2.md', 'batch-1.md', 'batch-10.md', 'runs.json', 'batch-0.md', 'batch-x.md']) fs.writeFileSync(at('digest', f), 'x');
+  fs.mkdirSync(at('digest', 'batch-4.md'));
+  fs.symlinkSync(at('digest', 'batch-1.md'), at('digest', 'batch-5.md'));
+  for (const f of ['stats.json', 'signals.md', 'transcripts.json', 'friction-1.md', 'friction-notes.md']) fs.writeFileSync(at(f), 'x');
+  const x = loadStepInput(repo.dir, config, id);
+  assert.deepEqual(x.retro, { stats: true, batches: [1, 2, 10] }, 'regular batch-<n>.md files only, ascending');
+  for (const f of [at('digest', 'batch-1.md'), at('digest', 'batch-2.md'), at('digest', 'batch-10.md'), at('stats.json'), at('signals.md'), at('transcripts.json'), at('friction-1.md')]) assert.ok(x.present.includes(f), f);
+  for (const f of [at('digest', 'batch-5.md'), at('digest', 'runs.json'), at('friction-notes.md')]) assert.ok(!x.present.includes(f), f);
+
+  // A digest/ that is a link gives no batch.
+  const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'forge-digest-'));
+  t.after(() => fs.rmSync(elsewhere, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(elsewhere, 'batch-1.md'), 'x');
+  fs.rmSync(at('digest'), { recursive: true });
+  fs.symlinkSync(elsewhere, at('digest'));
+  assert.deepEqual(loadStepInput(repo.dir, config, id).retro?.batches, []);
+
+  // Only a backlog retro job reads any of it.
+  updateJob(repo.dir, id, (j) => void (j.stage = 'spec'));
+  assert.equal(loadStepInput(repo.dir, config, id).retro, null);
+});

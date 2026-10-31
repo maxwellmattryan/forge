@@ -1,12 +1,15 @@
 // Plan: the planner decides one job or a split, and a split waits on a human unless split is auto.
-import { park, procedure, set, spawn, toStage } from '../actions.ts';
+import type { StepInput } from '../../types.ts';
+import { park, run, set, spawn, toStage } from '../actions.ts';
 import { after, agent, ended, human, p, splitMode } from '../facts.ts';
 import { genericRows } from '../generic.ts';
 import { inStage } from '../rules.ts';
-import type { Ctx, Table } from '../rules.ts';
+import type { Ctx, RuleId, Table } from '../rules.ts';
 
 const planner = ({ x }: Ctx) => agent(x, 'planner');
 const split = ({ x }: Ctx) => x.plan.verdict === 'SPLIT';
+/** P2 and P2b: `forge job split` creates the children, parks this job as their umbrella and queues their resumes. */
+const splitRun = (x: StepInput, rule: RuleId, why: string) => run(x, rule, ['job', 'split', x.job.id], why, `${x.job.id} splits into ${x.plan.jobs} jobs`);
 
 export const PLAN: Table = {
   name: 'plan',
@@ -21,9 +24,9 @@ export const PLAN: Table = {
       then: ({ x }) => spawn(x, 'P1', 'planner'),
     },
     ...genericRows('planner'),
-    { id: 'P2', when: (c) => split(c) && splitMode(c.x) === 'auto', then: ({ x }) => procedure(x, 'P2', 'split.md', 'PLAN: SPLIT under pipeline.split auto') },
+    { id: 'P2', when: (c) => split(c) && splitMode(c.x) === 'auto', then: ({ x }) => splitRun(x, 'P2', 'PLAN: SPLIT under pipeline.split auto') },
     // An approved split (a human's or the foreman's) sends the job back to plan/running: create the jobs.
-    { id: 'P2b', when: (c) => split(c) && after(human(c.x, 'approve-split')?.ts, planner(c)?.endedAt), then: ({ x }) => procedure(x, 'P2b', 'split.md', 'PLAN: SPLIT approved') },
+    { id: 'P2b', when: (c) => split(c) && after(human(c.x, 'approve-split')?.ts, planner(c)?.endedAt), then: ({ x }) => splitRun(x, 'P2b', 'PLAN: SPLIT approved') },
     {
       id: 'P3',
       when: split,

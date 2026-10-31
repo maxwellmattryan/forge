@@ -24,6 +24,21 @@ export const ref = (x: StepInput, name: string) => path.join(x.pluginRoot, 'skil
 
 export const isPrRework = (x: StepInput) => x.job.pr?.state === 'OPEN';
 
+/** I6: `forge pr sync` ran after the PR was adopted and after the last decision, so job.pr is what GitHub said since. */
+export function prSyncedSince(x: StepInput): boolean {
+  const synced = x.events.findLastIndex((e) => e.type === 'pr-synced');
+  return synced > x.events.findLastIndex((e) => e.type === 'pr-adopted') && synced > x.events.findLastIndex((e) => e.type === 'human');
+}
+
+/**
+ * K1d: the lowest digest batch no digest started on (an `agent-start` whose output is its `friction-<n>.md`), or null. A
+ * batch runs once: a digest that failed has started, so the retro goes on without it.
+ */
+export function nextDigest(x: StepInput): number | null {
+  const started = new Set(x.events.filter((e) => e.type === 'agent-start' && e.role === 'digest' && typeof e.output === 'string').map((e) => String(e.output)));
+  return x.retro?.batches.find((n) => !started.has(path.join(x.jobDir, `friction-${n}.md`))) ?? null;
+}
+
 /**
  * approval-notes.md holds a note the last builder never read: the latest qualifying event came after the last builder
  * start, not the round's, so a note given during the previous builder's run or its review counts.

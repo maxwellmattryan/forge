@@ -3,6 +3,7 @@
 // prompt answered from the pool, and a stop. Sessions are in-memory (fakeClaude); role runs are the stub claude.
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { codeDriverRig, forgeInProcess, jobAt, pidGone, waitFor, withLease, type CodeDriverRig } from '../../helpers.ts';
@@ -63,7 +64,23 @@ describe('the code driver', { concurrency: 4 }, () => {
   test('a procedure hands the job to a session', async (t) => {
     const rig = codeDriverRig(t);
     const { root, pool } = rig;
-    const { id } = jobAt(root, 'backlog', { create: { kind: 'retro' } });
+    // RC1, the one procedure left: a job at decide whose diff changes a reviewer prompt, with recall fixtures in the main checkout.
+    const { id } = jobAt(root, 'decide');
+    assert.equal((await forgeInProcess(root, ['worktree', 'create', id])).status, 0);
+    const wt = loadJob(root, id).worktree!;
+    fs.mkdirSync(path.join(wt, 'agents'));
+    fs.writeFileSync(path.join(wt, 'agents', 'reviewer.md'), '# a changed reviewer prompt\n');
+    const git = (...args: string[]) => execFileSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd: wt, stdio: 'pipe' });
+    git('add', 'agents/reviewer.md');
+    git('commit', '-qm', 'change a reviewer prompt');
+    const fixture = path.join(root, '.forge', 'evals', 'recall', 'one');
+    fs.mkdirSync(fixture, { recursive: true });
+    fs.writeFileSync(path.join(fixture, 'fixture.yml'), 'title: a clean change\nlenses: [code]\n');
+    fs.writeFileSync(path.join(fixture, 'diff.patch'), 'diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n');
+    assert.equal((await forgeInProcess(root, ['job', 'claim', id, '--session', 'probe'])).status, 0);
+    const step = (await forgeInProcess(root, ['job', 'advance', id, '--session', 'probe'])).data as any;
+    assert.deepEqual([step?.action, step?.rule], ['procedure', 'RC1'], JSON.stringify(step));
+    assert.equal((await forgeInProcess(root, ['job', 'release', id])).status, 0);
     const r = resume(rig, id);
     pool.start('boot');
     await waitFor(() => rig.sessions.children.some((c) => c.scope === id && c.turns === 1), { timeoutMs: 30_000, what: 'the session turn' });
@@ -81,6 +98,7 @@ describe('the code driver', { concurrency: 4 }, () => {
     assert.deepEqual(pool.state().jobs[id].status, 'busy');
     const job = loadJob(root, id);
     assert.ok(job.lease.driver === null || leaseStatus(job).status !== 'live', 'the driver let the job go');
+    assert.ok(!rig.log(id).some((l) => l.event === 'fallback'), 'the hand-off is no fallback');
   });
 
   test('unported requests fall back to a session', async (t) => {

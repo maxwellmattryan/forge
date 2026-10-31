@@ -15,14 +15,15 @@ export const RULES = [
   'N1', 'N1b', 'N2', 'M1', 'M2',
   // Per role: an agent replied NEEDS-PERMISSION after one of its prompts timed out (NP).
   'NP1', 'NP1b',
-  // A retro job starts with the retro agent.
-  'K1', 'K2',
+  // A retro job starts with its worktree, prepare, the digests and the retro agent, and ends when the retro proposes nothing.
+  'K1b', 'K1c', 'K1d', 'K1', 'K1e', 'K2',
   // Gates before the stage rules: secret scan, protected paths, repo proposals, downstream consumers.
   'SC1', 'SC1b', 'SC2', 'SC3', 'SC3b',
   'PP1', 'PP2', 'PP2b',
   'RP1', 'RP2',
   'DS1',
-  'I1', 'I3', 'I4', 'I5', 'I6', 'I7', 'I8',
+  // I6–I6d: an adopted PR is synced, then parked for a person (closed), integrated (behind or conflicting) or reviewed.
+  'I1', 'I3', 'I4', 'I5', 'I6', 'I6b', 'I6c', 'I6d', 'I7', 'I8',
   'P1', 'P2', 'P2b', 'P3', 'P4', 'P5',
   'SP1', 'SP2', 'SP3', 'SP4', 'SP5', 'SP6', 'SP7',
   // The spec-writer's split check proposed a split: on to the planner.

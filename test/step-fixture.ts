@@ -87,6 +87,8 @@ export interface FixtureOpts {
    * worktree's pluginHash (RECALL_HASH by default). Without it, recall is null, as for a repo with no fixtures.
    */
   recall?: { changed: string[] | null; fixtures?: boolean; invalid?: boolean; pluginHash?: string };
+  /** loadStepInput's retro (a backlog retro job's stats.json and digest batches); null by default. */
+  retro?: StepInput['retro'];
 }
 
 /** The worktree's pluginHash in recall rows. */
@@ -167,5 +169,6 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     memberWorktrees: o.memberWorktrees ?? {},
     budgetExceeded: o.budgetExceeded ?? null,
     lastSessions: o.lastSessions ?? {},
+    retro: o.retro ?? null,
   };
 }

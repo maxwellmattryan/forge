@@ -184,6 +184,11 @@ export interface StepInput {
    * sidecar naming it has no entry; `{}` at every other stage.
    */
   lastSessions: Record<string, { session: string; transcript: boolean; context: number | null }>;
+  /**
+   * A backlog retro job's start (the K rows): whether `forge retro prepare` wrote stats.json, and the digest batches it
+   * wrote (`digest/batch-<n>.md`, regular files in a real `digest/` dir), ascending. null for any other job or stage.
+   */
+  retro: { stats: boolean; batches: number[] } | null;
 }
 
 /** The job files StepInput.files records. */
