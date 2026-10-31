@@ -150,6 +150,33 @@ export interface HeadChecks {
   complete: boolean;
 }
 
+/**
+ * An open PR as the overlap check reads it: parseOpenPr in activity.ts. `files` passed safePath and
+ * `dropped` counts the rest; `filesComplete` is false when gh listed fewer than the PR changes.
+ */
+export interface OpenPr extends PrSnapshot {
+  author: string | null;
+  createdAt: string | null;
+  files: string[];
+  filesComplete: boolean;
+  dropped: number;
+  commits: { oid: string | null; committedAt: string | null; authors: string[] }[];
+}
+
+/** One commit of a branch's history: parseBranchHistory. `pr` is the first PR GitHub associates with it. */
+export interface BranchCommit {
+  oid: string | null;
+  committedAt: string | null;
+  author: string | null;
+  pr: { number: number; headRefName: string | null; isCrossRepository: boolean } | null;
+}
+
+/** A branch's commits since a time, newest first; `complete` is false when GitHub had more than one page. */
+export interface BranchHistory {
+  commits: BranchCommit[];
+  complete: boolean;
+}
+
 /** A merge GitHub refused is an answer, not an exception: `error` is gh's output (raw text). */
 export type MergeOutcome = { ok: true } | { ok: false; error: string };
 
@@ -184,4 +211,12 @@ export interface GitHub {
   viewRun(cwd: string, slug: string, run: string): RunSnapshot;
   /** Re-runs run `run`'s failed jobs in `slug`. Never throws on a refusal, a refused id or slug included. */
   rerunFailed(cwd: string, slug: string, run: string): RerunOutcome;
+  /** Up to `limit` (1–100) open PRs into `base`, forks included. Read-only; throws `external` on a bad slug, base or limit before any call. */
+  openPrs(cwd: string, slug: string, base: string, limit: number): OpenPr[];
+  /** PR `number`'s diff as raw text (untrusted). Throws `external` past MAX_DIFF_BYTES, and on a bad number or slug before any call. */
+  prDiff(cwd: string, slug: string, number: number): string;
+  /** `branch`'s commits since `since` (ISO), at most one page. The ref and since go as GraphQL variables; a bad slug, ref or date throws `external` before any call. */
+  branchHistory(cwd: string, slug: string, branch: string, since: string): BranchHistory;
+  /** Commit `oid`'s diff as raw text (untrusted). Throws `external` past MAX_DIFF_BYTES, and on a bad oid or slug before any call. */
+  commitDiff(cwd: string, slug: string, oid: string): string;
 }

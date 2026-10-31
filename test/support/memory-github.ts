@@ -4,7 +4,8 @@
 // tests that use it can run concurrently. Spawned CLIs can't take it: they use fakeGh.
 import fs from 'node:fs';
 import { ForgeError } from '#core/errors.ts';
-import { parseClosing, parseFeedback, parsePr, parsePrBody, parseRun } from '#integrations/github/pull-requests.ts';
+import { parseBranchHistory } from '#integrations/github/activity.ts';
+import { parseClosing, parseFeedback, parseOpenPrRecord, parsePr, parsePrBody, parseRun } from '#integrations/github/pull-requests.ts';
 import { parseHeadChecks } from '#integrations/github/protection.ts';
 import type { BranchRules, GitHub } from '#integrations/github/types.ts';
 
@@ -50,6 +51,12 @@ export interface MemoryGitHub extends GitHub {
   setHeadChecks(sha: string, data: unknown, slug?: string): void;
   /** `gh run view`'s JSON for workflow run `run`, read through parseRun (else viewRun throws `external`). rerunFailed never changes it or the rollup. */
   setRun(run: string, raw: unknown, slug?: string): void;
+  /** `gh pr diff`'s text for PR `number` (else prDiff throws `external`). */
+  setDiff(number: number, text: string, slug?: string): void;
+  /** BRANCH_HISTORY_QUERY's raw history nodes for `branch`, newest first; branchHistory keeps those committed at or after `since`. */
+  setHistory(branch: string, nodes: unknown[], slug?: string): void;
+  /** The commit diff text for `oid` (else commitDiff throws `external`). */
+  setCommitDiff(oid: string, text: string, slug?: string): void;
   /** Every later call of `op` fails with `error` (null clears it): reads and edits throw, merge and rerunFailed return it, branchRules answers unavailable. */
   fail(op: keyof GitHub, error: string | null): void;
   /** The raw record stored for PR `number`. */
@@ -64,6 +71,9 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
   const rules = new Map<string, BranchRules>();
   const heads = new Map<string, unknown>();
   const runs = new Map<string, unknown>();
+  const diffs = new Map<string, string>();
+  const histories = new Map<string, unknown[]>();
+  const commitDiffs = new Map<string, string>();
   const failing = new Map<keyof GitHub, string>();
   /** The labels each repo has: a PR label must exist in its repo (createLabel adds one). */
   const repoLabels = new Map<string, Set<string>>();
@@ -105,6 +115,15 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
     },
     setRun(run, raw, slug = home) {
       runs.set(`${slug}!${run}`, raw);
+    },
+    setDiff(number, text, slug = home) {
+      diffs.set(key(slug, number), text);
+    },
+    setHistory(branch, nodes, slug = home) {
+      histories.set(`${slug}\0${branch}`, nodes);
+    },
+    setCommitDiff(oid, text, slug = home) {
+      commitDiffs.set(`${slug}@${oid}`, text);
     },
     fail(op, error) {
       if (error === null) failing.delete(op);
@@ -213,5 +232,32 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
       const error = failing.get('rerunFailed');
       return error !== undefined ? { ok: false, error } : { ok: true };
     },
+    openPrs: (_cwd, slug, base, limit) =>
+      read('openPrs', { slug, base, limit }, () =>
+        [...prs.entries()]
+          .filter(([k, r]) => k.startsWith(`${slug}#`) && r.state === 'OPEN' && r.baseRefName === base)
+          .slice(0, limit)
+          .map(([, r]) => parseOpenPrRecord(r)),
+      ),
+    prDiff: (_cwd, slug, number) =>
+      read('prDiff', { slug, number }, () => {
+        const text = diffs.get(key(slug, number));
+        if (text === undefined) throw new ForgeError(`gh pr diff: no diff for #${number} in ${slug}`, 'external');
+        return text;
+      }),
+    branchHistory: (_cwd, slug, branch, since) =>
+      read('branchHistory', { slug, branch, since }, () => {
+        const nodes = (histories.get(`${slug}\0${branch}`) ?? []).filter((n) => {
+          const at = Date.parse(String((n as { committedDate?: unknown })?.committedDate));
+          return Number.isNaN(at) || at >= Date.parse(since);
+        });
+        return parseBranchHistory({ repository: { ref: { target: { history: { pageInfo: { hasNextPage: false }, nodes } } } } });
+      }),
+    commitDiff: (_cwd, slug, oid) =>
+      read('commitDiff', { slug, oid }, () => {
+        const text = commitDiffs.get(`${slug}@${oid}`);
+        if (text === undefined) throw new ForgeError(`gh api: no commit ${oid} in ${slug}`, 'external');
+        return text;
+      }),
   };
 }
