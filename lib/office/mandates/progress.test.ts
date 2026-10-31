@@ -11,9 +11,9 @@ import { archiveJob } from '#engine/ops/retention.ts';
 import { FOREMAN_ACTOR } from '#integrations/github/actor.ts';
 import { applyInput, blankMandate, fillDefaults } from './contract.ts';
 import { logDirective } from './directives.ts';
-import { mandateProgress, readProgressCtx } from './progress.ts';
+import { bounceHold, classifyJob, mandateProgress, readProgressCtx } from './progress.ts';
 import { listMandates, writeMandate } from './store.ts';
-import type { Config, Tracker, TrackerItem } from '#core/types.ts';
+import type { Config, Job, JobEvent, Tracker, TrackerItem } from '#core/types.ts';
 import type { Mandate, MandateInput } from './types.ts';
 import type { ProgressCtx } from './progress.ts';
 
@@ -162,4 +162,16 @@ test("a mandate's jobs, spend and candidates", async (t) => {
     });
     assert.equal(progress(root, config, 'm1', stub({}), { at }).lastActivity, new Date(at).toISOString());
   });
+});
+
+test('an overlap wait is reached under merge-ready and never a bounce', () => {
+  const into = (waitingOn: string) => ({ v: 1, ts: 't', type: 'transition', from: { stage: 'pr', state: 'running', waitingOn: null }, to: { stage: 'pr', state: 'waiting', waitingOn } }) as JobEvent;
+  const held = { state: 'waiting', stage: 'pr', waitingOn: 'overlap', pr: { number: 7 } } as Pick<Job, 'state' | 'stage' | 'waitingOn' | 'pr'>;
+  assert.equal(classifyJob(held, [], 'merge-ready'), 'reached');
+  assert.equal(classifyJob({ ...held, pr: null }, [], 'merge-ready'), 'inFlight', 'no PR: not reached');
+  assert.equal(classifyJob(held, [], 'merged'), 'inFlight', 'merged needs the merge');
+  const events = [into('overlap'), into('overlap'), into('overlap')];
+  assert.equal(bounceHold(held, events, { id: 'm1', stall: { bounces: 1 } } as Pick<Mandate, 'id' | 'stall'>), null);
+  // A counted gate entered as often does bounce, so the overlap row is what keeps it out.
+  assert.match(bounceHold({ ...held, waitingOn: 'escalation' }, events.map(() => into('escalation')), { id: 'm1', stall: { bounces: 1 } } as Pick<Mandate, 'id' | 'stall'>) ?? '', /back at escalation 3 times/);
 });

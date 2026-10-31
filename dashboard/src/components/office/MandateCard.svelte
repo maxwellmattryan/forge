@@ -1,16 +1,18 @@
 <!-- One readable mandate on the Office page: its title, id, state and reason; its scope; its chain (with the active link
-     marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and every line the
-     config capped; its live jobs (each opens the drawer); a goal mandate's draft and gate, pointing at Needs you, which
-     decides it. Then the actions its status offers (mandateActions): Pause and Close open a confirm row with an optional
-     one-line reason (Close says it is final and starts the next link); focus moves to Confirm, and Cancel hands it back to
-     the button that opened the row. A refusal is the server's error as a toast and changes nothing; a success reloads the
-     mandates and the state. Every mandate string is owner or tracker text and renders as Svelte text. -->
+     marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and
+     every line the config capped; its live jobs (each opens the drawer); its merge queue when it lists any open PR (each
+     overlap group in merge order, then the merge-now and unchecked PRs; each id opens the drawer); a goal mandate's draft
+     and gate, pointing at Needs you, which decides it. Then the actions its status offers (mandateActions): Pause and
+     Close open a confirm row with an optional one-line reason (Close says it is final and starts the next link); focus
+     moves to Confirm, and Cancel hands it back to the button that opened the row. A refusal is the server's error as a
+     toast and changes nothing; a success reloads the mandates and the state. Every mandate string is owner or tracker
+     text and renders as Svelte text. -->
 <script lang="ts">
   import { tick } from 'svelte';
   import Chip from '../ui/Chip.svelte';
   import ReportCard from './ReportCard.svelte';
-  import { STATE_TONE, inIntake, mandateActions, postMandateStatus, type MandateStatusAction } from '../../lib/office/foreman.ts';
-  import { usd } from '../../lib/core/util.ts';
+  import { STATE_TONE, inIntake, mandateActions, mergeQueueView, postMandateStatus, type MandateStatusAction } from '../../lib/office/foreman.ts';
+  import { tokensShort, usd } from '../../lib/core/util.ts';
   import { S, loadMandates, openDrawer, refresh } from '../../lib/core/app.svelte.ts';
   import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
   import { t } from '../../lib/text/locale.ts';
@@ -23,6 +25,7 @@
   const p = $derived(m.progress);
   const goal = $derived(inIntake(m) && m.draft !== null);
   const gatePending = $derived(m.draft?.gate === 'pending' || m.draft?.gate === 'filing');
+  const queue = $derived(mergeQueueView(m.mergeQueue));
   /** The confirm row open for Pause or Close, with its reason. */
   let confirming = $state<'pause' | 'close' | null>(null);
   let reason = $state('');
@@ -119,6 +122,35 @@
       <span class="label text-[10px]">{$t('foreman.mandate.liveJobs')}</span>
       {#each jobs as j (j.id)}<button class="mono hover:text-gleam" title={j.title} onclick={() => openDrawer(j.id)}>{j.id}</button>{/each}
     </div>
+  {/if}
+
+  {#if queue}
+    <section class="flex flex-col gap-2 text-[13px]" aria-labelledby="mandate-queue-{m.id}">
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <h4 id="mandate-queue-{m.id}" class="label text-[10px]">{$t('foreman.mandate.queue.title')}</h4>
+        <span class="text-muted text-[12px]">{queue.hold ? $t('foreman.mandate.queue.hold') : $t('foreman.mandate.queue.advisory')}</span>
+      </div>
+      {#each queue.sections as sec, i (`${sec.kind}-${i}`)}
+        <div class="flex flex-col gap-1">
+          <div class="label text-[10px] text-muted">{sec.kind === 'group' ? $t('foreman.mandate.queue.group', { n: i + 1 }) : sec.kind === 'merge-now' ? $t('foreman.mandate.queue.mergeNow') : $t('foreman.mandate.queue.unchecked')}</div>
+          <!-- A group is an order (ol); merge-now and unchecked are sets (ul). -->
+          <svelte:element this={sec.kind === 'group' ? 'ol' : 'ul'} class="flex flex-col gap-1.5">
+            {#each sec.entries as e, k (e.job)}
+              <li class="flex items-baseline gap-x-2 min-w-0">
+                {#if sec.kind === 'group'}<span class="num text-muted w-4 shrink-0">{k + 1}</span>{/if}
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
+                  <button class="mono hover:text-gleam break-all text-left" onclick={() => openDrawer(e.job)}>{e.job}</button>
+                  <span class="mono text-muted">{$t('foreman.mandate.queue.pr', { n: e.pr })}</span>
+                  <span class="num text-muted">{$t('foreman.mandate.queue.tokens', { tokens: tokensShort(e.tokens) })}</span>
+                  <Chip tone={e.ready ? 'ok' : 'muted'} text={e.ready ? $t('foreman.mandate.queue.ready') : $t('foreman.mandate.queue.notReady')} />
+                  <span class="text-muted text-[12px] basis-full break-words">{#if e.waitsFor}<span class="text-warn">{$t('foreman.mandate.queue.waitsFor', { job: e.waitsFor })}</span>{' · '}{/if}{e.reason}</span>
+                </div>
+              </li>
+            {/each}
+          </svelte:element>
+        </div>
+      {/each}
+    </section>
   {/if}
 
   {#if goal && m.draft}

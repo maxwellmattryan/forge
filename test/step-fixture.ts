@@ -39,6 +39,8 @@ export interface FixtureOpts {
   decision?: Partial<StepInput['decision']>;
   /** loadStepInput's decisionCurrent: every job repo's HEAD follows the decided head; true by default. */
   decisionCurrent?: StepInput['decisionCurrent'];
+  /** loadStepInput's mergeAhead: the ready PR ranked ahead in the mandate's merge queue; null by default. */
+  mergeAhead?: StepInput['mergeAhead'];
   /** loadStepInput's reviewCurrent: every job repo's HEAD follows the head the round's review was given; true by default. */
   reviewCurrent?: StepInput['reviewCurrent'];
   /** loadStepInput's panelOutcome: the outcome the round's `verdicts` event logged; PASS by default. */
@@ -149,6 +151,7 @@ export function fixture(o: FixtureOpts = {}): StepInput {
     designDeltas: o.designDeltas ?? false,
     decision: { decision: null, ...o.decision },
     decisionCurrent: o.decisionCurrent ?? true,
+    mergeAhead: o.mergeAhead ?? null,
     reviewCurrent: o.reviewCurrent === undefined ? true : o.reviewCurrent,
     panelOutcome: o.panelOutcome === undefined ? 'PASS' : o.panelOutcome,
     reviewedShas: o.reviewedShas ?? {},

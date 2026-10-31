@@ -11,6 +11,7 @@ import {
   mandateActions,
   mandateBadge,
   mandateGroups,
+  mergeQueueView,
   newMandateBody,
   pendingGates,
 } from './foreman.ts';
@@ -48,7 +49,37 @@ const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
     outcomes: { final: 0, open: 0, unmeasured: 0, reverted: null, followedUp: null, finalAt: null },
   },
   closing: null,
+  mergeQueue: { hold: false, groups: [], mergeNow: [], unchecked: [] },
   ...o,
+});
+
+test('mergeQueueView', () => {
+  const entry = (job: string, ahead: string | null, ready = true) => ({ job, pr: job.length, tokens: 1500, ready, ahead, reasons: [`why ${job}`] });
+  const q = { hold: true, groups: [[entry('a', null), entry('bb', 'a'), entry('ccc', 'a', false)]], mergeNow: [entry('dddd', null)], unchecked: [entry('eeeee', null)] };
+  const view = mergeQueueView(q);
+  assert.deepEqual(view, {
+    hold: true,
+    sections: [
+      {
+        kind: 'group',
+        entries: [
+          { job: 'a', pr: 1, tokens: 1500, ready: true, waitsFor: null, reason: 'why a' },
+          { job: 'bb', pr: 2, tokens: 1500, ready: true, waitsFor: 'a', reason: 'why bb' },
+          { job: 'ccc', pr: 3, tokens: 1500, ready: false, waitsFor: 'a', reason: 'why ccc' },
+        ],
+      },
+      { kind: 'merge-now', entries: [{ job: 'dddd', pr: 4, tokens: 1500, ready: true, waitsFor: null, reason: 'why dddd' }] },
+      { kind: 'unchecked', entries: [{ job: 'eeeee', pr: 5, tokens: 1500, ready: true, waitsFor: null, reason: 'why eeeee' }] },
+    ],
+  });
+  // A person merges: the order is a suggestion, so nothing waits for anything.
+  const advisory = mergeQueueView({ ...q, hold: false })!;
+  assert.equal(advisory.hold, false);
+  assert.ok(advisory.sections.every((s) => s.entries.every((e) => e.waitsFor === null)));
+  // Only the non-empty lists, and no section at all when every list is empty.
+  assert.deepEqual(mergeQueueView({ ...q, groups: [], unchecked: [] })!.sections.map((s) => s.kind), ['merge-now']);
+  assert.equal(mergeQueueView({ hold: true, groups: [], mergeNow: [], unchecked: [] }), null);
+  assert.equal(mergeQueueView(row('m1').mergeQueue), null);
 });
 
 test('editor bodies send only what changed', () => {

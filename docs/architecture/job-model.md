@@ -11,7 +11,7 @@ Integrate runs before decide, so the approver judges the branch as it will merge
 `queued | running | waiting | blocked | failed | cancelled | done`
 
 `waitingOn` says why a job is waiting:
-`spec-approval | split-approval | issue-link | input | escalation | infra | conflicts | rounds-exhausted | pr-review | external | budget | human | shelved` (`human`: a CLI check, such as the secret scan, stopped the job; approve means "I cleared it, check again", never "ship it anyway"; `shelved`: a person, or the Foreman's senior pass, set the job aside, see **Shelve**)
+`spec-approval | split-approval | issue-link | input | escalation | infra | conflicts | rounds-exhausted | pr-review | external | budget | human | shelved | overlap` (`human`: a CLI check, such as the secret scan, stopped the job; approve means "I cleared it, check again", never "ship it anyway"; `shelved`: a person, or the Foreman's senior pass, set the job aside, see **Shelve**; `overlap`: step PR20 holds a mandate PR's merge while a ready PR ranked ahead of it in its merge queue lands, and `forge sync` releases it, so nobody is asked to decide, see ["Foreman"](foreman.md) › Ship policy)
 
 Trackers see a coarser view: `queued`, `in-progress`, `review`, `blocked`, `done`, `cancelled`. Adapters map those to labels, GitHub Project options, or anything else.
 

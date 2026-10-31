@@ -10,7 +10,7 @@ The Office and Foreman pages: the Office panel, the mandate badge, card, editor 
 | File | What it holds |
 |---|---|
 | `MandateBadge.svelte` | A job's mandate as a chip on its board card and table row: the id as plain text (never a link, since the card is a button), titled "Mandate <id>". |
-| `MandateCard.svelte` | One readable mandate on the Office page: its title, id, state and reason; its scope; its chain (with the active link marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and every line the config capped; its live jobs (each opens the drawer); a goal mandate's draft and gate, pointing at Needs you, which decides it. |
+| `MandateCard.svelte` | One readable mandate on the Office page: its title, id, state and reason; its scope; its chain (with the active link marked) and what it waits on; its progress against its budget; its report card; the contract as it applies now and every line the config capped; its live jobs (each opens the drawer); its merge queue when it lists any open PR (each overlap group in merge order, then the merge-now and unchecked PRs; each id opens the drawer); a goal mandate's draft and gate, pointing at Needs you, which decides it. |
 | `MandateEditor.svelte` | The mandate editor, in a centred modal (the Add project shell: backdrop, focus trap, Escape, scroll lock; a full-screen sheet below md): a new mandate's or one mandate's. |
 | `OfficePanel.svelte` | The Office page's panel, in two columns where the view is wide enough (lib/office/layout.ts), stacked below that. |
 | `ReportCard.svelte` | A mandate's report card on its MandateCard: one card only (shownCard: the live one, or a closed mandate's closing summary card), with a source line saying which. |

@@ -27,6 +27,7 @@ import { verifierCount } from '../verifiers.ts';
 import { currentRerun, reworkReviewFiles, roundLenses } from './panel.ts';
 import { lastRun } from '../../verify/record.ts';
 import { decisionCurrent, decisionEligible, lastDecision, reviewCurrent } from '../../pr/eligible.ts';
+import { mergeHold } from '../moves/merge-queue.ts';
 import { autoMerge, worktreeRoot } from '#core/config/load.ts';
 import { UUID, readInfo, roleRunFiles } from '#core/job/session-files.ts';
 import { roleRunTranscriptById } from '#integrations/claude/transcripts.ts';
@@ -137,6 +138,8 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     decision: { decision: parseDecision(root, job.id).decision },
     // Only where PR4 can use it: the check runs git in every job repo.
     decisionCurrent: job.stage === 'pr' && autoMerge(config) && decisionEligible(lastDecision(events)) ? decisionCurrent(root, config, job, events) : null,
+    // Only where PR20 can use it: the queue reads every job of the mandate and their overlap reports.
+    mergeAhead: job.stage === 'pr' && job.mandate && job.pr?.state === 'OPEN' && autoMerge(config) ? mergeHold(root, config, job) : null,
     // Only where DC11 and PR12 read it: the check runs git in every job repo.
     reviewCurrent: ['decide', 'pr'].includes(job.stage) && job.state === 'running' && job.kind !== 'eval' ? reviewCurrent(root, config, job, all) : null,
     // The full log, as for reviewCurrent.

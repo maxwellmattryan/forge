@@ -15,6 +15,7 @@ import { listArchived } from '#core/job/archive.ts';
 import { listJobs } from '#core/job/store.ts';
 import { buildReportCard } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
+import { mergeQueue } from '#engine/pipeline/moves/merge-queue.ts';
 import { refuseOutsideOffice } from '#office/session/permissions/owner.ts';
 import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman/policy.ts';
 import { approveMandateRelease, mandateReleaseState } from '#engine/release/mandate.ts';
@@ -124,7 +125,7 @@ const MANDATE: HelpGroup = {
       command: 'mandate show',
       args: '<id>',
       summary:
-        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null), its latest 10 directives, and release: for an effective until: released, its release {status (unplanned, done, replaced, failed, stale, started, approved or pending), plan, tag, done, total, next, owner, detail} (else null)",
+        "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null), its latest 10 directives, release: for an effective until: released, its release {status (unplanned, done, replaced, failed, stale, started, approved or pending), plan, tag, done, total, next, owner, detail} (else null), and mergeQueue {hold, groups, mergeNow, unchecked}: its open PRs ranked within each overlap group (dependencies, then ready ones, then the most input+output tokens), each entry {job, pr, tokens, ready, ahead, reasons}; hold: Forge merges in this order (else it is a suggestion for a person)",
       exits: [[1, "no such mandate (not_found), or it can't be read"]],
       docs: DOCS,
     },
@@ -387,6 +388,7 @@ function show(ctx: CliContext, id: string) {
     summary: m.status === 'closed' ? readSummary(root, m.id) : null,
     directives: readDirectives(root, { mandate: m.id, limit: 10 }),
     release: effective.until === 'released' ? mandateReleaseState(root, config, m.id, (x) => mandateReleaseRefusal(root, config, x)) : null,
+    mergeQueue: mergeQueue(root, config, m.id),
   };
 }
 
