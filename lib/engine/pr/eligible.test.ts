@@ -301,16 +301,26 @@ test("reviewCurrent binds HEAD to the head the round's review was given", () => 
     ];
     // The panel's first reviewer start since the round's `round` event bounds the anchor. A commit, a verify and RV2's fresh scope after it (RV2 fires again after any verify) are not what the reviewers were given.
     const scoped = (n: number, head: string) => event('scope', n, { round: 1, head });
-    const verdicts = (sha: string) => event('verdicts', 5, { round: 1, outcome: 'PASS', sha });
+    const verdicts = (sha: string, n = 5) => event('verdicts', n, { round: 1, outcome: 'PASS', sha });
     const opened = (n: number) => event('round', n, { round: 1 });
-    // review.startAfter fast: the first panel started on the partial pass of D, a late failure cancelled it, the builder
-    // committed P, a second partial pass and its panel followed, and the full verify ended alongside it. The live panel is the second.
+    // review.startAfter fast: the first panel (two lenses) started on the partial pass of D, the full verify failed (a late
+    // failure) and the lens runs were cancelled, the builder committed P, a second partial pass and its panel followed,
+    // and the full verify ended alongside it. The live panel is the second.
     const partial = (sha: string, n: number): VerifyRun => ({ ...verifyRun(sha, n), partial: true });
-    const lateRuns = [partial(h.D, 0), partial(h.P, 4), verifyRun(h.P, 7)];
-    const lateEvents = [opened(0), scoped(1, h.D), start(2), event('agent-cancelled', 3, { role: 'reviewer:code', round: 1, wasRunning: true }), move(3, 'review', 'build'), scoped(5, h.P), start(6), event('verdicts', 8, { round: 1, outcome: 'PASS', sha: h.P })];
+    const lateRuns = [partial(h.D, 0), verifyRun(h.D, 2, false), partial(h.P, 4), verifyRun(h.P, 7)];
+    const lenses = (n: number) => [start(n), start(n, 'reviewer:security')];
+    const cancelLens = (n: number, lens: string) => event('agent-cancelled', n, { role: `reviewer:${lens}`, round: 1, wasRunning: true });
+    const lateEvents = [opened(0), scoped(1, h.D), ...lenses(2), cancelLens(3, 'code'), cancelLens(3, 'security'), move(3, 'review', 'build'), scoped(5, h.P), ...lenses(6), verdicts(h.P, 8)];
+    // `forge job agent cancel` takes no proof and any session can run it: a cancel moves the anchor only behind a late failure
+    // with every started lens started again. The same sequence but one lens cancelled and respawned, and the other kept its verdict on D:
+    const oneLens = [move(0, 'verify'), scoped(1, h.D), ...lenses(2), cancelLens(3, 'code'), scoped(4, h.P), start(4), verdicts(h.P)];
     rows.push(
       ['a late failure cancelled the first panel: the second partial pass anchors, HEAD is its head', h.P, lateEvents, true, lateRuns],
-      ["a late failure cancelled the first panel: the cancelled panel's head no longer answers", h.D, lateEvents, false, lateRuns],      ['a commit, a verify and RV2\'s fresh scope after a reviewer started', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      ["a late failure cancelled the first panel: the cancelled panel's head no longer answers", h.D, lateEvents, false, lateRuns],
+      ['a late failure cancelled one lens, only it started again: the other lens still reviewed D', h.P, [opened(0), scoped(1, h.D), ...lenses(2), cancelLens(3, 'code'), move(3, 'review', 'build'), scoped(5, h.P), start(6), verdicts(h.P, 8)], false, lateRuns],
+      ['one lens cancelled by hand after a commit and a verify, only it started again', h.P, oneLens, false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      ['both lenses cancelled by hand and started again, with no late failure behind the cancel', h.P, [opened(0), scoped(1, h.D), ...lenses(2), cancelLens(3, 'code'), cancelLens(3, 'security'), scoped(4, h.P), ...lenses(5), verdicts(h.P, 8)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
+      ['a commit, a verify and RV2\'s fresh scope after a reviewer started', h.P, [move(0, 'verify'), scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
       ['the same with no entry into review in the log', h.P, [scoped(1, h.D), start(2), scoped(4, h.P), verdicts(h.P)], false, [verifyRun(h.D, 0), verifyRun(h.P, 3)]],
       ['reviewers started and one retried after the scope event', h.D, [move(0, 'verify'), scoped(1, h.D), start(2), start(2, 'reviewer:security'), start(3), verdicts(h.D)], true],
       ['clean base merges on the head the reviewers started on', h.M2, [move(0, 'verify'), scoped(1, h.D), start(2), start(3), verdicts(h.D)], true],

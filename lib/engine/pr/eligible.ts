@@ -16,7 +16,7 @@ import { branchHits, clean, prefixHits, protectedApproved, refusalText } from '.
 import { integrationTouched, resolveBase } from '../pipeline/scope.ts';
 import { after, stageOf } from '../pipeline/step/facts.ts';
 import { memberClone, memberEntry, memberRepos, trustedMemberWorktree } from '../project/job-repos.ts';
-import { roundRuns, runsSince } from '../verify/record.ts';
+import { lateFailure, roundRuns, runsSince } from '../verify/record.ts';
 import { remoteBaseTip } from './branch.ts';
 
 /** A full commit id (SHA-1 or SHA-256): every head is checked against it before it reaches git. */
@@ -194,6 +194,24 @@ export function decisionCurrent(root: string, config: Config, job: Job, events: 
   }
 }
 
+/** The `reviewer:` roles with an `agent-start` event strictly between positions `lo` and `hi`. */
+const lensStarts = (events: JobEvent[], lo: number, hi: number): Set<string> =>
+  new Set(events.flatMap((e, i) => (i > lo && i < hi && e.type === 'agent-start' && typeof e.role === 'string' && e.role.startsWith('reviewer:') ? [e.role] : [])));
+
+/**
+ * Whether the `agent-cancelled` event at `cancelled` is what RV13 does after a late failure, so that the panel
+ * after it may anchor reviewCurrent. `forge job agent cancel` takes no proof, any session can run it, so the
+ * round's verify runs must show a late failure before it (lateFailure) and every lens that started in the round
+ * before it must have started again before the verdicts: no lens keeps a verdict on the head the cancel left.
+ */
+function cancelIsLateFailure(job: Job, events: JobEvent[], opened: number, cancelled: number, verdicts: number): boolean {
+  const at = events[cancelled].ts;
+  const before = roundRuns(job).filter((r) => typeof r.at === 'string' && r.at < at);
+  if (!lateFailure({ round: job.round, verifyRuns: before })) return false;
+  const again = lensStarts(events, cancelled, verdicts);
+  return [...lensStarts(events, opened, cancelled)].every((role) => again.has(role));
+}
+
 /**
  * Whether every job repo's HEAD still follows the head the current round's review was given. Null
  * when the round has no `verdicts` event: nothing is bound. The anchor is the head on RV2's own
@@ -203,7 +221,9 @@ export function decisionCurrent(root: string, config: Config, job: Job, events: 
  * logged earlier, during build, is not RV2's, and a verify, commit or scope after a reviewer
  * started (RV2 logs a fresh one after any verify) is not what the reviewers were given. When a late
  * failure cancelled the round's lens runs (an `agent-cancelled` event of this round), the panel is the
- * first reviewer start after the last cancel: the cancelled panel reviewed a head the round left. It is never
+ * first reviewer start after the last cancel: the cancelled panel reviewed a head the round left. That holds
+ * only for a cancel with a late failure in the round's verify runs before it and every started lens started
+ * again after it (cancelIsLateFailure); any other cancel is false. It is never
  * the `verdicts` sha, which is read after the panel ends and so would cover a commit a reviewer made
  * during it. An integrate conflict episode that started on a reviewed head, left integrate for
  * decide or pr, and whose last verify passed moves the anchor to the head that verify checked.
@@ -220,6 +240,7 @@ export function reviewCurrent(root: string, config: Config, job: Job, events: Jo
     // A late failure (review.startAfter fast) cancels the panel that started on the partial pass and the
     // round goes back to the builder, so the live panel is the first reviewer start after the round's last cancel.
     const cancelled = events.findLastIndex((e, i) => i < v && e.type === 'agent-cancelled' && e.round === job.round);
+    if (cancelled > opened && !cancelIsLateFailure(job, events, opened, cancelled, v)) return false;
     const from = Math.max(opened, cancelled);
     const started = events.findIndex((e, i) => i > from && i < v && e.type === 'agent-start' && typeof e.role === 'string' && e.role.startsWith('reviewer:'));
     const panel = started < 0 ? v : started;
