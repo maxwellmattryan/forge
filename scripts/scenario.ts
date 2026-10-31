@@ -30,8 +30,10 @@ const STEP_TIMEOUT_MS = 60_000;
 // Steps can't start a server, a session or a release: only these command groups run, and of `job`
 // only the subcommands below. `job advance` would run the pr, run, eval and other actions
 // `forge job step` returns (a dev server that outlives cleanup, a PR), and `job from-ref` and
-// `job link` exist to reach a tracker, so a group name alone is not enough.
-const STEP_COMMANDS = new Set(['job', 'worktree', 'verify', 'requests']);
+// `job link` exist to reach a tracker, so a group name alone is not enough. `overlap` asks gh for the
+// repo, which a scratch repo with no remote (and no GH_REPO, which scenarioEnv drops) can't name, so
+// it records GitHub as unread without a network call.
+const STEP_COMMANDS = new Set(['job', 'worktree', 'verify', 'requests', 'overlap']);
 const STEP_JOB_COMMANDS = new Set(['show', 'get', 'list', 'set', 'effort', 'claim', 'release', 'note', 'human', 'agent', 'round', 'budget', 'shelve', 'verdicts', 'gate', 'decision', 'score']);
 // The seeder passes these to `forge job new` itself.
 const NEW_FLAGS_REFUSED = ['--title', '--slug', '--session', '--body-file'];
@@ -279,6 +281,8 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
 export function scenarioEnv(env: NodeJS.ProcessEnv, root: string): NodeJS.ProcessEnv {
   const out = gitEnv(env);
   for (const k of Object.keys(out)) if (SCENARIO_ENV_DROPPED.test(k)) delete out[k];
+  // gh would read this repo instead of the scratch repo's (absent) remote.
+  delete out.GH_REPO;
   out.FORGE_ROOT = root;
   out.FORGE_HOME = path.join(path.dirname(root), 'forge-home');
   out.FORGE_ACTOR = SCENARIO_ACTOR;
