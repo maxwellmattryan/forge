@@ -424,6 +424,9 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   'policy.protectedPaths': 'text',
   pr: 'plain',
   'pr.reviewers': 'text',
+  // Hand-edited, not a Settings field: a later shepherd may act on the window (docs/architecture/overlap.md).
+  overlap: 'plain',
+  'overlap.recentHours': 'plain',
   merge: 'plain',
   // Check names, workflow files and creator logins (a person's, not only a bot's) are repo-specific, so a bundle counts them but doesn't print them.
   'merge.requiredChecks': 'text',

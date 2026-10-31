@@ -1,6 +1,6 @@
 // /api/jobs and /api/jobs/:id/*: the job detail, transcript and files, the job POSTs, the Shelved list's
 // POST /api/shelf, and the environment routes with GET /api/environments.
-import type { BudgetKey, Effort, ShelfAction } from './enums.ts';
+import type { BudgetKey, Effort, OverlapGap, OverlapKind, OverlapReason, OverlapSource, OverlapTiming, ShelfAction, Stage } from './enums.ts';
 import type { AgentRun, BudgetLimits, BudgetUsed, Job, JobBudget, JobEvent, OwnerStatus, Progress } from './job.ts';
 import type { ForgeRequest } from './state.ts';
 
@@ -50,6 +50,48 @@ export interface JobDetail {
   agents: AgentRow[];
   /** The owner is an interactive (non-daemon) session whose transcript exists; null otherwise. */
   ownerTranscript: { session: string } | null;
+  /** The job's last `forge overlap` report; null when there is none, it is malformed, or a newer Forge wrote it: readOverlapReport in lib/engine/project/overlap.ts. */
+  overlap: OverlapReport | null;
+}
+
+/** A base-side line span both sides of an overlap change, 1-based and end-exclusive. */
+export interface OverlapSharedHunk {
+  path: string;
+  start: number;
+  end: number;
+}
+
+/** One job, PR or person's push that shares files with an overlap subject. */
+export interface OverlapCounterpart {
+  kind: OverlapKind;
+  /** A job id, `#<n>` for a PR, or `<branch>@<sha, 12 chars>` for a push. */
+  ref: string;
+  source: OverlapSource;
+  /** An outside PR or a person's push, not a Forge job. */
+  human: boolean;
+  /** A job's stage; null for a PR or a push. */
+  stage: Stage | null;
+  /** A PR's https url; null otherwise. */
+  url: string | null;
+  /** The shared paths, sorted, at most 100. */
+  files: string[];
+  /** At most 50; empty when either side is `file-map`. */
+  sharedHunks: OverlapSharedHunk[];
+}
+
+/** `.forge/runtime/overlap/{jobs,prs}/<ref>.json`: the full report `forge overlap` writes (lib/engine/project/overlap.ts). */
+export interface OverlapReport {
+  schemaVersion: number;
+  checkedAt: string;
+  subject: { kind: 'job' | 'pr'; ref: string; source: OverlapSource; files: number };
+  base: string;
+  recentHours: number;
+  counterparts: OverlapCounterpart[];
+  /** No other job in flight, no person's commit in the window, and GitHub was read. */
+  idle: boolean;
+  timing: { kind: OverlapTiming; refs: string[] };
+  reasons: OverlapReason[];
+  gaps: { code: OverlapGap; ref: string | null }[];
 }
 
 /** GET /api/jobs/:id/file for a text file: the text/plain body (send in lib/server/http.ts); images come back as raw bytes and /raw as sandboxed HTML, neither through api(). */

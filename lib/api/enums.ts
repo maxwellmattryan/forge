@@ -18,6 +18,11 @@ import type {
   MANDATE_UNTIL,
   OFFICE_GATES,
   OFFICE_RUN_OUTCOMES,
+  OVERLAP_GAPS,
+  OVERLAP_KINDS,
+  OVERLAP_REASONS,
+  OVERLAP_SOURCES,
+  OVERLAP_TIMINGS,
   REPO_BUDGET_KEYS,
   REPO_BUDGET_MODES,
   REQUEST_TYPES,
@@ -80,3 +85,14 @@ export type MandateScoring = (typeof MANDATE_SCORING)[number];
 export type DirectiveAction = (typeof DIRECTIVE_ACTIONS)[number];
 /** A Shelved list batch action: SHELF_ACTIONS in lib/api/constants.ts. */
 export type ShelfAction = (typeof SHELF_ACTIONS)[number];
+
+/** An overlap counterpart's kind: OVERLAP_KINDS in lib/api/constants.ts. */
+export type OverlapKind = (typeof OVERLAP_KINDS)[number];
+/** Where an overlap side's files came from: OVERLAP_SOURCES. */
+export type OverlapSource = (typeof OVERLAP_SOURCES)[number];
+/** The overlap check's timing: OVERLAP_TIMINGS. */
+export type OverlapTiming = (typeof OVERLAP_TIMINGS)[number];
+/** A reason code in an overlap report: OVERLAP_REASONS. */
+export type OverlapReason = (typeof OVERLAP_REASONS)[number];
+/** What the overlap check could not read: OVERLAP_GAPS. */
+export type OverlapGap = (typeof OVERLAP_GAPS)[number];

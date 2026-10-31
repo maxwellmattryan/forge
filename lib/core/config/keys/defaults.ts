@@ -197,6 +197,8 @@ export function defaults(): Config {
       // The label `forge pr gate` puts on a PR whose merge waits on a person; null: no label.
       needsHumanLabel: 'forge:needs-human',
     },
+    // A person's commits in the last day count as fresh work the overlap check names (docs/architecture/overlap.md).
+    overlap: { recentHours: 24 },
     merge: {
       auto: false,
       method: 'squash',

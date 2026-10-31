@@ -29,7 +29,6 @@ import { issueLinkStatus } from '#core/job/issue-link.ts';
 import * as yaml from '#core/format/yaml.ts';
 
 type Row = { step: string; input: Record<string, unknown>; fields: Record<string, unknown>; removed?: string[]; note?: string };
-
 const MISSING = Symbol('missing');
 /** The value at a dotted path, or MISSING when any segment is absent. */
 function get(obj: unknown, dotted: string): unknown {
@@ -165,6 +164,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'resume-rework', input: { pipeline: { maxRounds: 4 } }, fields: { pipeline: { maxRounds: 4 } }, removed: ['pipeline.resumeRework'], note: ONLY_VERSION },
   { step: 'approver-skip-when-clean', input: { approver: { alwaysEscalate: ['x'] } }, fields: { approver: { alwaysEscalate: ['x'] } }, removed: ['approver.skipWhenClean'], note: ONLY_VERSION },
   { step: 'daemon-driver', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.driver'], note: ONLY_VERSION },
+  { step: 'overlap-recent-hours', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['overlap'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [

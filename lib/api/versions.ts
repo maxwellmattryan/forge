@@ -138,6 +138,8 @@ export const API_CHANGES = [
   // DaemonPermissionPrompt.role (string | null, optional): the role whose own child asked, for a code turn's role run
   // whose prompt the code driver relays; absent or null for a session's prompt.
   { id: 'prompt-role' },
+  // JobDetail.overlap (OverlapReport | null, OverlapCounterpart, OverlapSharedHunk): the job's cached `forge overlap` report.
+  { id: 'overlap-report' },
 ] as const;
 
 /**

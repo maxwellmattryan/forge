@@ -198,6 +198,9 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     doc: 'the label forge pr gate puts on a PR whose merge waits on a person, created when the repo lacks it; null: no label (see "Merge")',
   },
 
+  overlap: { doc: 'forge overlap: which jobs, PRs and pushes touch the same code (see "Overlap check")' },
+  'overlap.recentHours': { doc: "1-720: how many hours back a person's commits count as a push the overlap check names" },
+
   merge: { doc: 'whether and how Forge merges approved PRs' },
   'merge.auto': { doc: 'let Forge merge a PR whose recorded APPROVE covers its head, with no escalate-floor path, once CI passes at a settled head (see "Merge")' },
   'merge.method': { doc: 'squash | merge | rebase' },

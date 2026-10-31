@@ -160,3 +160,14 @@ export const COMPONENT_KINDS =['library', 'service', 'app'] as const;
 export const DEPENDENCY_TYPES = ['build', 'runtime'] as const;
 /** What a consumer's PR points at while its dependency is unmerged (lib/engine/release/interim.ts, docs/CONFIG.md "Interim strategies"). */
 export const INTERIM_STRATEGIES = ['canary', 'git-ref', 'local', 'sequential'] as const;
+
+/** What an overlap counterpart is (lib/engine/project/overlap.ts, docs/architecture/overlap.md). */
+export const OVERLAP_KINDS = ['job', 'pr', 'push'] as const;
+/** Where an overlap side's files came from: its committed diff, or its spec's `Files:` table. */
+export const OVERLAP_SOURCES = ['diff', 'file-map'] as const;
+/** The overlap check's timing, from the fixed rule in docs/architecture/overlap.md. */
+export const OVERLAP_TIMINGS = ['merge-now', 'wait-for', 'merge-first', 'needs-human'] as const;
+/** Every category an overlap report found, in the timing table's order after `no-overlap`. */
+export const OVERLAP_REASONS = ['no-overlap', 'github-unread', 'outside-pr', 'human-push', 'job-ahead', 'job-behind', 'job-early', 'job-building'] as const;
+/** What the overlap check could not read. */
+export const OVERLAP_GAPS = ['github-off', 'github-unread', 'job-unread', 'hunks-unread', 'paths-dropped', 'truncated'] as const;
