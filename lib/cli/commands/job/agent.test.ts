@@ -9,7 +9,7 @@ import { jobAt, tempRepo } from '../../../../test/helpers.ts';
 import { defaults } from '#core/config/load.ts';
 import { ForgeError } from '#core/errors.ts';
 import { jobFiles } from '#core/paths.ts';
-import { createJob, loadJob, readEvents } from '#core/job/store.ts';
+import { createJob, loadJob, readEvents, updateJob } from '#core/job/store.ts';
 import { agent } from './agent.ts';
 
 /** Every path under `dir` but `.git`, so a file written anywhere in the repo shows. */
@@ -169,4 +169,64 @@ test('agent end records each run with its billing split and composition', (t) =>
   assert.equal(job.agents.builder!.runHistory!.length, 2);
   const second = job.agents.builder!.runHistory![1]!;
   assert.deepEqual([second.usage, second.composition], [{ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 500 }, null]);
+});
+
+test('cancel ends a lens run cancelled and late ends keep it', () => {
+  const repo = tempRepo();
+  try {
+    const root = repo.dir;
+    const config = defaults();
+    const id = createJob(root, config, { title: 'cancel' }).id;
+    const rec = (role: string) => loadJob(root, id).agents[role]!;
+    const cancelled = () => readEvents(root, id).filter((e) => e.type === 'agent-cancelled');
+
+    agent(root, config, [id, 'start'], { role: 'reviewer:code', 'agent-id': 'A' }, {});
+    assert.deepEqual(agent(root, config, [id, 'cancel'], { role: 'reviewer:code' }, {}), { role: 'reviewer:code', status: 'cancelled', wasRunning: true, changed: true });
+    const code = rec('reviewer:code');
+    assert.equal(code.status, 'cancelled');
+    assert.equal(typeof code.endedAt, 'string');
+    assert.equal(code.runHistory!.at(-1)!.status, 'cancelled');
+    assert.deepEqual(
+      cancelled().map((e) => [e.role, e.round, e.wasRunning]),
+      [['reviewer:code', 0, true]],
+    );
+    assert.equal((agent(root, config, [id, 'cancel'], { role: 'reviewer:code' }, {}) as { changed: boolean }).changed, false, 'a second cancel is a no-op');
+    assert.equal(cancelled().length, 1);
+    for (const role of ['builder', 'approver'])
+      assert.throws(() => agent(root, config, [id, 'cancel'], { role }, {}), (e: any) => e.exitCode === 2 && e.code === 'usage', role);
+    assert.equal((agent(root, config, [id, 'cancel'], { role: 'reviewer:docs' }, {}) as { changed: boolean }).changed, false, 'no record');
+
+    // The cancelled run ends late: billed to it, and the record stays cancelled.
+    agent(root, config, [id, 'end'], { role: 'reviewer:code', 'agent-id': 'A', tokens: '10' }, {});
+    const late = rec('reviewer:code');
+    assert.deepEqual([late.status, late.endedAt, late.summary], ['cancelled', code.endedAt, code.summary]);
+    assert.equal(late.runHistory!.length, 1);
+    assert.equal(late.runHistory![0]!.usage?.totalTokens, 10);
+    assert.equal(loadJob(root, id).usage.totalTokens, 10);
+    assert.equal(readEvents(root, id).findLast((e) => e.type === 'agent-end')!.status, 'cancelled');
+
+    // A lens that ended done this round is relabelled with its last run.
+    agent(root, config, [id, 'start'], { role: 'reviewer:tests' }, {});
+    agent(root, config, [id, 'end'], { role: 'reviewer:tests' }, {});
+    assert.deepEqual(agent(root, config, [id, 'cancel'], { role: 'reviewer:tests' }, {}), { role: 'reviewer:tests', status: 'cancelled', wasRunning: false, changed: true });
+    assert.deepEqual([rec('reviewer:tests').status, rec('reviewer:tests').runHistory!.at(-1)!.status], ['cancelled', 'cancelled']);
+
+    // Spawned again as B: A's late end bills the cancelled run and leaves B running.
+    agent(root, config, [id, 'start'], { role: 'reviewer:code', 'agent-id': 'B' }, {});
+    agent(root, config, [id, 'end'], { role: 'reviewer:code', 'agent-id': 'A', tokens: '5' }, {});
+    const again = rec('reviewer:code');
+    assert.deepEqual([again.status, again.agentId, again.endedAt], ['running', 'B', null]);
+    assert.equal(again.runHistory!.at(-1)!.usage?.totalTokens, 15);
+    agent(root, config, [id, 'end'], { role: 'reviewer:code', 'agent-id': 'B' }, {});
+    assert.deepEqual([rec('reviewer:code').status, rec('reviewer:code').runHistory!.length], ['done', 2], "B's own end ends it");
+
+    // A run of an earlier round is not this round's to cancel.
+    updateJob(root, id, (j) => {
+      j.round = 1;
+    });
+    assert.equal((agent(root, config, [id, 'cancel'], { role: 'reviewer:code' }, {}) as { changed: boolean }).changed, false);
+    assert.equal(rec('reviewer:code').status, 'done');
+  } finally {
+    repo.cleanup();
+  }
 });

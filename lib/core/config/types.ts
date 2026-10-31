@@ -239,6 +239,8 @@ export interface Config {
     onPrFeedback: 'changed' | 'full' | 'none';
     /** Rounds 2+: `narrow` re-runs only the rework panel (forge job panel's `rerun`), `full` every lens. */
     onRework: 'narrow' | 'full';
+    /** `fast`: the panel starts after `forge verify --fast` (every group but the last), and the last group runs alongside it. */
+    startAfter: 'verify' | 'fast';
   };
   approver: { alwaysEscalate: string[]; skipWhenClean: boolean };
   pr: {

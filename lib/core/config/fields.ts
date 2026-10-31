@@ -151,6 +151,8 @@ export const FIELDS: ConfigField[] = [
   field('review.blockOn', 'review', 'Block on', 'Severities that force another round. Blocker and major always do; add minor or nit to be stricter.', { type: 'list', options: SEVERITIES, required: ['blocker', 'major'] }),
   field('review.onPrFeedback', 'review', 'On PR feedback', 'Which lenses re-run after PR feedback.', { type: 'enum', options: ['changed', 'full', 'none'] }),
   field('review.onRework', 'review', 'On rework', 'Rounds 2 and later: narrow re-runs the always lenses, the ones that asked for changes and the ones whose paths the fix touched; full re-runs every lens.', { type: 'enum', options: ['narrow', 'full'] }),
+  // Names no command or file, and verify still gates every publish: a partial pass verifies no HEAD.
+  field('review.startAfter', 'review', 'Start review after', 'verify starts the panel once every verify group passed; fast starts it after all but the last group, which runs alongside the reviewers, and a late failure cancels their runs.', { type: 'enum', options: ['verify', 'fast'] }),
   field('pr.integrationReview', 'review', 'Integration review', 'After a conflict fix: always review, or skip when only docs or generated files conflicted.', { type: 'enum', options: ['always', 'code-only'] }),
   field('pr.maxCiReworks', 'review', 'CI rework cap', 'CI reworks forge sync starts in a row on a red PR before the next red head waits for a person. 0 sends every red head to a person.', { type: 'integer', min: 0, max: 20 }),
   field('pr.needsHumanLabel', 'review', 'Needs-a-person label', 'The label on a PR whose merge waits on your decision in Forge, created in the repo when missing. Empty: no label.', { type: 'string', nullable: true, locked: 'a label Forge creates on GitHub' }),

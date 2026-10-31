@@ -140,6 +140,9 @@ export const API_CHANGES = [
   { id: 'prompt-role' },
   // JobDetail.overlap (OverlapReport | null, OverlapCounterpart, OverlapSharedHunk): the job's cached `forge overlap` report.
   { id: 'overlap-report' },
+  // VerifyRun.partial (true, optional) and VerifyRun.durationMs (number, optional): `forge verify --fast`'s partial run
+  // and the call's wall time; `cancelled` is a new AgentRow.status and runs[].status (a lens run a late verify failure voided).
+  { id: 'partial-verify' },
 ] as const;
 
 /**

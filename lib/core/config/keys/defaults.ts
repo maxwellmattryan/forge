@@ -171,6 +171,8 @@ export function defaults(): Config {
       onPrFeedback: 'changed',
       // Rounds 2+ re-run only the rework panel; round 1 and PR reworks are unaffected.
       onRework: 'narrow',
+      // The panel starts once every verify group passed; `fast` starts it after all but the last.
+      startAfter: 'verify',
     },
     approver: {
       alwaysEscalate: [

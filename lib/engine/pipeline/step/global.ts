@@ -10,6 +10,7 @@ import type { Facts } from './facts.ts';
 import { gateTell, prReviewTell } from './gates.ts';
 import type { Ctx, Table } from './rules.ts';
 import { nextLenses, retryLens } from './stages/review.ts';
+import { lateFailure, restPending } from '../../verify/record.ts';
 
 /** The role whose lost or failed run blocks the current stage (L1); reviewers go through M1/M2 instead. */
 function blockedRole(x: StepInput, f: Facts): string | null {
@@ -82,8 +83,13 @@ export const GLOBAL: Table = {
       when: ({ x }) => x.job.state === 'running' && x.environment === 'stopped' && ['build', 'verify', 'review'].includes(x.job.stage),
       then: ({ x }) => run(x, 'E1', ['environment', 'up', x.job.id], 'a park stopped the environment', 'the job resumed: start its environment'),
     },
-    // Review retries and first spawns go out while other reviewers run.
-    { id: 'G5', when: ({ x }) => runningRoles(x).length > 0 && !(x.job.stage === 'review' && (nextLenses(x).length > 0 || retryLens(x) !== null)), then: ({ x }) => wait(x, 'G5', 'agents') },
+    // Review retries and first spawns go out while other reviewers run, and so do the full verify after a
+    // partial pass (RV12) and a late failure's cancels (RV13, RV13b).
+    {
+      id: 'G5',
+      when: ({ x }) => runningRoles(x).length > 0 && !(x.job.stage === 'review' && (nextLenses(x).length > 0 || retryLens(x) !== null || restPending(x.job) || lateFailure(x.job))),
+      then: ({ x }) => wait(x, 'G5', 'agents'),
+    },
     { id: 'L1', when: ({ x, f }) => blockedRole(x, f) !== null, then: ({ x, f }) => spawn(x, 'L1', blockedRole(x, f)!) },
   ],
 };

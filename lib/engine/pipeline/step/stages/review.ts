@@ -4,27 +4,41 @@ import { lensNeedsApp } from '#core/config/load.ts';
 import { reviewFileName } from '#core/job/lens.ts';
 import type { StepInput, StepVerdicts } from '../../types.ts';
 import { run, spawn, toStage } from '../actions.ts';
-import { after, agent, endedIn, enteredFrom, isPrRework, lastVerify, outputMissing, startedIn } from '../facts.ts';
+import { after, agent, endedIn, enteredFrom, isPrRework, outputMissing, startedIn } from '../facts.ts';
+import { lateFailure, panelRun, restPending } from '../../../verify/record.ts';
+import type { JobAgent } from '#core/types.ts';
 import { missingOutputRows } from '../generic.ts';
 import { currentRerun, roundLenses } from '../panel.ts';
 import { inStage } from '../rules.ts';
 import type { Ctx, RuleId, Table } from '../rules.ts';
 
-/** RV4: every lens of this round whose reviewer has not started yet, in panel order; none once the round's verdicts are recorded. */
+/** A lens run a late verify failure cancelled (RV13): it counts as not started, so the next pass spawns it again. */
+const cancelled = (a: JobAgent | undefined): boolean => a?.status === 'cancelled';
+/** The lens's reviewer started this round, and its run was not cancelled. */
+const reviewing = (x: StepInput, role: string): boolean => startedIn(agent(x, role), x.job.round) && !cancelled(agent(x, role));
+
+/** RV4: every lens of this round whose reviewer has not started yet (or was cancelled), in panel order; none once the round's verdicts are recorded. */
 export function nextLenses(x: StepInput): string[] {
   if (x.job.verdicts[String(x.job.round)]) return [];
-  return roundLenses(x.job, x.config, currentRerun(x)).filter((l) => !startedIn(agent(x, `reviewer:${l}`), x.job.round));
+  return roundLenses(x.job, x.config, currentRerun(x)).filter((l) => !reviewing(x, `reviewer:${l}`));
 }
 
-/** M1 in the review stage: the first lens of this round whose reviewer ended without its review and has not had its retry; none once the round's verdicts are recorded. */
+/** M1 in the review stage: the first lens of this round whose reviewer ended without its review and has not had its retry; none once the round's verdicts are recorded. A cancelled run is not retried. */
 export function retryLens(x: StepInput): string | null {
   const j = x.job;
   if (j.verdicts[String(j.round)]) return null;
   return roundLenses(j, x.config, currentRerun(x)).find((l) => {
     const a = agent(x, `reviewer:${l}`);
     // outputMissing(), not a.outputMissing: a pre-v6 record falls back to the MISSING verdict.
-    return endedIn(a, j.round) && !a.retry && outputMissing(x, `reviewer:${l}`);
+    return endedIn(a, j.round) && !cancelled(a) && !a.retry && outputMissing(x, `reviewer:${l}`);
   }) ?? null;
+}
+
+/** RV13: the first reviewer of this round, by role name, whose run started and is not cancelled yet, running or ended. */
+function toCancel(x: StepInput): string | undefined {
+  return Object.keys(x.job.agents)
+    .filter((k) => k.startsWith('reviewer:') && reviewing(x, k))
+    .sort()[0];
 }
 
 interface ReviewCtx extends Ctx {
@@ -84,24 +98,36 @@ export const REVIEW: Table<ReviewCtx> = {
       when: (c) => c.recorded && ['decide', 'pr'].includes(enteredFrom(c.x, c.f) ?? ''),
       then: ({ x }) => toStage(x, 'RV11', 'build', 'the reviewed round is closed: open a new round for the commit after review'),
     },
+    // review.startAfter fast: the full verify alongside the panel failed (a late failure). Every lens run of the
+    // round is void, so each is cancelled, one per step, then the round goes back to the builder (B4).
+    {
+      id: 'RV13',
+      when: ({ x }) => lateFailure(x.job) && toCancel(x) !== undefined,
+      then: ({ x }) => run(x, 'RV13', ['job', 'agent', x.job.id, 'cancel', '--role', toCancel(x)!], 'verify failed while the panel reviewed: cancel its lens runs'),
+    },
+    { id: 'RV13b', when: ({ x }) => lateFailure(x.job), then: ({ x }) => toStage(x, 'RV13b', 'build', 'verify failed while the panel reviewed: back to the builder') },
     // Once per round, after verify and before any reviewer starts, so the panel matches the diff the
-    // reviewers read. A PR rework under `changed` or `none` keeps its always-only or skip rule.
+    // reviewers read. A PR rework under `changed` or `none` keeps its always-only or skip rule. It counts
+    // from the run the review started from (panelRun), so the full verify after a partial pass re-runs nothing.
     {
       id: 'RV9',
       when: ({ x, recorded }) => {
         const j = x.job;
-        const lv = lastVerify(x);
+        const lv = panelRun(j);
         const prSkip = isPrRework(x) && x.config.review.onPrFeedback !== 'full';
         const panelled = x.events.some((e) => e.type === 'panel' && e.round === j.round && after(e.ts, lv?.at));
-        const reviewing = Object.keys(j.agents).some((k) => k.startsWith('reviewer:') && startedIn(j.agents[k], j.round));
-        return !prSkip && !panelled && !reviewing && !recorded;
+        const started = Object.keys(j.agents).some((k) => k.startsWith('reviewer:') && reviewing(x, k));
+        return !prSkip && !panelled && !started && !recorded;
       },
       then: ({ x }) => run(x, 'RV9', ['job', 'panel', x.job.id], "pick this round's lenses from the diff"),
     },
+    // The partial pass let the panel start: once every lens is spawned, the full verify runs while they review.
+    // Before RV1, so a round with no lens never takes a partial pass to the pr stage.
+    { id: 'RV12', when: ({ x }) => restPending(x.job) && nextLenses(x).length === 0, then: ({ x }) => run(x, 'RV12', ['verify', x.job.id], 'finish verify while the panel reviews') },
     { id: 'RV1', when: (c) => !c.lenses.length, then: ({ x }) => toStage(x, 'RV1', 'pr', 'no lens reviews this round') },
     {
       id: 'RV2',
-      when: ({ x }) => !x.events.some((e) => e.type === 'scope' && e.round === x.job.round && after(e.ts, lastVerify(x)?.at)),
+      when: ({ x }) => !x.events.some((e) => e.type === 'scope' && e.round === x.job.round && after(e.ts, panelRun(x.job)?.at)),
       then: ({ x }) => run(x, 'RV2', ['job', 'scope', x.job.id], 'reviewers read the scope report'),
     },
     // Only until the round's verdicts are recorded: after that RV7 stops the server, and starting it
@@ -119,7 +145,7 @@ export const REVIEW: Table<ReviewCtx> = {
       return l === null ? null : `reviewer:${l}`;
     }),
     missingOutputRows<ReviewCtx>((c) => {
-      const l = c.lenses.find((lens) => outputMissing(c.x, `reviewer:${lens}`));
+      const l = c.lenses.find((lens) => outputMissing(c.x, `reviewer:${lens}`) && !cancelled(agent(c.x, `reviewer:${lens}`)));
       return l === undefined ? null : `reviewer:${l}`;
     }),
     {

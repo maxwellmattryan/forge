@@ -1000,13 +1000,13 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | 1 | no such job, or a command it ran failed (the result says which) |
 | 3 | session S does not hold the job, or (stale_epoch) another session took it over |
 
-**`forge job agent <id> start|end|attach --role R [options]`**: record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: &lt;n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript
+**`forge job agent <id> start|end|attach|cancel --role R [options]`**: record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: &lt;n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript; cancel marks this round's run of a reviewer:&lt;lens>, running or ended, cancelled after a late verify failure (an agent-cancelled event; result: role, status, wasRunning, changed, false for a role already cancelled, with no record or from an earlier round), and a later end of that run only bills it
 
 | Flag | Meaning |
 |---|---|
 | `--agent-id A` | the runtime's id for the agent (required with attach) |
 | `--duration-ms N` | with end: wall time (refused in a daemon session) |
-| `--epoch N` | with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over |
+| `--epoch N` | with start, end and cancel: the driver's epoch, refused (stale_epoch) before any write once another session took the job over |
 | `--import` | with end and --agent-id: read usage from the agent's Claude Code transcript (implied in a daemon session) |
 | `--model M` | the model it ran on |
 | `--output P` | with start: the file it must write, inside the job dir |
@@ -1021,7 +1021,8 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an --output outside the job dir, the inbox session or the office (scope _office) starting an agent, or attach on a role that is not running |
+| 1 | no such job, an --output outside the job dir, the inbox session or the office (scope _office) starting or cancelling an agent, or attach on a role that is not running |
+| 2 | a --role that is not a role name, or cancel with a role that is not reviewer:&lt;lens> |
 | 3 | stale_epoch: the lease moved past --epoch |
 
 **`forge job agent run <id> --session S [--spawn-index N | --role R] [--epoch N] [--cold] [--ipc]`**: run the spawn `forge job step` returns as its own headless `claude -p --agent forge:<role>` child in the job's worktree, the brief on its stdin, and record its start, attach and end, with the usage from its own result line; tool calls outside daemon.allowedTools are denied unattended, or with --ipc relayed to the parent process (forge dash's code driver), which answers each from the dashboard. A spawn carrying `resume` resumes that session (`claude --resume`) instead of forking, and runs once more as a fresh session when the resume fails before init (resumeFailed: true). Any other review lens or rework build forks the round's context session (one child per round, agent, model, effort and prefix that read the shared inputs once), starting it when none is warm. Prints {id, role, rule, agentId, resumed, resumeSkipped (when step gave a reason not to resume), status, summary, failure, denied, wallMs, log, prefix, context, usage, jobTokens, jobCostUsd} on every exit after the start: prefix is the trusted prefix file passed as --append-system-prompt-file (the main checkout's instruction files, learnings and role notes), or null, with prefixRefused naming the source that made it run without one; context is {mode: fork|cold, session, reason, firstRead} for a review lens or rework build (reason: cold flag, no inputs, context failed: &lt;class>, context busy, brief over the cap, fork failed or cache miss), null for any other spawn
@@ -2273,11 +2274,15 @@ See [Verifiers](VERIFIERS.md).
 
 Run the verify commands on a job's worktree.
 
-**`forge verify <id>`**: run the configured verify commands in the job's worktree and record the result for its HEAD
+**`forge verify <id> [--fast]`**: run the configured verify commands in the job's worktree and record the result for its HEAD; a root step reuses a pass the check cache holds for the same command on the same clean committed tree (the step says cached, or why it missed: cacheMiss)
+
+| Flag | Meaning |
+|---|---|
+| `--fast` | run every verify group but the last and record a partial run (result: partial, pending), which verifies no HEAD; with fewer than two groups it runs everything |
 
 | Exit | When |
 |---|---|
-| 1 | a check failed (the result says which), or the job has no worktree |
+| 1 | a check failed (the result says which), the job has no worktree, or --fast was given a value |
 
 ### `forge version`
 

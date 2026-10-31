@@ -193,6 +193,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v52 adds overlap.recentHours (24), filled from defaults, so no v51 config changes; the bump lets older Forges
   // refuse a config whose overlap section they would reject as an unknown key.
   { id: 'overlap-recent-hours', up: (c) => c },
+  // v53 adds review.startAfter ('verify'), filled from defaults, so no v52 config changes; the bump lets older Forges
+  // refuse a config whose review section they would reject as an unknown key.
+  { id: 'review-start-after', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

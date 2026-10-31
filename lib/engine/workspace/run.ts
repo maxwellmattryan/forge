@@ -1,5 +1,7 @@
 // Configured commands: fill a command's template and run it in the job's or a member's worktree,
 // synchronously for `forge run` and without blocking for verify, logging each run alike.
+// A root run on a clean committed tree records its pass in the check cache, which verify's steps reuse
+// (lib/engine/verify/cache.ts, the one module of lib/engine/verify/ this file imports).
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkRefs, jobEnv, shell, shellAsync, vars, type ShellResult } from './job-command.ts';
@@ -12,7 +14,9 @@ import type { SinkSummary } from '../environment/config-sinks-apply.ts';
 import { commandPort, endpointPlaceholders, jobEndpoints } from '../environment/endpoints.ts';
 import { applyLinks, pathPrelude, restoreLockfiles, snapshotLockfiles } from '../project/links.ts';
 import type { AppliedLinks, LockSnapshot } from '../project/links.ts';
-import { memberWorktree } from '../project/job-repos.ts';
+import { memberRepos, memberWorktree } from '../project/job-repos.ts';
+import { checkKey, findPass, recordPass, treeState } from '../verify/cache.ts';
+import type { CacheMiss, CheckKey } from '../verify/cache.ts';
 import type { ComponentConfig, Config, Job, JobRepo } from '#core/types.ts';
 import { ForgeError } from '#core/errors.ts';
 import { assertSafeRef, fill, shellArgs, tail } from '#core/text.ts';
@@ -32,6 +36,13 @@ export interface CommandResult {
   restored?: string[];
   /** The component's config sinks rendered before the command: names, relative paths and a count, never values. */
   config?: SinkSummary;
+  /** Reused from the check cache (lib/engine/verify/cache.ts): the command did not run, and `log` is the original run's. */
+  cached?: true;
+  /** When the reused pass ran, and how long it took. */
+  cachedAt?: string;
+  cachedDurationMs?: number;
+  /** Under `checks: 'reuse'`, why the command ran instead of reusing a pass. */
+  cacheMiss?: CacheMiss;
 }
 
 /**
@@ -93,6 +104,11 @@ export interface RunOptions {
   repo?: string;
   /** false: the caller (verify) snapshots and restores lockfiles itself, once per group. */
   lockGuard?: false;
+  /**
+   * The check cache (lib/engine/verify/cache.ts), root worktree only: `record` keeps a pass on a clean
+   * committed tree (`forge run`), `reuse` also returns a matching pass instead of running (verify's steps).
+   */
+  checks?: 'record' | 'reuse';
 }
 
 /** A command ready to run: the filled line, where it runs, and its environment. */
@@ -109,6 +125,10 @@ interface PreparedCommand {
   config?: SinkSummary;
   /** Known values to redact from the log and tail: this render's secrets and the job's recorded ones. */
   redact: string[];
+  /** The worktree the command runs in (the job's or the member's), whose tree the check cache keys on. */
+  worktree: string;
+  /** The job has member repos, so the check cache neither records nor reuses. */
+  members: boolean;
 }
 
 /** The env and PATH prelude of a consumer repo's links, rendered fresh for this command. */
@@ -139,7 +159,7 @@ function prepareCommand(root: string, config: Config, id: string, name: string, 
   // Sink env sits over the inherited environment and under the links' (names are disjoint by validation).
   const env = { ...jobEnv(root, config, job, job.worktree, port), ...applied?.env };
   const redact = [...new Set([...(applied?.values ?? []), ...knownValues(root, id, config)])];
-  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}), redact };
+  return { cmd, cwd, ...withLinks(root, config, job, null, env), ...(applied ? { config: applied.summary } : {}), redact, worktree: job.worktree, members: memberRepos(job).length > 0 };
 }
 
 /**
@@ -154,7 +174,7 @@ function prepareMemberCommand(root: string, config: Config, id: string, name: st
   const port = commandPort(config, job, component);
   const cmd = fillCommand(name, component.commands![name]!, memberVars(root, config, job, member, worktree, port), opts.args ?? []);
   renewLease(root, id);
-  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo, redact: knownValues(root, id, config) };
+  return { cmd, cwd: path.join(worktree, component.path), ...withLinks(root, config, job, repo, jobEnv(root, config, job, worktree, port)), repo, redact: knownValues(root, id, config), worktree, members: true };
 }
 
 /** The one component of member `repo` that defines `name`, null when none does; several is refused. */
@@ -172,8 +192,53 @@ function memberVars(root: string, config: Config, job: Job, member: JobRepo, wor
   return { ...endpointPlaceholders(jobEndpoints(root, config, job), { shell: true }), job: job.id, port: port ?? '', worktree, root, branch: member.verifyOnly ? '' : job.branch!, base, args: '' };
 }
 
+/** The check cache's view of one run: the key and clean tree it was taken on, and under `reuse`, a hit or why it missed. */
+interface CacheLookup {
+  key?: CheckKey;
+  /** Set only when the worktree was clean before the run, so only then can a pass be recorded. */
+  tree?: string;
+  hit?: CommandResult;
+  miss?: CacheMiss;
+}
+
+/**
+ * Before the command runs, shared by both runners: only a root command of a job without member repos
+ * is keyed, on a clean committed tree. A hit logs its `command` event with the reused pass's time and
+ * `durationMs: 0`, so the speed metrics never count a busy span that didn't happen.
+ */
+function lookupChecks(root: string, config: Config, id: string, name: string, p: PreparedCommand, opts: RunOptions): CacheLookup {
+  if (!opts.checks) return {};
+  const reuse = opts.checks === 'reuse';
+  if (opts.repo !== undefined || p.members) return reuse ? { miss: 'unsupported' } : {};
+  const state = treeState(p.worktree, config);
+  if (!('tree' in state)) return reuse ? { miss: 'dirty' } : {};
+  const key = checkKey({ name, args: opts.args ?? [], cmd: p.cmd, prelude: p.prelude, cwd: p.cwd, login: loginShell(config), env: p.env, redact: p.redact, config });
+  if (!reuse) return { key, tree: state.tree };
+  const found = findPass(root, id, key, state.tree);
+  if ('miss' in found) return { key, tree: state.tree, miss: found.miss };
+  const { at, durationMs, log } = found.pass;
+  logEvent(root, id, 'command', { name, ok: true, exit: 0, durationMs: 0, cached: true, cachedAt: at, cachedDurationMs: durationMs });
+  return { hit: { name, cmd: p.cmd, ok: true, exit: 0, durationMs: 0, log, tail: '', cached: true, cachedAt: at, cachedDurationMs: durationMs } };
+}
+
+/**
+ * After a pass: recorded only when the tree it started on is still the committed tree and the worktree
+ * is still clean, so a command that commits, edits or hides a change while it runs records nothing.
+ * A refused write (a linked `checks/` directory) never costs the run its result.
+ */
+function recordChecks(root: string, config: Config, id: string, p: PreparedCommand, c: CacheLookup, result: CommandResult): void {
+  if (!result.ok || !c.key || !c.tree) return;
+  const after = treeState(p.worktree, config);
+  if (!('tree' in after) || after.tree !== c.tree) return;
+  try {
+    recordPass(root, id, c.key, c.tree, result);
+  } catch {
+    // Not recorded is only a later miss.
+  }
+}
+
 /** Everything after: the log file, the `command` event and the result with its tail. */
-function recordCommand(root: string, id: string, name: string, p: PreparedCommand, res: ShellResult, started: number, opts: RunOptions, restored: string[] = []): CommandResult {
+function recordCommand(root: string, id: string, name: string, p: PreparedCommand, res: ShellResult, started: number, opts: RunOptions, restored: string[], c: CacheLookup): CommandResult {
   const logDir = path.join(jobDir(root, id), 'logs');
   fs.mkdirSync(logDir, { recursive: true });
   const logFile = path.join(logDir, `${opts.label ?? (p.repo ? `${p.repo}-${name}` : name)}-${new Date().toISOString().replace(/[:.]/g, '-')}.log`);
@@ -185,7 +250,8 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
   if (p.links?.labels.length) result.links = p.links.labels;
   if (restored.length) result.restored = restored;
   if (p.config) result.config = p.config;
-  logEvent(root, id, 'command', { name, ...(p.repo ? { repo: p.repo } : {}), ok: res.ok, exit: res.status, durationMs: result.durationMs });
+  if (c.miss) result.cacheMiss = c.miss;
+  logEvent(root, id, 'command', { name, ...(p.repo ? { repo: p.repo } : {}), ok: res.ok, exit: res.status, durationMs: result.durationMs, ...(c.miss ? { cacheMiss: c.miss } : {}) });
   return result;
 }
 
@@ -195,6 +261,8 @@ function recordCommand(root: string, id: string, name: string, p: PreparedComman
  */
 export function runCommand(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): CommandResult {
   const p = prepareCommand(root, config, id, name, opts);
+  const c = lookupChecks(root, config, id, name, p, opts);
+  if (c.hit) return c.hit;
   const snap = opts.lockGuard === false ? null : lockSnapshot(p);
   const started = Date.now();
   let res: ShellResult;
@@ -204,7 +272,9 @@ export function runCommand(root: string, config: Config, id: string, name: strin
   } finally {
     restored = restoreLocks(root, id, p.repo ?? null, snap);
   }
-  return recordCommand(root, id, name, p, res, started, opts, restored);
+  const result = recordCommand(root, id, name, p, res, started, opts, restored, c);
+  recordChecks(root, config, id, p, c, result);
+  return result;
 }
 
 /** The consumer's tracked lockfiles before a command with active cargo or npm links, else null. */
@@ -223,6 +293,8 @@ export function restoreLocks(root: string, id: string, repo: string | null, snap
 /** runCommand without blocking the event loop, so verify can run a group's steps side by side. */
 export async function runCommandAsync(root: string, config: Config, id: string, name: string, opts: RunOptions = {}): Promise<CommandResult> {
   const p = prepareCommand(root, config, id, name, opts);
+  const c = lookupChecks(root, config, id, name, p, opts);
+  if (c.hit) return c.hit;
   const snap = opts.lockGuard === false ? null : lockSnapshot(p);
   const started = Date.now();
   let res: ShellResult;
@@ -232,5 +304,7 @@ export async function runCommandAsync(root: string, config: Config, id: string, 
   } finally {
     restored = restoreLocks(root, id, p.repo ?? null, snap);
   }
-  return recordCommand(root, id, name, p, res, started, opts, restored);
+  const result = recordCommand(root, id, name, p, res, started, opts, restored, c);
+  recordChecks(root, config, id, p, c, result);
+  return result;
 }

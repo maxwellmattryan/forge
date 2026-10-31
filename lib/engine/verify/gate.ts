@@ -54,6 +54,12 @@ export interface VerifyResult {
   /** One record per downstream consumer (lib/engine/project/downstream.ts), only when the job has any. */
   downstream?: { repo: string; ok: boolean; failure: string | null }[];
   budget?: NonNullable<ReturnType<typeof enforceBudget>>;
+  /** `--fast` ran every group but the last: a partial run, which verifies no HEAD. */
+  partial?: true;
+  /** With `partial`, the last group's steps, which a full verify runs alongside the review. */
+  pending?: string[];
+  /** The wall time of the call. */
+  durationMs: number;
 }
 
 /**
@@ -65,8 +71,12 @@ export interface VerifyResult {
  * every configured step, though the integrity report is still computed. A `verify` entry that is a list runs its steps at the same time; the next entry waits for all of
  * them, and none runs after a group with a failure. Results stay in config order whatever finishes
  * first, so `failure` is the first failing step as configured, not the first to fail.
+ * A root step reuses a pass the check cache (./cache.ts) holds for the same command on the same clean
+ * committed tree; the gates verify adds itself always run. `fast` runs every group but the last and
+ * records a partial run, which verifies no HEAD (record.ts); with fewer than two groups it runs everything.
  */
-export async function verify(root: string, base: Config, id: string, runner: CommandRunner = COMMAND_RUNNER): Promise<VerifyResult> {
+export async function verify(root: string, base: Config, id: string, runner: CommandRunner = COMMAND_RUNNER, opts: { fast?: boolean } = {}): Promise<VerifyResult> {
+  const started = Date.now();
   // Every refusal comes before the clean check, so a config this Forge can't read records nothing:
   // guessing at it could pass a gate whose steps never ran.
   if (base.schemaVersion > CONFIG_SCHEMA_VERSION)
@@ -74,7 +84,10 @@ export async function verify(root: string, base: Config, id: string, runner: Com
   let job = loadJob(root, id);
   // An eval job's overlay picks its steps, e2e and budget; an invalid one throws here.
   const config = configForJob(root, base, job);
-  const groups = verifyGroups(config.verify);
+  const all = verifyGroups(config.verify);
+  const partial = opts.fast === true && all.length >= 2;
+  const groups = partial ? all.slice(0, -1) : all;
+  const pending = partial ? all.at(-1)! : [];
   if (!job.worktree || !exists(job.worktree)) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const worktree = job.worktree;
   // Every member's worktree is checked before anything runs, so a missing one records nothing.
@@ -154,9 +167,10 @@ export async function verify(root: string, base: Config, id: string, runner: Com
     const locks = gatesOk ? verifyLockSnapshot(root, config, job, null) : null;
     try {
       const runStep = async (step: string): Promise<VerifyStep> =>
-        config.commands[step] ? runner.async(root, config, id, step, { label: `verify-${step}`, lockGuard: false }) : { name: step, ok: true, skipped: true };
+        config.commands[step] ? runner.async(root, config, id, step, { label: `verify-${step}`, lockGuard: false, checks: 'reuse' }) : { name: step, ok: true, skipped: true };
       results.push(...(await runGroups(gatesOk ? groups : [], runStep, (ran) => restoreGroup(root, id, null, locks, ran))));
-      if (results.every((r) => r.ok)) {
+      // Never cached, and never in a partial run: the full verify alongside the review runs it.
+      if (!partial && results.every((r) => r.ok)) {
         const plan = e2ePlan(config, job, commandTemplate(config, job, 'e2e'));
         if (plan?.run) {
           const e2e: VerifyStep = { ...runner.sync(root, config, id, 'e2e', { label: 'verify-e2e', lockGuard: false }), reason: plan.reason };
@@ -189,7 +203,8 @@ export async function verify(root: string, base: Config, id: string, runner: Com
   const rootFailure = results.find((r) => !r.ok);
   const ok = results.every((r) => r.ok) && memberRuns.every((m) => m.rec.ok);
   const attempt = nextAttempt(job);
-  const lines = [`VERIFY: ${ok ? 'PASS' : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
+  const lines = [`VERIFY: ${ok ? (partial ? 'PASS (partial)' : 'PASS') : 'FAIL'}`, '', `Round ${job.round} · attempt ${attempt} · ${sha.slice(0, 12)} · ${now()}`, ''];
+  if (partial) lines.push(`Partial: ${pending.join(', ')} run in a full verify alongside the review, which replaces this report; don't run them yourself.`, '');
   // First, so a rework builder reads the failing tests by name before any log tail.
   lines.push(
     ...failingLines(
@@ -223,7 +238,8 @@ export async function verify(root: string, base: Config, id: string, runner: Com
   writeTextAtomic(latest, lines.join('\n'), { root: jobDir(root, id) });
   const memberFailure = memberRuns.find((m) => !m.rec.ok);
   const repos = memberRuns.length ? { repos: memberRuns.map((m) => m.rec) } : {};
-  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos };
+  const durationMs = Date.now() - started;
+  const rec: VerifyRun = { round: job.round, attempt, sha, ok, at: now(), file: path.relative(jobDir(root, id), latest), failure: rootFailure?.name ?? memberFailure?.rec.failure ?? null, ...repos, ...(partial ? { partial: true as const } : {}), durationMs };
   // Every failure, a dirty worktree included, asks for one retry; a pass does not reset it.
   updateJob(root, id, (j) => recordRun(j, rec));
   logEvent(root, id, 'verify', rec);
@@ -245,6 +261,8 @@ export async function verify(root: string, base: Config, id: string, runner: Com
     ...repos,
     ...(downstream.size ? { downstream: memberRuns.filter((m) => downstream.has(m.rec.repo)).map((m) => ({ repo: m.rec.repo, ok: m.rec.ok, failure: m.rec.failure })) } : {}),
     ...(budget ? { budget } : {}),
+    ...(partial ? { partial: true as const, pending } : {}),
+    durationMs,
   };
 }
 

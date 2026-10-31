@@ -165,6 +165,7 @@ const CONFIG_ROWS: Row[] = [
   { step: 'approver-skip-when-clean', input: { approver: { alwaysEscalate: ['x'] } }, fields: { approver: { alwaysEscalate: ['x'] } }, removed: ['approver.skipWhenClean'], note: ONLY_VERSION },
   { step: 'daemon-driver', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['daemon.driver'], note: ONLY_VERSION },
   { step: 'overlap-recent-hours', input: { daemon: { enabled: true } }, fields: { daemon: { enabled: true } }, removed: ['overlap'], note: ONLY_VERSION },
+  { step: 'review-start-after', input: { review: { onRework: 'full' } }, fields: { 'review.onRework': 'full' }, removed: ['review.startAfter'], note: ONLY_VERSION },
 ];
 
 const JOB_ROWS: Row[] = [
@@ -245,6 +246,7 @@ const JOB_ROWS: Row[] = [
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
   { step: 'pr-wait-reasons', input: { id: 'x', pr: { number: 7, state: 'OPEN', checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } } }, fields: { 'pr.number': 7, 'pr.checks.state': 'failing' }, removed: ['pr.failingChecks', 'pr.feedbackSinceRound'], note: 'an older PR record has neither until its next sync' },
   { step: 'context-sessions', input: { id: 'x', state: 'running', round: 2 }, fields: { contexts: [], round: 2 }, note: 'a job from before context sessions has none, so its role runs start a new one' },
+  { step: 'partial-verify', input: { id: 'x', round: 1, verifyRuns: [{ ...run(1, 1, true, 'a'.repeat(40)), failure: null }] }, fields: { 'verifyRuns.0.ok': true, 'verifyRuns.0.attempt': 1 }, removed: ['verifyRuns.0.partial', 'verifyRuns.0.durationMs'], note: 'an older run is a full run with no recorded duration' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -334,15 +336,11 @@ const EVENT_ROWS: Row[] = [
   },
   { step: 'clean-decision', input: { ts: 't', type: 'decision', decision: 'APPROVE', reason: null, autoMerge: false, head: 'a'.repeat(40) }, fields: { type: 'decision', ts: 't', decision: 'APPROVE', reason: null, autoMerge: false, head: 'a'.repeat(40) }, removed: ['clean'], note: "an approver's decision reads as written and gains no clean flag" },
   { step: 'advance-ran-event', input: { ts: 't', type: 'advance-ran', ran: [{ rule: 'B1', command: 'forge worktree create', ok: true, text: null }] }, fields: { type: 'advance-ran', ts: 't', ran: [{ rule: 'B1', command: 'forge worktree create', ok: true, text: null }] }, note: 'what one advance ran reads as written' },
+  { step: 'partial-verify', input: { ts: 't', type: 'command', name: 'build', ok: true, exit: 0, durationMs: 12 }, fields: { type: 'command', name: 'build', durationMs: 12 }, removed: ['cached', 'cacheMiss'], note: 'a command from before the check cache ran, and reads as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [
-  {
-    step: 'machine-settings',
-    input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] },
-    fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' },
-    note: 'a v1 index gains the machine settings with the cap unset',
-  },
+  { step: 'machine-settings', input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] }, fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' }, note: 'a v1 index gains the machine settings with the cap unset' },
 ];
 
 const MANDATE_V1 = {
