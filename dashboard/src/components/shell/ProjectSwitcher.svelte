@@ -37,7 +37,7 @@
 </script>
 
 {#if variant === 'rail'}
-  <button id="project-switcher" aria-label={$t('switcher.rail')} aria-describedby={waitingText ? descId : undefined} aria-haspopup="dialog" onclick={(e) => openPalette({ text: 'project ', opener: e.currentTarget })} {@attach railTipOn($t('switcher.rail'))}><Icon name="anvil" />{#if others > 0}<span class="dot ember absolute top-1.5 right-4 size-2" aria-hidden="true"></span>{/if}</button>
+  <button id="project-switcher" aria-label={$t('switcher.rail')} aria-describedby={waitingText ? descId : undefined} aria-haspopup="dialog" onclick={(e) => openPalette({ text: 'project ', opener: e.currentTarget })} {@attach railTipOn($t('switcher.rail'))}><Icon name="anvil" />{#if others > 0}<span class="dot ember absolute top-1 right-1.5 size-2" aria-hidden="true"></span>{/if}</button>
 {:else if variant === 'field'}
   <Select id="project-switcher" value={project ?? ''} {options} onchange={choose} {labelledby} describedby={waitingText ? descId : undefined} title={waitingText} badge={others > 0} badgeTone="ember" placeholder={$t('switcher.placeholder')} disabled={!S.machine} class="w-full" />
 {:else}
