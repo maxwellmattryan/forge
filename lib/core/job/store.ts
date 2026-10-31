@@ -12,7 +12,7 @@ import { idPrefix } from './issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import type { AgentRecordChange, AgentUsage, Config, Effort, EventActor, Fence, ForgeRequest, HumanGrant, Job, JobAgent, JobIssue, JobChange, JobLease, JobEvent, JobState, LoadedJob, OwnerStatus, PostJobEffortResponse, Progress, Stage, TransitionSide, UsageBucket, Verdict, WaitingOn } from '../types.ts';
 import { estimateCost } from '#integrations/claude/pricing.ts';
-import { agentRole, isAgentRole, reviewFileName } from './lens.ts';
+import { agentRole, cancelledRunEnd, isAgentRole, reviewFileName } from './lens.ts';
 import { requeueOrphans } from './requests.ts';
 import { appendConfined } from './session-files.ts';
 import { runTransitionHooks } from './transitions.ts';
@@ -513,6 +513,12 @@ export function recordAgent(root: string, id: string, rec: AgentRecordChange, co
       a.output = rec.output ?? null;
       a.retry = Boolean(rec.retry);
       delete a.outputMissing;
+    } else if (cancelledRunEnd(a, rec)) {
+      // A cancelled run's late end only bills that run: the record keeps its status, endedAt, summary and outputMissing.
+      if (rec.usage) addUsage(j, rec.role, a.model, rec.usage, config);
+      recordRun(a, { wasRunning: false, at: null, round: a.round ?? j.round, status: 'cancelled', model: a.model ?? null, usage: rec.usage, composition: rec.composition });
+      if (rec.agentId && rec.importedThrough) (a.importedThrough ??= {})[rec.agentId] = rec.importedThrough;
+      rec = { ...rec, status: 'cancelled' };
     } else {
       a.endedAt = a.status === 'running' ? now() : (a.endedAt ?? null); // only a run in flight ends: a second end must not re-open the decision record
       a.status = rec.status ?? 'done';
@@ -716,14 +722,7 @@ export function fileVerdict(
  * claimed success but never wrote it), and PENDING while it has not, so the orchestrator
  * re-spawns a reviewer that lost its output instead of waiting on it forever.
  */
-export function roundVerdicts(
-  root: string,
-  id: string,
-  round: number | 'integration',
-  reviewers: string[],
-  blockOn: string[],
-  opts: { malformedAs?: 'changes' } = {},
-): { round: number | 'integration'; complete: boolean; outcome: Verdict | 'PENDING' | 'MISSING'; reviewers: Record<string, any> } {
+export function roundVerdicts(root: string, id: string, round: number | 'integration', reviewers: string[], blockOn: string[], opts: { malformedAs?: 'changes' } = {}): { round: number | 'integration'; complete: boolean; outcome: Verdict | 'PENDING' | 'MISSING'; reviewers: Record<string, any> } {
   const dir = reviewDir(root, id, round);
   const ended = reviewerEnded(root, id, round);
   const out: Record<string, any> = {};

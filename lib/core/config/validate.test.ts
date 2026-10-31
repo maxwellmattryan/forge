@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { tempRepo } from '../../../test/helpers.ts';
-import { CONFIG_SCHEMA_VERSION } from '#core/job/schema.ts';
+import { CONFIG_SCHEMA_VERSION } from '../job/schema.ts';
 import { loadConfig } from './load.ts';
 import { foremanProblems, validateConfig } from './validate.ts';
 import { defaults } from './keys/defaults.ts';

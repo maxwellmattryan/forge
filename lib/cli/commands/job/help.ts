@@ -224,8 +224,9 @@ export const JOB: HelpGroup = {
     },
     {
       command: 'job agent',
-      args: '<id> start|end|attach --role R [options]',
-      summary: "record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript",
+      args: '<id> start|end|attach|cancel --role R [options]',
+      summary:
+        "record an agent starting or ending, with its usage; end also scans what the agent wrote for likely secrets (a secret-found event and secrets: <n>, never a refusal); attach records a running agent's --agent-id so the dashboard can follow its transcript; cancel marks this round's run of a reviewer:<lens>, running or ended, cancelled after a late verify failure (an agent-cancelled event; result: role, status, wasRunning, changed, false for a role already cancelled, with no record or from an earlier round), and a later end of that run only bills it",
       flags: [
         ['--role R', 'the role: a role name (a-z, 0-9, -) or reviewer:<lens> (required; anything else exits 2)'],
         ['--model M', 'the model it ran on'],
@@ -240,10 +241,11 @@ export const JOB: HelpGroup = {
         ['--tool-uses N', 'with end: tool calls made (refused in a daemon session)'],
         ['--duration-ms N', 'with end: wall time (refused in a daemon session)'],
         ['--import', "with end and --agent-id: read usage from the agent's Claude Code transcript (implied in a daemon session)"],
-        ['--epoch N', "with start and end: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
+        ['--epoch N', "with start, end and cancel: the driver's epoch, refused (stale_epoch) before any write once another session took the job over"],
       ],
       exits: [
-        [1, 'no such job, an --output outside the job dir, the inbox session or the office (scope _office) starting an agent, or attach on a role that is not running'],
+        [1, 'no such job, an --output outside the job dir, the inbox session or the office (scope _office) starting or cancelling an agent, or attach on a role that is not running'],
+        [2, 'a --role that is not a role name, or cancel with a role that is not reviewer:<lens>'],
         [3, 'stale_epoch: the lease moved past --epoch'],
       ],
     },

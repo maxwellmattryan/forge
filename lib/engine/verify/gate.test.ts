@@ -7,8 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { BIN, editConfigFile, forgeInProcess, repoTemplate } from '../../../test/helpers.ts';
-import { twoRepo } from '../../../test/job-repos-fixture.ts';
+import { BIN, editConfigFile, forgeInProcess, repoTemplate, twoRepo } from '../../../test/helpers.ts';
 import { jobDir, loadJob, readEvents } from '#core/job/store.ts';
 import { verifiedHead } from './gate.ts';
 

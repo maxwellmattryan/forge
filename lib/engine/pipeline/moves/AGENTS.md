@@ -16,6 +16,7 @@ How a job moves between stages and states: the one move with its effects, the Fo
 |---|---|
 | `apply.ts` | The one move: a locked write of a job's stage, state or waitingOn, then its effects in a fixed order (environment, the Foreman's gate request, the tracker mirror), so every caller gets the same follow-up whoever moves the job. |
 | `approval-notes.ts` | Approval notes: a person's spec-approval notes and `forge job note --for builder` hints, rendered from the job's events into approval-notes.md, which the builder brief lists. |
+| `cancel-lens.ts` | Cancelling a lens run: a late verify failure under review.startAfter fast voids the round's lens runs, running or ended, so the next pass reviews again (`forge job agent <id> cancel`, step's RV13). |
 | `clean-pass.ts` | The clean pass: when every lens passed and nothing can escalate, Forge records the APPROVE and renders decision.md and pr.md itself instead of running the approver (approver.skipWhenClean, rule DC13, `forge job decision --clean`). |
 | `deps.ts` | Dependencies between jobs (`job.dependsOn`): validation, parking, claim refusal, stacked branches and retargeting. |
 | `effects.ts` | A move's effects behind one seam: the environment a finished job leaves, the Foreman's gate request and the tracker mirror. |

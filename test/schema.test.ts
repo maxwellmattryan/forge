@@ -246,13 +246,7 @@ const JOB_ROWS: Row[] = [
   { step: 'job-components', input: { id: 'x', services: ['api'] }, fields: { components: ['api'], componentsDeclared: ['api'], componentsFromDiff: null, componentsUnmatched: false }, removed: ['services'], note: 'the old list is declared; none recomputed, so nothing is found outside the components' },
   { step: 'pr-wait-reasons', input: { id: 'x', pr: { number: 7, state: 'OPEN', checks: { state: 'failing', passing: 0, failing: 1, pending: 0 } } }, fields: { 'pr.number': 7, 'pr.checks.state': 'failing' }, removed: ['pr.failingChecks', 'pr.feedbackSinceRound'], note: 'an older PR record has neither until its next sync' },
   { step: 'context-sessions', input: { id: 'x', state: 'running', round: 2 }, fields: { contexts: [], round: 2 }, note: 'a job from before context sessions has none, so its role runs start a new one' },
-  {
-    step: 'partial-verify',
-    input: { id: 'x', round: 1, verifyRuns: [{ round: 1, attempt: 1, sha: 'a'.repeat(40), ok: true, at: 't', file: 'verify/round-1.md', failure: null }] },
-    fields: { 'verifyRuns.0.ok': true, 'verifyRuns.0.attempt': 1 },
-    removed: ['verifyRuns.0.partial', 'verifyRuns.0.durationMs'],
-    note: 'an older run is a full run with no recorded duration',
-  },
+  { step: 'partial-verify', input: { id: 'x', round: 1, verifyRuns: [{ ...run(1, 1, true, 'a'.repeat(40)), failure: null }] }, fields: { 'verifyRuns.0.ok': true, 'verifyRuns.0.attempt': 1 }, removed: ['verifyRuns.0.partial', 'verifyRuns.0.durationMs'], note: 'an older run is a full run with no recorded duration' },
 ];
 
 const EVENT_ROWS: Row[] = [
@@ -346,12 +340,7 @@ const EVENT_ROWS: Row[] = [
 ];
 
 const MACHINE_ROWS: Row[] = [
-  {
-    step: 'machine-settings',
-    input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] },
-    fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' },
-    note: 'a v1 index gains the machine settings with the cap unset',
-  },
+  { step: 'machine-settings', input: { projects: [{ name: 'web', path: path.join(os.tmpdir(), 'web'), addedAt: 't' }] }, fields: { settings: { maxConcurrent: null }, 'projects.0.name': 'web' }, note: 'a v1 index gains the machine settings with the cap unset' },
 ];
 
 const MANDATE_V1 = {
