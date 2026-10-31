@@ -9,7 +9,7 @@ import { loadJob } from '#core/job/store.ts';
 import { jobComponent } from '#core/config/components.ts';
 import { ForgeError } from '#core/errors.ts';
 import type { Config, Job } from '#core/types.ts';
-import { commandTemplate, runCommand, type CommandResult } from './run.ts';
+import { commandTemplate, runCommand, type CommandResult, type RunOptions } from './run.ts';
 
 /** What the job's changes ask for: `files` passes the selected tests, `full` runs the whole command, `none` runs nothing. */
 export interface RelatedTests {
@@ -110,7 +110,7 @@ function componentPrefix(config: Config, job: Job): string {
  * whole command when a shared helper changed, and nothing (no log, event or lease renewal) when no
  * test is related. Every refusal comes before anything runs.
  */
-export function runChanged(root: string, config: Config, id: string, name: string, opts: { tail?: number } = {}): ChangedResult {
+export function runChanged(root: string, config: Config, id: string, name: string, opts: Pick<RunOptions, 'tail' | 'checks'> = {}): ChangedResult {
   const job = loadJob(root, id);
   if (!job.worktree) throw new ForgeError(`job ${id} has no worktree yet; run: forge worktree create ${id}`);
   const template = commandTemplate(config, job, name);
@@ -119,5 +119,6 @@ export function runChanged(root: string, config: Config, id: string, name: strin
   const related = selectTests(jobChanges(job.worktree, config, job), worktreeFiles(job.worktree), config.relatedTests, componentPrefix(config, job));
   if (related.mode === 'none') return { name, ok: true, ran: false, related };
   const args = related.mode === 'files' ? { args: related.files } : {};
-  return { ...runCommand(root, config, id, name, { ...(opts.tail !== undefined ? { tail: opts.tail } : {}), ...args }), related };
+  // A `files` run records its arguments in the check cache's key, so it never stands in for verify's full run.
+  return { ...runCommand(root, config, id, name, { ...(opts.tail !== undefined ? { tail: opts.tail } : {}), ...(opts.checks ? { checks: opts.checks } : {}), ...args }), related };
 }

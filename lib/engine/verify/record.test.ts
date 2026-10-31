@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { firstVerifyRun, headVerified, lastRun, nextAttempt, recordRun, reportRun, roundRuns, runsSince, verifiedSha } from './record.ts';
+import { firstVerifyRun, headVerified, lastRun, lateFailure, nextAttempt, panelRun, recordRun, reportRun, restPending, roundRuns, runsSince, verifiedSha } from './record.ts';
 
 const ROOT = 'a'.repeat(40);
 const LIB = 'b'.repeat(40);
@@ -72,6 +72,24 @@ test('verify record questions', () => {
       want: { verify: { 1: 'PASS', 2: 'FAIL' }, retries: { 2: 2 }, runs: ['1.1', '2.1'] },
     },
     {
+      name: 'recordRun: a partial pass leaves the legacy result alone',
+      got: () => {
+        const j = job(1, [], { verify: {} });
+        recordRun(j, vr(1, 1, true, 1, { partial: true }));
+        return { verify: j.verify, retries: j.verifyRetries, runs: names(j.verifyRuns) };
+      },
+      want: { verify: {}, retries: {}, runs: ['1.1'] },
+    },
+    {
+      name: 'recordRun: a partial failure sets FAIL and adds one retry',
+      got: () => {
+        const j = job(1, []);
+        recordRun(j, vr(1, 1, false, 1, { partial: true }));
+        return { verify: j.verify, retries: j.verifyRetries };
+      },
+      want: { verify: { 1: 'FAIL' }, retries: { 1: 1 } },
+    },
+    {
       name: 'recordRun: a non-array record starts a new one',
       got: () => {
         const j = job(1, 'runs', { verify: null, verifyRetries: 3 });
@@ -80,6 +98,39 @@ test('verify record questions', () => {
       },
       want: { verify: { 1: 'FAIL' }, retries: { 1: 1 }, runs: ['1.1'] },
     },
+  ];
+  for (const row of rows) assert.deepEqual(row.got(), row.want, row.name);
+});
+
+test('a partial run verifies nothing, and the full run after it answers', () => {
+  const part = (round: number, attempt: number, ok: unknown, n: number, extra: Record<string, unknown> = {}) => vr(round, attempt, ok, n, { partial: true, ...extra });
+  const late = [part(1, 1, true, 1), vr(1, 2, false, 2)];
+  const finished = [part(1, 1, true, 1), vr(1, 2, true, 2)];
+  const rows: { name: string; got: () => unknown; want: unknown }[] = [
+    { name: 'verifiedSha: a partial pass', got: () => verifiedSha(job(1, [part(1, 1, true, 1)]), null), want: null },
+    { name: 'verifiedSha: a partial pass with a member', got: () => verifiedSha(withLib(1, [part(1, 1, true, 1, { repos: [{ repo: 'lib', sha: LIB, ok: true, failure: null }] })]), 'lib'), want: null },
+    { name: 'headVerified: a partial pass on the HEAD', got: () => headVerified(job(1, [part(1, 1, true, 1)]), { root: ROOT }).verified, want: false },
+    { name: 'headVerified: the full pass after it', got: () => headVerified(job(1, finished), { root: ROOT }).verified, want: true },
+    { name: "firstVerifyRun: round 1's partial pass, then a full failure", got: () => firstVerifyRun(job(1, late)), want: false },
+    { name: "firstVerifyRun: round 1's partial pass, then a full pass", got: () => firstVerifyRun(job(1, finished)), want: true },
+    { name: "firstVerifyRun: round 1's partial pass alone", got: () => firstVerifyRun(job(1, [part(1, 1, true, 1)])), want: null },
+    { name: 'firstVerifyRun: a partial failure is a first failure', got: () => firstVerifyRun(job(1, [part(1, 1, false, 1)])), want: false },
+    { name: 'restPending: a partial pass is last', got: () => restPending(job(1, [part(1, 1, true, 1)])), want: true },
+    { name: 'restPending: a partial failure', got: () => restPending(job(1, [part(1, 1, false, 1)])), want: false },
+    { name: 'restPending: the full run after it', got: () => restPending(job(1, finished)), want: false },
+    { name: "restPending: an earlier round's partial pass", got: () => restPending(job(2, [part(1, 1, true, 1)])), want: false },
+    { name: "restPending: partial: 'true'", got: () => restPending(job(1, [vr(1, 1, true, 1, { partial: 'true' })])), want: false },
+    { name: 'lateFailure: a full failure right after a partial pass', got: () => lateFailure(job(1, late)), want: true },
+    { name: 'lateFailure: a full pass', got: () => lateFailure(job(1, finished)), want: false },
+    { name: 'lateFailure: a verifiers failure', got: () => lateFailure(job(1, [part(1, 1, true, 1), vr(1, 2, false, 2, { failure: 'verifiers' })])), want: false },
+    { name: 'lateFailure: a failure after a full pass', got: () => lateFailure(job(1, [vr(1, 1, true, 1), vr(1, 2, false, 2)])), want: false },
+    { name: 'lateFailure: a partial failure after a partial pass', got: () => lateFailure(job(1, [part(1, 1, true, 1), part(1, 2, false, 2)])), want: false },
+    { name: "lateFailure: the partial pass was an earlier round's", got: () => lateFailure(job(2, [part(1, 1, true, 1), vr(2, 1, false, 2)])), want: false },
+    { name: 'panelRun: the partial pass while the full run after it is last', got: () => names([panelRun(job(1, finished))!]), want: ['1.1'] },
+    { name: 'panelRun: the partial pass after a late failure', got: () => names([panelRun(job(1, late))!]), want: ['1.1'] },
+    { name: 'panelRun: the partial pass itself', got: () => names([panelRun(job(1, [part(1, 1, true, 1)]))!]), want: ['1.1'] },
+    { name: 'panelRun: no partial run, the last run', got: () => names([panelRun(job(1, [vr(1, 1, false, 1), vr(1, 2, true, 2)]))!]), want: ['1.2'] },
+    { name: 'panelRun: a round with no runs', got: () => panelRun(job(2, finished)), want: undefined },
   ];
   for (const row of rows) assert.deepEqual(row.got(), row.want, row.name);
 });

@@ -41,20 +41,50 @@ export function runsSince(job: Pick<Job, 'verifyRuns'>, ts: string | null | unde
   return allRuns(job).filter((r) => typeof r.at === 'string' && r.at !== '' && (!ts || r.at > ts));
 }
 
+/** A run `forge verify --fast` recorded that passed: every group but the last, so it verifies nothing. */
+const partialPass = (r: VerifyRun | undefined): boolean => r?.partial === true && r.ok === true;
+
 /**
  * Whether the very first verify attempt of round 1 passed, or null when the job never got there.
- * Later attempts in the same round are retries and must not count as a first pass.
+ * Later attempts in the same round are retries and must not count as a first pass. A partial pass
+ * is not a first pass either: the full run after it answers, and none yet is null.
  */
 export function firstVerifyRun(job: Pick<Job, 'verifyRuns' | 'verify'>): boolean | null {
-  const first = allRuns(job).find((r) => r.round === 1 && r.attempt === 1);
-  if (first) return Boolean(first.ok);
+  const runs = allRuns(job).filter((r) => r.round === 1);
+  const i = runs.findIndex((r) => r.attempt === 1);
+  if (i >= 0) {
+    const first = partialPass(runs[i]) ? runs[i + 1] : runs[i];
+    return first ? Boolean(first.ok) : null;
+  }
   return job.verify?.[1] ? job.verify[1] === 'PASS' : null;
 }
 
-/** The sha this round's last run passed on: the root's (`repo` null) or a member's; null when it did not pass or recorded none. */
+/** This round's last run is a partial pass: the review may start, and the last group still has to run. */
+export function restPending(job: RecordJob): boolean {
+  return partialPass(lastRun(job));
+}
+
+/**
+ * A late failure: this round's last run is a full run that failed, on anything but the verifiers, right
+ * after a partial pass, so it failed while the panel reviewed.
+ */
+export function lateFailure(job: RecordJob): boolean {
+  const runs = roundRuns(job);
+  const last = runs.at(-1);
+  return Boolean(last && last.ok !== true && last.partial !== true && last.failure !== 'verifiers' && partialPass(runs.at(-2)));
+}
+
+/** The run the review started from: the partial pass when the last run is the full run right after it, else the last run. */
+export function panelRun(job: RecordJob): VerifyRun | undefined {
+  const runs = roundRuns(job);
+  const last = runs.at(-1);
+  return last && last.partial !== true && partialPass(runs.at(-2)) ? runs.at(-2) : last;
+}
+
+/** The sha this round's last run passed on: the root's (`repo` null) or a member's; null when it did not pass, was partial, or recorded none. */
 export function verifiedSha(job: RecordJob, repo: string | null): string | null {
   const last = lastRun(job);
-  if (!last || last.ok !== true) return null;
+  if (!last || last.ok !== true || last.partial === true) return null;
   let sha: unknown = last.sha;
   if (repo !== null) {
     const repos: unknown = last.repos;
@@ -82,12 +112,13 @@ export function headVerified(job: RecordJob & Pick<Job, 'repos'>, heads: { root:
 /**
  * Appends a run, inside updateJob: the legacy per-round result follows it, and a failure (a dirty
  * worktree or a verifiers CHANGES included) asks for one more retry; a pass does not reset the count.
+ * A partial pass leaves the legacy result alone: it is no PASS.
  */
 export function recordRun(job: Job, run: VerifyRun): void {
   if (!Array.isArray(job.verifyRuns)) job.verifyRuns = [];
   if (!job.verify || typeof job.verify !== 'object') job.verify = {};
   if (!job.verifyRetries || typeof job.verifyRetries !== 'object') job.verifyRetries = {};
-  job.verify[run.round] = run.ok ? 'PASS' : 'FAIL';
+  if (!partialPass(run)) job.verify[run.round] = run.ok ? 'PASS' : 'FAIL';
   job.verifyRuns.push(run);
   if (!run.ok) job.verifyRetries[String(run.round)] = (job.verifyRetries[String(run.round)] ?? 0) + 1;
 }

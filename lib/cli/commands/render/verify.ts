@@ -10,6 +10,7 @@ function step(s: Omit<VerifyStep, 'tail'>, failure: VerifyStep | undefined, p: P
   const name = txt(s.name);
   let head: string;
   if (s.skipped) head = marked('skip', [{ text: `${name}  skipped: ${txt(s.reason)}` }], p);
+  else if (s.ok && s.cached) head = marked(true, [{ text: `${name}  cached` }], p);
   else if (s.ok) head = marked(true, [{ text: name }, ...(typeof s.durationMs === 'number' ? [{ text: `  ${duration(s.durationMs)}` }] : [])], p);
   else head = marked(false, [{ text: `${name}  exit ${txt(s.exit)}` }], p);
   if (!failure || failure.name !== s.name || s.ok) return head;
@@ -30,7 +31,7 @@ export const verify: Renderer = (d, o) => {
   if (!has(d, 'ok', 'round', 'attempt', 'sha', 'file', 'steps') || !Array.isArray(d.steps)) return null;
   const p = paint(o.color);
   const r = d as VerifyResult;
-  const head = line([{ text: r.ok ? '✓' : '✗', style: r.ok ? p.green : p.red }, { text: ` verify ${r.ok ? 'passed' : 'failed'} · round ${txt(r.round)} attempt ${txt(r.attempt)} · ${short(r.sha, 7)}` }]);
+  const head = line([{ text: r.ok ? '✓' : '✗', style: r.ok ? p.green : p.red }, { text: ` verify ${r.ok ? 'passed' : 'failed'}${r.partial === true ? ' (partial)' : ''} · round ${txt(r.round)} attempt ${txt(r.attempt)} · ${short(r.sha, 7)}` }]);
   const steps = r.steps.map((s) => step(s, r.failure, p));
   // A failure that is not one of the listed steps (a gate verify added) still shows its tail.
   if (r.failure && !r.steps.some((s) => s.name === r.failure!.name && !s.ok)) steps.push(step({ ...r.failure, ok: false }, r.failure, p));

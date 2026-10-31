@@ -9,7 +9,7 @@ import { inSpec } from '#core/glob.ts';
 import type { Config, Job, PanelEntry } from '#core/types.ts';
 import type { StepInput } from '../types.ts';
 import { after } from './facts.ts';
-import { lastRun } from '../../verify/record.ts';
+import { panelRun } from '../../verify/record.ts';
 
 const alwaysLenses = (config: Config) => config.review.panel.filter((p) => p.always).map((p) => p.name);
 
@@ -30,13 +30,14 @@ export function roundLenses(job: Pick<Job, 'reviewers' | 'pr'> & { repos?: Job['
 
 /**
  * This round's rework panel from the latest `panel` event of the round, when it postdates the
- * round's last verify and its `rerun` names only lenses of the full round panel; null means the
- * full panel. Every check fails toward more review: the event is in agent-reachable job state.
+ * run the review started from (panelRun: the partial pass, while the full verify after it runs alongside
+ * the review) and its `rerun` names only lenses of the full round panel; null means the full panel.
+ * Every check fails toward more review: the event is in agent-reachable job state.
  */
 export function currentRerun(x: Pick<StepInput, 'job' | 'config' | 'events'>): string[] | null {
   const j = x.job;
   if (j.round < 2 || x.config.review?.onRework !== 'narrow' || j.pr?.state === 'OPEN') return null;
-  const lv = lastRun(j);
+  const lv = panelRun(j);
   const ev = x.events.findLast((e) => e.type === 'panel' && e.round === j.round);
   if (!ev || !after(ev.ts, lv?.at)) return null;
   const rerun: unknown = ev.rerun;

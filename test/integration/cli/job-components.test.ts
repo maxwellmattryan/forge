@@ -103,7 +103,9 @@ test('a declared component the diff never touches is dropped', async () => {
     // The next verify over the same diff changes nothing, so it logs nothing.
     const again = await s.verify();
     assert.equal(again.events.length, 1);
-    assert.deepEqual(again.ran, ['cli']);
+    // The same tree and the same `cli` command: verify reuses its own pass (lib/engine/verify/cache.ts),
+    // where any other command would have missed the cache and run.
+    assert.deepEqual(again.ran, []);
   } finally {
     s.cleanup();
   }

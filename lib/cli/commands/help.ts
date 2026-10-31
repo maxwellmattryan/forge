@@ -115,9 +115,11 @@ export const CORE: HelpGroup[] = [
     commands: [
       {
         command: 'verify',
-        args: '<id>',
-        summary: "run the configured verify commands in the job's worktree and record the result for its HEAD",
-        exits: [[1, 'a check failed (the result says which), or the job has no worktree']],
+        args: '<id> [--fast]',
+        summary:
+          "run the configured verify commands in the job's worktree and record the result for its HEAD; a root step reuses a pass the check cache holds for the same command on the same clean committed tree (the step says cached, or why it missed: cacheMiss)",
+        flags: [['--fast', 'run every verify group but the last and record a partial run (result: partial, pending), which verifies no HEAD; with fewer than two groups it runs everything']],
+        exits: [[1, 'a check failed (the result says which), the job has no worktree, or --fast was given a value']],
       },
     ],
   },
