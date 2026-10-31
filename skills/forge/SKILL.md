@@ -17,7 +17,7 @@ Procedures: `${CLAUDE_PLUGIN_ROOT}/skills/forge/reference/`; docs: `${CLAUDE_PLU
 1. **The CLI is the only writer of state and the only decider of the next step.** Never hand-edit `job.json`, `events.jsonl`, the backlog or tracker labels, or pick a stage yourself: ask `forge job step <id>`.
 2. **Context economy.** Read CLI JSON and agents' one-line replies, not code, diffs, reviews, logs or specs. Give agents the `brief` step returns, never file contents.
 3. **Worktree isolation.** Builders and integrators work only in the job's worktree; only the CLI touches the main checkout (`.forge/`).
-4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests. A gate answered with `forge job human` moves at the next step; from another session hand it back with `forge requests add resume --job <id>`. No session decides a `gate` request: `forge dash`'s gate runner does, in code, so a daemon turn never sees one.
+4. **Stop at human gates.** Report the `tell`, work on others; never guess past one. With `foreman.enabled`, the CLI turns gates into `gate` requests. A gate answered with `forge job apply` (or `forge job human`) moves at the next step; from another session hand it back with `forge requests add resume --job <id>`. No session decides a `gate` request: `forge dash`'s gate runner does, in code, so a daemon turn never sees one.
 5. **No AI attribution** in commits, PRs, issues or comments: no co-author trailers, "Generated with" footers or session links.
 6. **Be honest in the record.** `forge job note` anything that failed or was skipped.
 
@@ -39,7 +39,8 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |
-| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]`, `shelve <job> <reason>` | record the decision (`reference/commands.md`); step moves the job; then **Run a job** |
+| `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `forge requests add <approve\|revise-spec\|answer\|rework\|cancel> --job <job> --text "<everything after the job id>"`, then `forge job apply <job> --request <its id> --session ${CLAUDE_SESSION_ID}` (it records the decision: `reference/commands.md`; exit 3: a pool session took it), then **Run a job** |
+| `shelve <job> <reason>` | `reference/commands.md` |
 | `sync` | the sync above; report |
 | `dash` | `forge dash --background`; give the URL, the login link (`forge dash url` reprints it) |
 | `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |
@@ -54,7 +55,7 @@ Then loop: `forge job advance <id> --session ${CLAUDE_SESSION_ID} --epoch <epoch
 - `failed: true`: advance again; `parked: true` (it parked on `escalation`): report, stop. `capped: true`: advance again. Exit 3: stop (`stale_epoch`: taken over).
 - `wait` on `agents`: end each as above; one not spawned by this session ends with `--status lost`.
 - `wait` on a gate: report `tell` (for `input`, also `questions.md`) and stop driving it.
-- `procedure`: follow `reference` (e.g. `reference/split.md`), then advance.
+- `procedure`: follow `reference` (`reference/recall.md`, the one left), then advance.
 - `done`: report any `tell` and stop.
 - `secret_found` outside advance: `forge job set <id> --state waiting --waiting-on human --reason "secret scan blocked <command>"`, report, stop; never retry or reword.
 
