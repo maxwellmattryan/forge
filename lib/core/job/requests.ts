@@ -193,9 +193,24 @@ export function listRequests(root: string, opts: { status?: string } = {}): Forg
 /** enqueue's `<Date.now()>-<shortId()>`. Checked before any path is built from an id. */
 const REQUEST_ID = /^\d+-[A-Za-z0-9]+$/;
 
+/** A request id in enqueue's grammar: safe to build a path or an argv element from. */
+export const validRequestId = (s: unknown): s is string => typeof s === 'string' && s.length <= 80 && REQUEST_ID.test(s);
+
 function requestFile(root: string, id: string): string {
-  if (typeof id !== 'string' || !REQUEST_ID.test(id)) throw new ForgeError(`invalid request id ${JSON.stringify(String(id).slice(0, 80))}`);
+  if (!validRequestId(id)) throw new ForgeError(`invalid request id ${JSON.stringify(String(id).slice(0, 80))}`);
   return path.join(dir(root), `${id}.json`);
+}
+
+/** Request `id` as stored, or null when it is missing or unreadable; an id outside the grammar throws before any path is built. */
+export function readRequest(root: string, id: string): ForgeRequest | null {
+  const file = requestFile(root, id);
+  if (!exists(file)) return null;
+  try {
+    const rec = readJson(file, null);
+    return rec && typeof rec === 'object' ? (rec as ForgeRequest) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** A claim older than this with no ack is presumed abandoned (its session died) and can be retaken. */

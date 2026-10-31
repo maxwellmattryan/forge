@@ -34,7 +34,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `job/agent-run.ts` | `forge job agent run`: one spawn `forge job step` chose, run as its own headless claude child in the job's worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself and its usage taken from the child's own result line. |
 | `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
 | `job/create.ts` | `forge job new\|from-ref\|link`: creating a job, starting one from a tracker item, and the issues it carries. |
-| `job/decide.ts` | `forge job human\|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge dash's gate runner records those, in-process), and the read-only assist for a person's own terminal. |
+| `job/decide.ts` | `forge job human\|apply\|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge dash's gate runner records those, in-process), applying one job request by the human-command table, and the read-only assist for a person's own terminal. |
 | `job/help.ts` | `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs` reads. |
 | `job/lease.ts` | `forge job claim\|release\|step`: a job's lease and its driver's epoch, and the `--epoch` fence other handlers share. |
 | `job/read.ts` | `forge job list\|show\|get\|progress\|paths\|links\|scope\|panel\|acs\|findings\|audit`: the read-only views of one job, or of every job. |

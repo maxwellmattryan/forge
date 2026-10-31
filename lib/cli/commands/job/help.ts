@@ -194,6 +194,21 @@ export const JOB: HelpGroup = {
       ],
     },
     {
+      command: 'job apply',
+      args: '<id> --request <rid> --session S',
+      summary:
+        "apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a plain resume the step loop answers is given back pending. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md \"Code driver\")",
+      flags: [
+        ['--request R', 'the request id (required)'],
+        ['--session S', 'the session claiming the request (required)'],
+      ],
+      exits: [
+        [1, "no such job or request, a request id outside the grammar, a request for another job or of another type, an already closed request, or a daemon session of another scope (another job's, the inbox, the office or a chat)"],
+        [2, 'usage: no --session or no --request'],
+        [3, 'another live session is handling the request'],
+      ],
+    },
+    {
       command: 'job assist',
       args: '<id> --gate G',
       summary: "what a gate run's forge:assistant is briefed with for a gate, for a person's own terminal: model, effort and a brief of paths only, and for repo-proposal the pending repos; stale when the job no longer waits there. Read-only",

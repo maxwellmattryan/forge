@@ -30,7 +30,8 @@ const SAFE_URL = /^https?:\/\/[^\s\x00-\x1f\x7f]+$/;
 /** An issue url that is safe to write into a PR body: http(s), one token, no whitespace or controls. */
 export const isSafeUrl = (url: unknown): url is string => typeof url === 'string' && url.length <= 2000 && SAFE_URL.test(url);
 
-const isQualified = (ref: string): boolean => QUALIFIED.test(ref) && !ref.includes('..');
+/** A qualified `owner/repo#12` or `group/sub/project#12`, with no `..` segment. */
+export const isQualifiedRef = (ref: string): boolean => QUALIFIED.test(ref) && !ref.includes('..');
 
 /** parseIssueRef with the reason a ref is refused, for the CLI's error. */
 export function checkIssueRef(raw: unknown, opts: IssueRefOpts): { ref: string } | { error: string } {
@@ -46,7 +47,7 @@ export function checkIssueRef(raw: unknown, opts: IssueRefOpts): { ref: string }
       return { ref: opts.slug ? `${opts.slug}#${digits}` : digits };
     }
   }
-  if (isQualified(trimmed)) {
+  if (isQualifiedRef(trimmed)) {
     if (opts.tracker === 'local') return { error: 'local tracker refs are backlog slugs' };
     return { ref: trimmed };
   }
@@ -67,13 +68,13 @@ export function parseIssueRef(raw: unknown, opts: IssueRefOpts): string | null {
 /** The normaliser's grammar for a stored ref: qualified (not under `local`), or anything REF accepts. */
 export function isStoredRef(ref: unknown, tracker: string): ref is string {
   if (typeof ref !== 'string' || ref.length > MAX_REF) return false;
-  if (isQualified(ref)) return tracker !== 'local';
+  if (isQualifiedRef(ref)) return tracker !== 'local';
   return REF.test(ref);
 }
 
 /** `owner/repo#12` as its parts, or null for any other shape. */
 export function splitQualified(ref: string): { path: string; n: string } | null {
-  if (!isQualified(ref)) return null;
+  if (!isQualifiedRef(ref)) return null;
   const at = ref.lastIndexOf('#');
   return { path: ref.slice(0, at), n: ref.slice(at + 1) };
 }

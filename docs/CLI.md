@@ -1041,6 +1041,19 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | 3 | another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end |
 | 5 | the role failed because claude never started (failure.class spawn) or closed without a result (exit) |
 
+**`forge job apply <id> --request <rid> --session S`**: apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a plain resume the step loop answers is given back pending. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md "Code driver")
+
+| Flag | Meaning |
+|---|---|
+| `--request R` | the request id (required) |
+| `--session S` | the session claiming the request (required) |
+
+| Exit | When |
+|---|---|
+| 1 | no such job or request, a request id outside the grammar, a request for another job or of another type, an already closed request, or a daemon session of another scope (another job's, the inbox, the office or a chat) |
+| 2 | usage: no --session or no --request |
+| 3 | another live session is handling the request |
+
 **`forge job archive <id>|--done --older-than D`**: archive a finished job into .forge/archive/&lt;id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs
 
 | Flag | Meaning |
