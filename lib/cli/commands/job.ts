@@ -7,11 +7,11 @@ import type { Config } from '#core/types.ts';
 import type { JobHandler } from '../types.ts';
 import { usageError } from './args.ts';
 import { JOB } from './job/help.ts';
-import { fromRef, link, newCmd } from './job/create.ts';
+import { fromRef, link, newCmd, split } from './job/create.ts';
 import { acs, audit, findings, get, links, listCmd, panel, paths, progressCmd, scope, show } from './job/read.ts';
 import { budget, effort, note, refreshRequestCmd, set } from './job/state.ts';
 import { claim, release, stepCmd } from './job/lease.ts';
-import { assistCmd, human } from './job/decide.ts';
+import { apply, assistCmd, human } from './job/decide.ts';
 import { interim, repo } from './job/repos.ts';
 import { agent } from './job/agent.ts';
 import { decision, gate, round, score, verdicts } from './job/review.ts';
@@ -23,6 +23,7 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   new: newCmd,
   'from-ref': fromRef,
   link,
+  split,
   list: listCmd,
   show,
   get,
@@ -35,6 +36,7 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   interim,
   note,
   human,
+  apply,
   assist: assistCmd,
   agent,
   round,

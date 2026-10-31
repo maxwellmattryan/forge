@@ -24,7 +24,7 @@
 | `stages/build.ts` | Build: open a round, hold it to the round limits, run the builder, then verify. |
 | `stages/decide.ts` | Decide: the gate reasons (DC12), then the approver (Forge's own APPROVE on a clean pass; for an eval, the judge and the grade), then on to integrate and pr. |
 | `stages/design.ts` | Design: the designer writes design.md, the spec-writer folds its spec deltas in, then back to spec. |
-| `stages/intake.ts` | Intake (backlog): find an issue, create the worktree, adopt a PR, then plan or spec. |
+| `stages/intake.ts` | Intake (backlog): find an issue, create the worktree, adopt a PR and act on what it says, then plan or spec. |
 | `stages/integrate.ts` | Integrate: bring the branch up to date with its base, resolve conflicts per pr.conflicts, and review the resolution before the approver or the PR. |
 | `stages/plan.ts` | Plan: the planner decides one job or a split, and a split waits on a human unless split is auto. |
 | `stages/pr.ts` | PR: verify, open or update the PR (unless the push is held), follow interim deferrals and releases, then hold the merge on an open merge gate (the one escalation park listing every open rule, then a missing recall eval) until a person decides, merge, or wait on review. |

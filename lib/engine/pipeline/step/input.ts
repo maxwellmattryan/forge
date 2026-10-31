@@ -13,7 +13,7 @@ import { jobDir, loadJob, parseDecision, readEvents, requestBody, roundVerdicts 
 import { jobEndpoints } from '../../environment/endpoints.ts';
 import { memberRepos, trustedMemberWorktree } from '../../project/job-repos.ts';
 import { lensChecklists } from '../member-panel.ts';
-import { PLUGIN_ROOT, exists } from '#core/paths.ts';
+import { PLUGIN_ROOT, exists, paths } from '#core/paths.ts';
 import { pluginHash } from '../../evals/provenance.ts';
 import { hasFixtures, loadFixtures } from '../../evals/recall.ts';
 import { inSpec } from '#core/glob.ts';
@@ -41,7 +41,7 @@ const STEP_EVENTS = new Set([
   'integration-review', 'decision', 'fields', 'pr-opened', 'pr-updated', 'pr-merged', 'pr-auto-merge', 'pr-merge-deferred',
   'pr-merge-refused', 'pr-merge-failed', 'eval-graded', 'transition', 'agent-start', 'agent-end', 'secret-found', 'verifiers',
   'protected-path', 'repo-proposed', 'pr-deferred', 'canary-published', 'interim-released', 'interim-bumped', 'pr-ready', 'downstream-checked', 'job-repo-added',
-  'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate', 'gate', 'builder-note',
+  'job-repo-removed', 'pr-head-pulled', 'recall', 'permission-timed-out', 'push-held', 'pr-gate', 'gate', 'builder-note', 'pr-synced',
 ]);
 
 /**
@@ -89,6 +89,9 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
       const abs = path.join(root, f);
       if (!present.includes(abs) && exists(abs)) present.push(abs);
     }
+  const retro = loadRetro(root, job);
+  // The retro's and digests' inputs, so their briefs list them; only ever a backlog retro job's.
+  if (retro) present.push(...retroInputs(root, dir, retro));
   const body = requestBody(root, job.id);
   const specText = read('spec.md') ?? '';
   // reviewCurrent reads the full log: the `verdicts` event stays out of step's own events.
@@ -166,7 +169,51 @@ export function loadStepInput(root: string, base: Config, id: string): StepInput
     // Only at a budget park: measuring runs git, and only GA7 reads it.
     budgetExceeded: job.state === 'waiting' && job.waitingOn === 'budget' ? exceededKeys(effectiveLimits(config, job), measureJob(root, config, job), job.budget.ack, job.round).map((e) => e.key) : null,
     lastSessions: loadLastSessions(root, config, job),
+    retro,
   };
+}
+
+const DIGEST_BATCH = /^batch-([1-9][0-9]{0,2})\.md$/;
+const FRICTION_FILE = /^friction-[1-9][0-9]{0,2}\.md$/;
+
+/** A regular file, not a link, a FIFO or a directory. */
+function isRegularFile(abs: string): boolean {
+  try {
+    return fs.lstatSync(abs).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A backlog retro job's start: whether stats.json is there, and the `digest/batch-<n>.md` batches prepare wrote. The job
+ * dir is the retro session's to write, so a `digest/` that is a link, or a batch that is not a regular file, gives none.
+ */
+export function loadRetro(root: string, job: Job): StepInput['retro'] {
+  if (job.kind !== 'retro' || job.stage !== 'backlog') return null;
+  const dir = jobDir(root, job.id);
+  const digest = path.join(dir, 'digest');
+  const batches: number[] = [];
+  try {
+    if (fs.lstatSync(digest).isDirectory())
+      for (const f of fs.readdirSync(digest)) {
+        const m = DIGEST_BATCH.exec(f);
+        if (m && isRegularFile(path.join(digest, f))) batches.push(Number(m[1]));
+      }
+  } catch {}
+  return { stats: isRegularFile(path.join(dir, 'stats.json')), batches: batches.sort((a, b) => a - b) };
+}
+
+/** The existing files the retro and digest briefs may list: the batches, prepare's outputs, the friction files and the reviewers dir. */
+function retroInputs(root: string, dir: string, retro: NonNullable<StepInput['retro']>): string[] {
+  const out = retro.batches.map((n) => path.join(dir, 'digest', `batch-${n}.md`));
+  for (const f of ['stats.json', 'signals.md', 'transcripts.json']) if (isRegularFile(path.join(dir, f))) out.push(path.join(dir, f));
+  try {
+    for (const f of fs.readdirSync(dir).sort()) if (FRICTION_FILE.test(f) && isRegularFile(path.join(dir, f))) out.push(path.join(dir, f));
+  } catch {}
+  const reviewers = paths(root).reviewers;
+  if (exists(reviewers)) out.push(reviewers);
+  return out;
 }
 
 /** The stages whose spawns may resume a role's last session: B4's builder and the review panel's lenses. */

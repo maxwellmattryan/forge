@@ -1041,6 +1041,19 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | 3 | another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end |
 | 5 | the role failed because claude never started (failure.class spawn) or closed without a result (exit) |
 
+**`forge job apply <id> --request <rid> --session S`**: apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a resume is a person's only for the dashboard's buttons (infra, external, conflicts, failed), and a plain resume, or any from another source, is given back pending for the step loop to answer. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md "Code driver")
+
+| Flag | Meaning |
+|---|---|
+| `--request R` | the request id (required) |
+| `--session S` | the session claiming the request (required) |
+
+| Exit | When |
+|---|---|
+| 1 | no such job or request, a request id outside the grammar, a request for another job or of another type, an already closed request, or a daemon session of another scope (another job's, the inbox, the office or a chat) |
+| 2 | usage: no --session or no --request |
+| 3 | another live session is handling the request |
+
 **`forge job archive <id>|--done --older-than D`**: archive a finished job into .forge/archive/&lt;id>.json (its job.json, events and a summary) and delete its job folder, after tearing down what is left of its environment; with --done --older-than D, every finished job at least D days old. A job whose teardown fails is listed in refused and kept. Stats, audit and retro still read archived jobs
 
 | Flag | Meaning |
@@ -1385,6 +1398,12 @@ See [Job repos](architecture/job-repos.md).
 | Exit | When |
 |---|---|
 | 1 | no such job |
+
+**`forge job split <id>`**: turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing
+
+| Exit | When |
+|---|---|
+| 1 | no such job, a job not at plan/running, a planner still running, a plan.md that is not a PLAN: SPLIT, a split not decided (split mode not auto and no approve-split after the planner ended), a daemon session of another scope (a job session splits only its own job), or a ## Jobs list that does not parse (no items, a duplicate number or title, an empty title, a dependency on an unknown item or itself, a cycle, or more than 20 items) |
 
 **`forge job step <id> [--session S] [--epoch N]`**: the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease
 
@@ -1971,7 +1990,7 @@ Retrospectives over finished jobs.
 
 **`forge retro due`**: whether a retro is due: improve.retroEvery jobs finished since the last one, mandate retros aside
 
-**`forge retro prepare <job> [--since DATE | --mandate ID]`**: gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by, and agent runs' transcript stats into transcripts.json; returns the `digests` to spawn (forge:digest) over the worst runs
+**`forge retro prepare <job> [--since DATE | --mandate ID]`**: gather metrics, human interventions and review history into the retro job's dir, including learnings past their review-by, and agent runs' transcript stats into transcripts.json; returns the `digests` (forge:digest) over the worst runs, which step's K1d spawns one batch at a time (step's K1c runs prepare for a retro job that has no stats.json yet)
 
 | Flag | Meaning |
 |---|---|

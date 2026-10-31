@@ -88,7 +88,8 @@ function rootTransition(
     if (job.stage === 'pr' && job.state === 'waiting' && job.waitingOn === 'pr-review' && job.reason === reason) return stay();
     return stay({ stage: 'pr', state: 'waiting', waitingOn: 'pr-review', reason });
   }
-  if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
+  // At intake the job only adopted the PR: step's I6b asks a person whether to reopen it, so sync leaves it be.
+  if (pr.state === 'CLOSED') return stay(!['cancelled', 'done'].includes(job.state) && job.stage !== 'backlog' ? { state: 'cancelled', reason: 'PR closed without merging' } : {});
   // A person set it aside: only their merge or close on GitHub (above) moves it, never an update, a park or a reopen.
   if (shelved(job)) return stay();
   // A cancel or a failure keeps stage pr, and only a person reopens the job: parking it on pr-review

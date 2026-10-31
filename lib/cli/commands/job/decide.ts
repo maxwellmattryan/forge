@@ -1,19 +1,24 @@
-// `forge job human|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge dash's
-// gate runner records those, in-process), and the read-only assist for a person's own terminal.
+// `forge job human|apply|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge
+// dash's gate runner records those, in-process), applying one job request by the human-command table, and the
+// read-only assist for a person's own terminal.
 import { gateAssist, recordForemanDecision } from '#office/foreman/decide.ts';
-import { logHumanEvent, setJob } from '#core/job/store.ts';
+import { loadJob, logHumanEvent, setJob } from '#core/job/store.ts';
 import { checkIssueRef } from '#core/job/issue-ref.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { decideRepoProposals } from '#engine/project/repo-proposals.ts';
 import { approvalNotesPath, builderNoteRefusal, writeApprovalNotes } from '#engine/pipeline/moves/approval-notes.ts';
-import { daemonScope, inChat, inOffice } from '#core/job/requests.ts';
+import { appendRequestAnswer, requestPlan, writeRequestFeedback, type RequestPlan, type RequestStep } from '#engine/pipeline/moves/request-table.ts';
+import { budgetCmd } from '#engine/metrics/budget.ts';
+import { isRepoHold } from '#engine/metrics/repo-budget.ts';
+import { JOB_REQUEST_TYPES, ackRequest, claimRequest, daemonScope, inChat, inOffice, readRequest, releaseClaim, validRequestId } from '#core/job/requests.ts';
 import { chatGateRefusal } from '#office/chat/authority.ts';
 import { createAndLink, linkJob, markNoIssue } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { currentActor } from '#integrations/github/actor.ts';
 import { ForgeError } from '#core/errors.ts';
-import type { Config } from '#core/types.ts';
-import { list, oneOf, requireJob, str } from '../args.ts';
+import type { Config, ForgeRequest, Job } from '#core/types.ts';
+import { list, oneOf, req, requireJob, str } from '../args.ts';
+import { set } from './state.ts';
 
 // `forge stats` and `forge job step` read these from `human` events, so an invented action is refused.
 const HUMAN_ACTIONS = ['approve-spec', 'revise-spec', 'approve-split', 'revise-split', 'approve', 'rework', 'answer', 'approve-repos', 'reject-repos', 'approve-release'] as const;
@@ -84,6 +89,104 @@ export async function human(root: string, config: Config, rest: string[], flags:
   let approvalNotes: { path: string; written: boolean; error?: string } | null = null;
   if (noteGiven) approvalNotes = skip === null ? writeApprovalNotes(root, jobId) : { path: approvalNotesPath(root, jobId), written: false, error: skip };
   return { ok: true, ...(link !== undefined ? { link: linked } : {}), ...(approvalNotes ? { approvalNotes } : {}) };
+}
+
+/** What `forge job apply` prints: the request, how it was closed (or left pending), and what was recorded. */
+export interface ApplyResult {
+  id: string;
+  request: string;
+  type: ForgeRequest['type'];
+  from: string;
+  createdAt: string;
+  status: 'done' | 'rejected' | 'pending';
+  result: string;
+  recorded: string[];
+}
+
+const PENDING_RESULT = 'a plain resume: left pending for the step loop';
+
+/** forge job budget's still-exceeded keys, read only at a job budget park (a repo hold never lifts on an approve). */
+function stillExceeded(root: string, config: Config, job: Job): string[] | null {
+  if (job.state !== 'waiting' || job.waitingOn !== 'budget' || isRepoHold(job)) return null;
+  return budgetCmd(root, config, job.id, { set: [], ack: false }).stillExceeded;
+}
+
+/** One step of an apply, run through the handler its CLI command uses, in-process; returns what it recorded. */
+async function applyStep(root: string, config: Config, id: string, rec: ForgeRequest, s: RequestStep): Promise<string> {
+  if ('human' in s) {
+    await human(root, config, [id, s.human], { ...(s.note !== null ? { note: s.note } : {}), ...(s.link !== undefined ? { link: s.link } : {}), ...(s.reason !== undefined ? { reason: s.reason } : {}) });
+    return `human ${s.human}`;
+  }
+  if ('set' in s) {
+    const { stage, state, note, reason } = s.set;
+    await set(root, config, [id], { ...(stage ? { stage } : {}), state, ...(note ? { note } : {}), ...(reason ? { reason } : {}) });
+    return `set ${stage ? `${stage}/` : ''}${state}`;
+  }
+  if ('feedback' in s) {
+    writeRequestFeedback(root, id, rec);
+    return 'feedback.md';
+  }
+  appendRequestAnswer(root, id, rec);
+  return 'questions.md answer';
+}
+
+/**
+ * `forge job apply`: one job request applied by the human-command table (lib/engine/pipeline/moves/request-table.ts),
+ * recorded and acked. The pool's code driver calls it, and so does a session at a terminal: every step runs in-process
+ * through `human` and `set`, so no request text ever reaches argv. Exit 0 for done, rejected and pending alike.
+ */
+export async function apply(root: string, config: Config, rest: string[], flags: Record<string, any>): Promise<ApplyResult> {
+  // Every check runs before anything is read or written.
+  const session = req(str(flags.session, '--session'), '--session');
+  const rid = req(str(flags.request, '--request'), '--request');
+  const id = req(rest[0], 'job id');
+  if (!validRequestId(rid)) throw new ForgeError(`invalid request id ${JSON.stringify(String(rid).slice(0, 80))}`, 1);
+  const scope = daemonScope();
+  if ('problem' in scope) throw new ForgeError(scope.problem, 1);
+  // A job session applies only its own job's requests: never another job's, the inbox's or a chat's.
+  if (scope.daemon && scope.scope !== id) throw new ForgeError(`forge job apply in scope ${scope.scope} applies no request of job ${id}`, 1);
+  const jobId = requireJob(root, id).id;
+  const found = readRequest(root, rid);
+  if (!found) throw new ForgeError(`no request ${rid}`, 'not_found');
+  if (found.job !== jobId) throw new ForgeError(`request ${rid} is for job ${String(found.job ?? 'none').slice(0, 200)}`, 1);
+  if (!(JOB_REQUEST_TYPES as readonly unknown[]).includes(found.type)) throw new ForgeError(`request ${rid} is a ${String(found.type).slice(0, 40)} request, not a job request`, 1);
+
+  // Exit 3 for another live session's claim, exit 1 for a closed request: both before any write.
+  const rec = claimRequest(root, rid, session);
+  const out = (status: ApplyResult['status'], result: string, recorded: string[]): ApplyResult => ({ id: jobId, request: rid, type: rec.type, from: rec.from, createdAt: rec.createdAt, status, result, recorded });
+  /** A throw acks the request rejected with the error, so it never stays in progress under this session. */
+  const failed = (e: unknown, recorded: string[]): ApplyResult => {
+    // The steps before it stay done, and the result says which.
+    const result = `error: ${String((e as Error)?.message ?? e).split('\n')[0].slice(0, 300)}${recorded.length ? ` (already recorded: ${recorded.join(', ')})` : ''}`;
+    ackRequest(root, rid, { status: 'rejected', result });
+    return out('rejected', result, recorded);
+  };
+  let plan: RequestPlan;
+  try {
+    const job = loadJob(root, jobId);
+    plan = requestPlan(rec, job, { stillExceeded: stillExceeded(root, config, job), now: new Date() });
+  } catch (e) {
+    return failed(e, []);
+  }
+  if ('none' in plan) {
+    releaseClaim(root, rid, session);
+    return out('pending', PENDING_RESULT, []);
+  }
+  if ('refuse' in plan) {
+    ackRequest(root, rid, { status: 'rejected', result: plan.refuse });
+    return out('rejected', plan.refuse, []);
+  }
+  const recorded: string[] = [];
+  for (const s of plan.steps) {
+    try {
+      recorded.push(await applyStep(root, config, jobId, rec, s));
+    } catch (e) {
+      return failed(e, recorded);
+    }
+  }
+  const result = `recorded ${recorded.join(', ')}`;
+  ackRequest(root, rid, { status: 'done', result });
+  return out('done', result, recorded);
 }
 
 /**

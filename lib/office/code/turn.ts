@@ -1,9 +1,9 @@
-// One code turn of the code driver (./job-driver.ts): the claim, then `forge job advance` and one `forge job agent run`
-// per spawn as child processes, acting on each child's end through the moves table (./moves.ts) until a gate, `done`, a
-// park, a takeover, a usage limit, a procedure hand-off or a stop. Every forge child passes the launch checks first and
-// gets a job session's env in the job's own scope.
+// One code turn of the code driver (./job-driver.ts): the claim, `forge job apply` for each request of the turn, then
+// `forge job advance` and one `forge job agent run` per spawn as child processes, acting on each child's end through the
+// moves table (./moves.ts) until a gate, `done`, a park, a takeover, a usage limit, a procedure hand-off or a stop. Every
+// forge child passes the launch checks first and gets a job session's env in the job's own scope.
 import { TRUST_ENV } from '#core/config/load.ts';
-import { SCOPE_ENV, closeIfOpen } from '#core/job/requests.ts';
+import { SCOPE_ENV, closeIfOpen, listRequests, validRequestId } from '#core/job/requests.ts';
 import { loadJob } from '#core/job/store.ts';
 import { sessionEnv } from '#integrations/claude/argv.ts';
 import { spawnConfinement } from '../session/confine.ts';
@@ -272,6 +272,58 @@ async function park(d: TurnDeps, t: Turn, m: Extract<Move, { move: 'park' }>): P
   if (r !== null && r.exit !== 0) d.fail(`code driver: parking the job failed (${oneLine(r.stderr) || `exit ${r.exit}`}): ${m.reason}`);
 }
 
+/** The turn's requests, oldest first; [] when they can't be read (the driver's lastError says so). */
+function turnRequests(d: TurnDeps, t: Turn): ForgeRequest[] {
+  const wanted = new Set(t.ids);
+  try {
+    return listRequests(d.root)
+      .filter((r) => wanted.has(r.id))
+      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)) || a.id.localeCompare(b.id));
+  } catch (e) {
+    d.fail(`code driver: the requests can't be read: ${oneLine((e as Error).message)}`);
+    return [];
+  }
+}
+
+/** A request of the turn this driver may still act on: this job's, open, and claimed by no other session. */
+const ours = (d: TurnDeps) => (q: ForgeRequest): boolean => q.job === d.scope && (q.status === 'pending' || (q.status === 'in-progress' && q.session === d.id));
+
+/**
+ * Each request of the turn (those `only` keeps), oldest first, through `forge job apply`, which records it by the
+ * human-command table and acks it, or gives a plain resume back pending. Only the job id and a request id in the
+ * request grammar reach argv. A failure is logged and the turn goes on.
+ */
+async function applyRequests(d: TurnDeps, t: Turn, only: (q: ForgeRequest) => boolean = () => true): Promise<void> {
+  for (const q of turnRequests(d, t).filter(ours(d)).filter(only)) {
+    if (!validRequestId(q.id)) {
+      // Never into argv, and never silent: a request that stays open should say why.
+      d.log('apply-skipped', `request ${oneLine(q.id, 60)} has an id outside the request grammar: left open`, { requestType: oneLine(q.type, 20) });
+      continue;
+    }
+    const r = await forge(d, t, ['job', 'apply', d.scope, '--request', q.id, '--session', d.id]);
+    if (r === null) return;
+    const out = record(r.json);
+    const type = oneLine(q.type, 20);
+    if (r.signal === null && r.exit === 0) {
+      const status = oneLine(out.status, 20);
+      const result = oneLine(out.result);
+      // `requestType`, not `type`: every log line's own `type` is forge-daemon.
+      d.log('applied', `${type} request ${q.id}: ${status}: ${result}`, { request: q.id, requestType: type, status, result, createdAt: oneLine(q.createdAt, 40) });
+    } else if (r.signal === null && r.exit === 3) d.log('apply-skipped', `${type} request ${q.id}: another session is handling it`, { request: q.id, requestType: type });
+    else d.fail(`code driver: applying ${type} request ${q.id} failed: ${oneLine(record(out.error).message || r.stderr || `exit ${r.exit ?? r.signal}`)}`);
+  }
+}
+
+/** Closes each request of the turn still open: `close` for a resume, `others` for any other type. */
+function closeTurnRequests(d: TurnDeps, t: Turn, close: { status: 'done' | 'rejected'; result: string }, others = close): void {
+  const open = ours(d);
+  for (const q of turnRequests(d, t)) {
+    try {
+      closeIfOpen(d.root, q.id, open, q.type === 'resume' ? close : others);
+    } catch {}
+  }
+}
+
 /** The claim; null when it held, else how the turn ends (its requests already closed). */
 async function claim(d: TurnDeps, t: Turn): Promise<TurnEnd | null> {
   const r = await forge(d, t, ['job', 'claim', d.scope, '--session', d.id]);
@@ -283,7 +335,6 @@ async function claim(d: TurnDeps, t: Turn): Promise<TurnEnd | null> {
     return null;
   }
   const message = oneLine(record(out.error).message || r.stderr || `exit ${r.exit ?? r.signal}`, 500);
-  const pending = (q: ForgeRequest) => q.type === 'resume' && q.job === d.scope && q.status === 'pending';
   let close: { status: 'done' | 'rejected'; result: string };
   if (r.signal === null && r.exit === 3) {
     let other = 'another session';
@@ -291,15 +342,16 @@ async function claim(d: TurnDeps, t: Turn): Promise<TurnEnd | null> {
       other = loadJob(d.root, d.scope).lease.driver ?? other;
     } catch {}
     close = { status: 'rejected', result: `job is driven by session ${other}` };
-  } else if (r.signal === null && r.exit === 4) close = { status: 'done', result: message };
-  else {
+    closeTurnRequests(d, t, close);
+  } else if (r.signal === null && r.exit === 4) {
+    // Blocked (a dependency, the repo budget): a person's decision still lands, and the resumes have nothing to drive.
+    close = { status: 'done', result: message };
+    await applyRequests(d, t, (q) => q.type !== 'resume');
+    closeTurnRequests(d, t, close, { status: 'rejected', result: message });
+  } else {
     close = { status: 'rejected', result: message };
     d.fail(`code driver: the claim failed: ${message}`);
-  }
-  for (const q of t.ids) {
-    try {
-      closeIfOpen(d.root, q, pending, close);
-    } catch {}
+    closeTurnRequests(d, t, close);
   }
   d.log('claim', `not claimed: ${close.result}`, { claimed: false });
   return 'refused';
@@ -309,6 +361,8 @@ async function claim(d: TurnDeps, t: Turn): Promise<TurnEnd | null> {
 export async function driveTurn(d: TurnDeps, t: Turn): Promise<TurnEnd> {
   const refused = await claim(d, t);
   if (refused !== null) return refused;
+  // A person's decisions and the dashboard's Resume buttons land before step is asked; plain resumes stay pending.
+  await applyRequests(d, t);
   let m: Move = { move: 'advance' };
   for (;;) {
     if (t.stopping) return 'stopped';

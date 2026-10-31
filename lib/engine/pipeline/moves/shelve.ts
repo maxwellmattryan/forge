@@ -50,6 +50,9 @@ class ShelfRefusal extends ForgeError {
 
 export const isShelved = (j: Pick<Job, 'state' | 'waitingOn'>): boolean => j.state === 'waiting' && j.waitingOn === 'shelved';
 
+/** What a request that would restart a shelved job is refused with: the dashboard's POST and `forge job apply` alike. */
+export const shelvedRefusal = (id: string): string => `job ${id} is shelved; un-shelve it first (the Shelved list in Needs you, or forge job unshelve ${id} in your own terminal)`;
+
 /** Why shelve refuses the job as the lock read it, or null. */
 function shelveRefusal(j: LoadedJob): string | null {
   if (j.kind === 'eval') return `job ${j.id} is an eval job, which has no person to take it off the shelf`;

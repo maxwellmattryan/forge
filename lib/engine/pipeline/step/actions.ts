@@ -10,7 +10,7 @@ import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import type { JobEvent, WaitingOn } from '#core/types.ts';
 import type { StepDone, StepInput, StepProcedure, StepRun, StepSpawn, StepWait, StepWaitingOn } from '../types.ts';
 import { ForgeError } from '#core/errors.ts';
-import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, orNull, p, pendingVerifiers, ref, reworkResume, runningRoles, splitCheck, splitMode } from './facts.ts';
+import { after, afterIdx, agent, human, isPrRework, lastIdx, lastVerify, nextDigest, orNull, p, pendingVerifiers, ref, reworkResume, runningRoles, splitCheck, splitMode } from './facts.ts';
 import type { ResumeSkip } from './facts.ts';
 import { reworkReviewFiles } from './panel.ts';
 import type { RuleId } from './rules.ts';
@@ -73,7 +73,11 @@ export function outputFor(x: StepInput, role: string): string | undefined {
     return x.job.stage === 'integrate' ? p(x, 'integrationReview') : path.join(x.jobDir, 'review', `round-${x.job.round}`, reviewFileName(lens));
   }
   if (role === 'verifier') return path.join(x.jobDir, 'verify', `round-${x.job.round}-verifier-answers.md`);
-  const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: x.job.kind === 'eval' ? 'eval-judge.md' : 'score.md' };
+  if (role === 'digest') {
+    const n = nextDigest(x);
+    return n === null ? undefined : path.join(x.jobDir, `friction-${n}.md`);
+  }
+  const fixed: Record<string, string> = { planner: 'plan.md', 'spec-writer': 'spec.md', designer: 'design.md', approver: 'decision.md', judge: x.job.kind === 'eval' ? 'eval-judge.md' : 'score.md', retro: 'spec.md' };
   return fixed[role] ? path.join(x.jobDir, fixed[role]) : undefined;
 }
 
@@ -109,6 +113,7 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
   const conflictFiles = Array.isArray(conflicts?.conflicts) ? (conflicts.conflicts as unknown[]).map(String) : [];
   const regenerated = Array.isArray(conflicts?.regenerated) ? (conflicts.regenerated as unknown[]).map(String) : [];
   if (base === 'planner') ctx.splitMode = splitMode(x);
+  if (base === 'digest') ctx.digestBatch = nextDigest(x) ?? undefined;
   if (base === 'spec-writer') {
     ctx.foldIn = j.stage === 'design';
     ctx.splitCheck = splitCheck(x);

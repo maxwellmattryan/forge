@@ -13,7 +13,7 @@ import { mergePr } from '#engine/pr/merge.ts';
 import { fixFailingChecks, rerunFailedChecks } from '#engine/pr/ci.ts';
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { decideRepoProposals, isRepoProposalPark } from '#engine/project/repo-proposals.ts';
-import { isShelved, shelfAction } from '#engine/pipeline/moves/shelve.ts';
+import { isShelved, shelfAction, shelvedRefusal } from '#engine/pipeline/moves/shelve.ts';
 import { SHELF_ACTIONS } from '#api/constants.ts';
 import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { parseIssueRef } from '#core/job/issue-ref.ts';
@@ -460,7 +460,7 @@ function shelvedHeld(root: string, body: Record<string, any>): string | null {
   } catch {
     return null;
   }
-  return `job ${body.job} is shelved; un-shelve it first (the Shelved list in Needs you, or forge job unshelve ${body.job} in your own terminal)`;
+  return shelvedRefusal(body.job);
 }
 
 /** POST /api/requests: the args a request type may carry beyond what enqueue checks. Null when fine. */

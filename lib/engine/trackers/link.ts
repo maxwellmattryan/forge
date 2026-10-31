@@ -204,11 +204,11 @@ function issueBody(root: string, id: string): string {
 }
 
 /** `forge job link <id> --create`: a new issue titled after the job, then added like any other, even beside existing ones. */
-export function createAndLink(root: string, config: Config, tracker: Tracker, id: string, actor?: EventActor): LinkResult & { created: true } {
+export function createAndLink(root: string, config: Config, tracker: Tracker, id: string, actor?: EventActor, opts: { parentRef?: string | null } = {}): LinkResult & { created: true } {
   if (config.tracker.kind === 'none') throw new ForgeError('tracker.kind is "none": there is nothing to create an issue in (record the decision with --none)');
   const job = loadJob(root, id);
   // Title and body go to the adapter as values (GitHub: argv element and stdin), never through a shell.
-  const created = tracker.create({ root, config }, { title: job.title, body: issueBody(root, id) });
+  const created = tracker.create({ root, config }, { title: job.title, body: issueBody(root, id), ...(opts.parentRef ? { parentRef: opts.parentRef } : {}) });
   return { ...linkJob(root, config, tracker, id, [String(created.ref)], actor), created: true };
 }
 

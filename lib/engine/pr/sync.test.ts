@@ -252,6 +252,9 @@ test('syncTransition leaves a gate park on the open PR alone', () => {
     ['a held push on an OPEN PR', parked('human', 'push held: the security review of round 1 is CHANGES'), pr('OPEN'), {}],
     ['an escalation whose PR merged is done', parked('escalation', 'approver escalated: see decision.md'), pr('MERGED'), { stage: 'done', state: 'done', reason: 'PR merged' }],
     ['an escalation whose PR closed is cancelled', parked('escalation', 'approver escalated: see decision.md'), pr('CLOSED'), { state: 'cancelled', reason: 'PR closed without merging' }],
+    ['a pr-stage job whose PR closed is cancelled', { ...parked('pr-review', 'r') }, pr('CLOSED'), { state: 'cancelled', reason: 'PR closed without merging' }],
+    // Step's I6b asks a person about a closed PR the job only adopted.
+    ['a backlog job whose adopted PR closed is left alone', { stage: 'backlog', state: 'running', waitingOn: null, reason: null, pr: { number: 7, url: null, state: 'OPEN', isDraft: false, lastSyncedAt: null } }, pr('CLOSED'), {}],
   ];
   for (const [name, job, live, want] of rows) {
     const t = syncTransition(job, live, config, opts);

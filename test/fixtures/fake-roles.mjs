@@ -46,8 +46,24 @@ export default function role({ agent, brief, cwd, env }) {
   const round = Number(line(brief, 'Round') ?? '1');
   switch (agent) {
     case 'forge:planner':
+      // FAKE_PLAN_SPLIT: two children, the second depending on the first.
+      if (env.FAKE_PLAN_SPLIT) {
+        write(outputs[0], 'PLAN: SPLIT\n\nTwo pieces.\n\n## Jobs\n1. First piece — the first half. Depends on: -\n2. Second piece — the second half. Depends on: #1\n\n## External\n- None\n');
+        return 'PLAN: SPLIT · 2 jobs';
+      }
       write(outputs[0], 'PLAN: SINGLE\n\nOne job: add one file.\n');
       return 'PLAN: SINGLE · one job';
+    case 'forge:digest':
+      write(outputs[0], '# Friction\n\nNone found.\n');
+      return 'DIGEST: done · 0 findings';
+    case 'forge:retro': {
+      // FAKE_RETRO_EMPTY: the retro proposes nothing and writes no spec.md.
+      const retro = outputs.find((p) => p.endsWith('retro.md'));
+      if (retro) write(retro, '# Retro\n\nToo little data.\n');
+      if (env.FAKE_RETRO_EMPTY) return 'RETRO: nothing to propose';
+      write(outputs.find((p) => p.endsWith('spec.md')) ?? outputs[0], SPEC);
+      return 'RETRO: done · 1 change';
+    }
     case 'forge:spec-writer':
       write(outputs[0], SPEC);
       return 'SPEC: done · 1 AC';

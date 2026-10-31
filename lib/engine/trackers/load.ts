@@ -35,7 +35,7 @@ const none: Tracker = {
 
 /**
  * An adapter whose writes are scanned for likely credentials first, so every caller (forge tracker
- * comment|create, job link --create, the split procedure, Forge's own mirrors) gets the same refusal.
+ * comment|create, job link --create, job split, Forge's own mirrors) gets the same refusal.
  * Built with Object.create so every other method is the adapter's own; the guarded ones call the
  * adapter with itself as the receiver, so a class instance with #private fields keeps working. The
  * built-in update and claim send only a status key; a custom adapter's receive the whole job, so its
