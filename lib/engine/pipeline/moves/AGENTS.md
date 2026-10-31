@@ -1,6 +1,6 @@
 # lib/engine/pipeline/moves/
 
-How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, dependency waits, the notes a spec approval carries to the builder, the clean pass that moves a job past decide without the approver, and the human-command table a job request is applied by.
+How a job moves between stages and states: the one move with its effects, the Foreman's gate policy, dependency waits, the notes a spec approval carries to the builder, the clean pass that moves a job past decide without the approver, the human-command table a job request is applied by, and the split of a planned job into children.
 
 - `request-table.ts` decides; `forge job apply` (`apply` in lib/cli/commands/job/decide.ts) carries the plan out through the `forge job human` and `forge job set` handlers, in-process. A decision is applied only from a person (`PERSON_SOURCES`), and request text reaches a file only fenced (`fenceImport`), never argv.
 
@@ -24,4 +24,5 @@ How a job moves between stages and states: the one move with its effects, the Fo
 | `gate-reasons.ts` | `forge job gate`: the mechanical reasons a job needs a person before merge (gate reasons), computed from job facts once per review and logged as a `gate` event that DC12, PR19, the briefs and the escalation park read. |
 | `request-table.ts` | The human-command table: what one job request (approve, revise-spec, answer, rework, cancel, resume) records on the job it names, as a plan `forge job apply` carries out, and the two files a request's text reaches (feedback.md and the questions.md answer), always fenced as data. |
 | `shelve.ts` | The shelf: a person setting a job aside (`forge job shelve`) and taking it off again (`forge job unshelve`, the dashboard's Shelved list). |
+| `split.ts` | The split (`forge job split`, step's P2 and P2b): plan.md's `## Jobs` items become child jobs, each with its issue, its dependencies and a resume, and the parent parks as their umbrella. |
 <!-- forge:map:end -->

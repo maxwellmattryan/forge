@@ -71,6 +71,13 @@ export const JOB: HelpGroup = {
       docs: ['Linking jobs to issues', 'docs/TRACKERS.md#linking-jobs-to-issues'],
       common: true,
     },
+    {
+      command: 'job split',
+      args: '<id>',
+      summary:
+        "turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing",
+      exits: [[1, "no such job, a job not at plan/running, a plan.md that is not a PLAN: SPLIT, a split not decided (split mode not auto and no approve-split after the planner ended), or a ## Jobs list that does not parse (no items, a duplicate number or title, an empty title, a dependency on an unknown item or itself, a cycle, or more than 20 items)"]],
+    },
     { command: 'job list', args: '[--all]', summary: 'active jobs, one object each', flags: [['--all', 'include finished and cancelled jobs']] },
     { command: 'job show', args: '<id> [--full]', summary: 'one job, compact (the whole job.json with --full)', flags: [['--full', 'print the whole job.json']], exits: [NO_JOB] },
     { command: 'job get', args: '<id> [path]', summary: 'one value of job.json by dotted path (null when absent)', exits: [NO_JOB] },

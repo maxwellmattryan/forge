@@ -1,5 +1,7 @@
-// `forge job new|from-ref|link`: creating a job, starting one from a tracker item, and the issues it carries.
+// `forge job new|from-ref|link|split`: creating a job, starting one from a tracker item, the issues it carries, and a
+// split's child jobs.
 import path from 'node:path';
+import { splitJob } from '#engine/pipeline/moves/split.ts';
 import { checkRepoBudget, parkForRepoBudget, repoBudgetBlock } from '#engine/metrics/repo-budget.ts';
 import { claimJob, createJob, jobDir, logEvent, logHumanEvent } from '#core/job/store.ts';
 import { issueLinkStatus } from '#core/job/issue-link.ts';
@@ -138,6 +140,11 @@ export async function link(root: string, config: Config, rest: string[], flags: 
   if (removes.length) return unlinkJob(root, config, jobId, removes);
   const tracker = await loadTracker(root, config);
   return flags.create ? createAndLink(root, config, tracker, jobId) : linkJob(root, config, tracker, jobId, refs);
+}
+
+/** `forge job split <id>`: a decided PLAN: SPLIT as child jobs (lib/engine/pipeline/moves/split.ts). */
+export function split(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  return splitJob(root, config, requireJob(root, rest[0]).id, { tracker: () => loadTracker(root, config) });
 }
 
 export async function fromRef(root: string, config: Config, rest: string[], flags: Record<string, any>) {
