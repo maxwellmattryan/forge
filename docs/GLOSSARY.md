@@ -146,6 +146,25 @@ Words for the Office (#281, M009): the Foreman directing work through mandates. 
 | **merge-ready** | A mandate's default `until`: a job at stage `pr` waiting on `pr-review` with an open PR (or done) has reached it. | `foreman.mandate.until` |
 | **released** | A mandate's `until` under `foreman.ship: release`: its jobs reach it when they merge, then the Office pass plans the mandate's release since the root repo's latest tag, the mandate waits for release approval, and it closes once `forge release run` finished that plan. | `foreman.mandate.until` |
 
+## Automations
+
+Words for automations (planned, M011; #508, #509, #510): deterministic work that fires on a trigger. Terms marked planned arrive in the named issue.
+
+| Term | Meaning | Config key |
+|---|---|---|
+| **automation** | One file under `.forge/automations/` that fires its actions when its trigger is due and its conditions hold. It is deterministic: the same inputs fire the same actions. | - |
+| **trigger** | What makes an automation due: `schedule`, `manual` or `threshold`; later `tracker`, `job`, `repo` and `pr`. | - |
+| **condition** | What must also hold when an automation is due: a filter, or a shell command's exit code. Never called a rule. | - |
+| **action** | What a firing does: enqueue a `request`, create a job from a `recipe`, run a `shell` command, `notify`, `assess` an outside PR or `shepherd` one. | - |
+| **firing** | One evaluation that ran actions, recorded with its dedupe key, its result, and the requests and jobs it produced. | - |
+| **recipe** | A job prompt template with variables, which an action turns into a job. | - |
+| **outside PR** | A pull request Forge didn't open: a bot's (dependabot, renovate), a teammate's or a contributor's, same-repo or fork (planned, #509). | - |
+| **assessment** | A read-only agent's summary, risk, timing and recommendation for an outside PR. Assessing never adopts (planned, #509). | - |
+| **shepherd** | To adopt a granted author's same-repo outside PR as a job that keeps it mergeable and green. Never a fork PR (planned, #510). | - |
+| **overlap** | Where two pieces of work (jobs, PRs, human pushes) change the same files or hunks (planned, #508). | - |
+| **timing** | The overlap check's fixed-rule answer for one job or PR: `merge-now`, `wait-for`, `merge-first` or `needs-human`. Not a verdict (planned, #508). | - |
+| **tick** | One pass that fires every due automation (`forge automation tick`, or `forge dash`'s poll; both planned). | - |
+
 ## Collisions we avoid
 
 Some of these words already mean something in Forge. They keep those meanings:
@@ -168,6 +187,10 @@ Some of these words already mean something in Forge. They keep those meanings:
 - An "agent run" is one run of a role's agent (`runHistory` on its agent record); a job's `runs[]` are orchestrator sessions' stints on the job, and a "verify run" is one `forge verify` attempt.
 - "backlog" means the local tracker (`tracker.kind: local`, `.forge/backlog.md` and its title-slug refs) and the pipeline's first stage (`backlog`); the dashboard page that lists any tracker's items is "Issues", and its data route `GET /api/backlog` keeps its name.
 - "Workers" is the status bar's pool of job sessions; "agent" stays a pipeline role's subagent (agent stages, the Agents view and tab), never a pool session.
+- "Rule" stays the step decider's pipeline rules (`RULES` in `lib/engine/pipeline/step/rules.ts`); automations have conditions, never rules.
+- "Verdict" stays a reviewer's; the overlap check gives a timing.
+- "Adopt" stays the PR-adoption step (`forge pr find`); shepherding adopts, assessing never does.
+- A mandate is goal-directed and judged, while an automation is deterministic, so the two words are not interchangeable.
 
 ## Existing terms
 
