@@ -31,7 +31,11 @@
     "missing": "missing",
     "unavailable": "unavailable",
     "rail": "Switch project",
-    "add": "Add project"
+    "add": "Add project",
+    "othersWaiting": {
+      "one": "{count} waiting on you elsewhere",
+      "other": "{count} waiting on you elsewhere"
+    }
   },
   "addProject": {
     "title": "Add project",

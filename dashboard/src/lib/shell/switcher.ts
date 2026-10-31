@@ -45,9 +45,23 @@ export function switcherEntries(r: ProjectsResponse | null): SwitcherEntry[] {
 /** The Add project entry's value: fails PROJECT_NAME, so no registered project can share it. */
 export const ADD_PROJECT = '+add';
 
-/** The switcher's Select options: the projects, then Add project ruled off below them (no rule when it stands alone). */
-export function switcherOptions(entries: SwitcherEntry[], labels: { add: string; hint: (e: SwitcherEntry) => string | undefined }): SelectOption[] {
-  const projects: SelectOption[] = entries.map((e) => ({ value: e.name, label: e.name, disabled: !e.openable, hint: labels.hint(e) }));
+/** Jobs waiting on you in the openable projects other than `current` (every openable project when nothing is selected). */
+export function othersWaiting(entries: SwitcherEntry[], current: string | null): number {
+  return entries.filter((e) => e.openable && e.name !== current).reduce((n, e) => n + e.waiting, 0);
+}
+
+/**
+ * The switcher's Select options: the projects, then Add project ruled off below them (no rule when it stands alone). An
+ * openable project other than `current` with jobs waiting on you gets the option badge.
+ */
+export function switcherOptions(entries: SwitcherEntry[], labels: { add: string; hint: (e: SwitcherEntry) => string | undefined }, current: string | null): SelectOption[] {
+  const projects: SelectOption[] = entries.map((e) => ({
+    value: e.name,
+    label: e.name,
+    disabled: !e.openable,
+    hint: labels.hint(e),
+    badge: e.openable && e.waiting > 0 && e.name !== current,
+  }));
   return [...projects, { value: ADD_PROJECT, label: labels.add, icon: 'command', action: true, separator: projects.length > 0 }];
 }
 

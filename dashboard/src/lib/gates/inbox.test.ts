@@ -2,8 +2,10 @@
 // held) and its `Why it waits` rows.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { gatePrNote, gateReasonRows } from './inbox.ts';
+import { gatePrNote, gateReasonRows, inboxGroups } from './inbox.ts';
 import { showParkReason } from '../jobs/protected.ts';
+import { needsHuman } from '../jobs/state.ts';
+import { WAIT_LABEL } from '../core/labels.ts';
 import type { JobPr } from '../core/types.ts';
 
 const PR = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN', isDraft: false, lastSyncedAt: null } as JobPr;
@@ -29,6 +31,16 @@ test('gatePrNote', () => {
     ['a running job', park('escalation', 'approver escalated: see decision.md', { state: 'running' })],
   ];
   for (const [name, j] of none) assert.equal(gatePrNote(j), null, name);
+});
+
+test('a merge queue hold is listed with the PRs, never as a decision', () => {
+  const held = park('overlap', 'merge queue: waits for a to merge first, ranked ahead in its overlap group');
+  const escalated = park('escalation', 'approver escalated: see decision.md');
+  assert.equal(needsHuman(held), false);
+  assert.deepEqual(inboxGroups([held, escalated, park('pr-review', 'r')]).prs.map((j) => j.waitingOn), ['overlap', 'pr-review']);
+  assert.deepEqual(inboxGroups([held, escalated]).urgent, [escalated]);
+  assert.equal(WAIT_LABEL.overlap, 'Merge queue');
+  assert.equal(gatePrNote(held), null, 'no merge-gate note: nobody is asked to decide');
 });
 
 test('gatePrNote holds a push-held escalation park', () => {

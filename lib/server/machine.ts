@@ -31,12 +31,12 @@ const FINISHED = ['done', 'cancelled', 'failed'];
 
 /**
  * A project's Overview counts: its unfinished jobs, and those waiting on a person. A dependency park
- * waits on other jobs and a shelved job on nobody, so neither counts as waiting.
+ * waits on other jobs, a merge queue hold on another PR, and a shelved job on nobody, so none counts as waiting.
  */
 export function projectJobCounts(jobs: readonly Pick<Job, 'state' | 'waitingOn'>[]): { active: number; waiting: number } {
   return {
     active: jobs.filter((j) => !FINISHED.includes(j.state)).length,
-    waiting: jobs.filter((j) => j.state === 'waiting' && j.waitingOn !== 'external' && j.waitingOn !== 'shelved').length,
+    waiting: jobs.filter((j) => j.state === 'waiting' && j.waitingOn !== 'external' && j.waitingOn !== 'shelved' && j.waitingOn !== 'overlap').length,
   };
 }
 

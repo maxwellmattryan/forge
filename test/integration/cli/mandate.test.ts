@@ -85,6 +85,7 @@ test('forge mandate new, show, pause, resume, close and list', async () => {
     assert.deepEqual([shown.chain, shown.activeLink, shown.jobs, shown.capped, shown.file, shown.goal], [['m1'], 'm1', [], [], path.join('.forge', 'runtime', 'mandates', 'm1.md'), '']);
     assert.deepEqual(shown.effective.decides, ['spec-approval', 'conflicts']);
     assert.deepEqual(shown.contract, shown.effective);
+    assert.deepEqual(shown.mergeQueue, { hold: false, groups: [], mergeNow: [], unchecked: [] }, 'no open PRs: an empty merge queue');
     const guidance = (shown.guidance as string).split('\n');
     assert.match(guidance[0], /^Imported from mandate m1\. /);
     assert.ok(guidance.includes('> Do the docs first.'), shown.guidance);

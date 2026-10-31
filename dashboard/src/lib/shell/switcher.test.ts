@@ -1,7 +1,7 @@
 // The registered projects as the switcher, the Overview and the command bar list them: sorted, with their state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADD_PROJECT, selectionOpenable, switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from './switcher.ts';
+import { ADD_PROJECT, othersWaiting, selectionOpenable, switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from './switcher.ts';
 import { PROJECT_NAME_SOURCE, type MachineProjectSummary, type ProjectsResponse } from '../core/types.ts';
 import type { Route } from './routes.ts';
 
@@ -46,14 +46,49 @@ test('switcherOptions', () => {
   assert.ok(!new RegExp(PROJECT_NAME_SOURCE).test(ADD_PROJECT), 'Add project can never be a registered name');
   const labels = { add: 'Add project', hint: (e: SwitcherEntry) => (e.openable ? undefined : `hint ${e.name}`) };
   const add = { value: ADD_PROJECT, label: 'Add project', icon: 'command', action: true };
-  assert.deepEqual(switcherOptions([], labels), [{ ...add, separator: false }], 'alone, with no rule');
-  const entries = switcherEntries(response([project('web'), project('gone', { status: 'missing', loaded: false, jobs: null, daemon: null }), project('api')]));
-  assert.deepEqual(switcherOptions(entries, labels), [
-    { value: 'api', label: 'api', disabled: false, hint: undefined },
-    { value: 'gone', label: 'gone', disabled: true, hint: 'hint gone' },
-    { value: 'web', label: 'web', disabled: false, hint: undefined },
+  assert.deepEqual(switcherOptions([], labels, null), [{ ...add, separator: false }], 'alone, with no rule');
+  const entries = switcherEntries(
+    response([
+      project('web'),
+      project('gone', { status: 'missing', loaded: false, jobs: null, daemon: null }),
+      project('api'),
+      project('idle', { jobs: { active: 1, waiting: 0 } }),
+    ]),
+  );
+  // api is current and waits; web waits; idle waits on nothing; gone is missing.
+  assert.deepEqual(switcherOptions(entries, labels, 'api'), [
+    { value: 'api', label: 'api', disabled: false, hint: undefined, badge: false },
+    { value: 'gone', label: 'gone', disabled: true, hint: 'hint gone', badge: false },
+    { value: 'idle', label: 'idle', disabled: false, hint: undefined, badge: false },
+    { value: 'web', label: 'web', disabled: false, hint: undefined, badge: true },
     { ...add, separator: true },
   ]);
+  assert.deepEqual(
+    switcherOptions(entries, labels, null).map((o) => o.badge),
+    [true, false, false, true, undefined],
+    'nothing selected: every waiting openable project, never Add project',
+  );
+});
+
+test('othersWaiting', () => {
+  assert.equal(othersWaiting([], 'api'), 0);
+  assert.equal(othersWaiting([], null), 0);
+  const entries = switcherEntries(
+    response([
+      project('api', { jobs: { active: 0, waiting: 2 } }),
+      project('web', { jobs: { active: 0, waiting: 3 } }),
+      project('idle', { jobs: { active: 4, waiting: 0 } }),
+      project('gone', { status: 'missing', loaded: false, jobs: null, daemon: null }),
+    ]),
+  );
+  assert.equal(othersWaiting(entries, 'api'), 3, 'the current project is excluded');
+  assert.equal(othersWaiting(entries, 'web'), 2);
+  assert.equal(othersWaiting(entries, null), 5, 'nothing selected: every openable project');
+  const onlyCurrent = switcherEntries(response([project('api', { jobs: { active: 0, waiting: 2 } }), project('idle', { jobs: { active: 0, waiting: 0 } })]));
+  assert.equal(othersWaiting(onlyCurrent, 'api'), 0, 'only the current project waits');
+  // A non-openable entry is ignored even if it reports waiting jobs.
+  const closed: SwitcherEntry = { name: 'broken', path: '/src/broken', state: 'unavailable', openable: false, waiting: 7, active: 0, daemon: null };
+  assert.equal(othersWaiting([...onlyCurrent, closed], 'api'), 0, 'non-openable entries never count');
 });
 
 test('switcherChoice', () => {
