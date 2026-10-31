@@ -32,11 +32,12 @@ export function prSyncedSince(x: StepInput): boolean {
 
 /**
  * K1d: the lowest digest batch no digest started on (an `agent-start` whose output is its `friction-<n>.md`), or null. A
- * batch runs once: a digest that failed has started, so the retro goes on without it.
+ * batch runs once: a digest that failed has started, so the retro goes on without it. `agent start` records the output
+ * relative to the job dir (`resolveAgentOutput`), so the event holds `friction-<n>.md`, never the absolute path.
  */
 export function nextDigest(x: StepInput): number | null {
   const started = new Set(x.events.filter((e) => e.type === 'agent-start' && e.role === 'digest' && typeof e.output === 'string').map((e) => String(e.output)));
-  return x.retro?.batches.find((n) => !started.has(path.join(x.jobDir, `friction-${n}.md`))) ?? null;
+  return x.retro?.batches.find((n) => !started.has(`friction-${n}.md`)) ?? null;
 }
 
 /**

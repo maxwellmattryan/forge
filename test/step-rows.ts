@@ -238,8 +238,8 @@ const ADOPTED = (o: Partial<NonNullable<Job['pr']>> = {}): Job['pr'] => ({ ...OP
 const ADOPTED_SYNCED = [ev('pr-adopted', 1), ev('pr-synced', 2)];
 /** A retro job at its start, in backlog. */
 const RETRO = (j: Partial<Job> = {}): Partial<Job> => job({ kind: 'retro', stage: 'backlog', ...j });
-/** The `agent-start` of the digest of batch `n`, at minute `at`. */
-const DIGEST_START = (n: number, at: number) => ev('agent-start', at, { role: 'digest', output: path.join(JOB_DIR, `friction-${n}.md`) });
+/** The `agent-start` of the digest of batch `n`, at minute `at`: `agent start` records the output relative to the job dir. */
+const DIGEST_START = (n: number, at: number) => ev('agent-start', at, { role: 'digest', output: `friction-${n}.md` });
 type Side = { stage: string; state?: string; waitingOn?: string | null };
 /** A transition event at minute n; a side's state defaults to running. */
 const tr = (n: number, from: Side, to: Side) => ev('transition', n, { from: { state: 'running', waitingOn: null, ...from }, to: { state: 'running', waitingOn: null, ...to } });
@@ -718,6 +718,9 @@ export const rows: Row[] = [
       assert.equal(inputs, `Inputs: ${[path.join(JOB_DIR, 'stats.json'), path.join(JOB_DIR, 'friction-1.md'), path.join(JOB_DIR, 'friction-3.md')].join(', ')}`);
       assert.ok(a.brief.includes(`\nOutput: ${path.join(JOB_DIR, 'spec.md')}, ${path.join(JOB_DIR, 'retro.md')}\n`), a.brief);
       assert.ok(a.brief.includes('\nMax learnings: 30\n'), a.brief);
+      // The retro has Bash and reads text condensed from people's notes and other agents' runs: its Untrusted line names them.
+      const untrusted = a.brief.split('\n').find((l: string) => l.startsWith('Untrusted: '));
+      assert.ok(untrusted?.includes('signals.md') && untrusted.includes('friction-'), untrusted);
     },
   },
   { name: 'K1 a failed retro runs again', fx: { job: RETRO({ agents: { retro: ag(0, 1, 2, { status: 'failed' }) } }), retro: { stats: true, batches: [] } }, want: { action: 'spawn', rule: 'K1', role: 'retro' } },

@@ -204,7 +204,10 @@ describe('the code driver', { concurrency: 4 }, () => {
     assert.deepEqual([parent.stage, parent.reason, parent.children.length], ['plan', 'split into 2 jobs', 2]);
     const [first, second] = parent.children.map((c) => loadJob(root, c));
     assert.deepEqual(second.dependsOn, [first.id]);
-    assert.deepEqual(listRequests(root).filter((r) => r.from === 'forge' && r.type === 'resume').map((r) => r.job), [first.id], 'a resume for the unblocked child only');
+    // The resumes are queued after the park, so the park alone does not mean they exist yet.
+    const resumes = () => listRequests(root).filter((r) => r.from === 'forge' && r.type === 'resume').map((r) => r.job);
+    await waitFor(() => resumes().length > 0, { what: "the unblocked child's resume" });
+    assert.deepEqual(resumes(), [first.id], 'a resume for the unblocked child only');
     await turnEnded(rig, id);
     assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], 'no session child');
   });
@@ -227,6 +230,28 @@ describe('the code driver', { concurrency: 4 }, () => {
       assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], `${row}: no session child`);
       await pool.close();
     }
+  });
+
+  test('a retro runs each digest batch once, in order', async (t) => {
+    // `retro prepare` left two batches: each digest is a real role run, so its `agent-start` holds the job-dir-relative output K1d matches.
+    const rig = codeDriverRig(t);
+    const { root, pool } = rig;
+    const { id } = jobAt(root, 'backlog', { state: 'queued', create: { kind: 'retro' } });
+    const dir = path.join(root, '.forge', 'jobs', id);
+    fs.mkdirSync(path.join(dir, 'digest'));
+    fs.writeFileSync(path.join(dir, 'stats.json'), '{}\n');
+    for (const n of [1, 2]) fs.writeFileSync(path.join(dir, 'digest', `batch-${n}.md`), `# Batch ${n}\n`);
+    resume(rig, id);
+    pool.start('boot');
+    await waitFor(() => loadJob(root, id).waitingOn === 'spec-approval', { timeoutMs: 60_000, what: 'the spec gate' });
+    await turnEnded(rig, id);
+    assert.deepEqual(
+      readEvents(root, id).filter((e) => e.type === 'agent-start').map((e) => [e.role, e.output]),
+      [['digest', 'friction-1.md'], ['digest', 'friction-2.md'], ['retro', 'spec.md']],
+    );
+    assert.deepEqual(rig.log(id).filter((l) => l.event === 'role-start').map((l) => l.role), ['digest', 'digest', 'retro']);
+    assert.ok(['friction-1.md', 'friction-2.md'].every((f) => fs.existsSync(path.join(dir, f))), 'each digest wrote its friction file');
+    assert.deepEqual(rig.sessions.children.filter((c) => c.scope === id), [], 'no session child');
   });
 
   test('an adopted PR is read in code', async (t) => {
