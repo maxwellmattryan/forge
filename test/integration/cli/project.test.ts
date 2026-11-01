@@ -150,6 +150,11 @@ describe('forge project', { concurrency: 4 }, () => {
     assert.equal(two.status, 0, two.stderr);
     assert.deepEqual(json(two), { home, settings: { maxConcurrent: 2 } });
     assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'projects.json'), 'utf8')).settings.maxConcurrent, 2);
+    const off = await cli(['project', 'settings', '--max-concurrent', 'off'], { cwd, env });
+    assert.deepEqual(json(off).settings, { maxConcurrent: null });
+    assert.equal(JSON.parse(fs.readFileSync(path.join(home, 'projects.json'), 'utf8')).settings.maxConcurrent, null);
+    assert.equal((await cli(['project', 'settings', '--max-concurrent', '3'], { cwd, env })).status, 0);
+    // auto is the old spelling of off.
     const auto = await cli(['project', 'settings', '--max-concurrent', 'auto'], { cwd, env });
     assert.deepEqual(json(auto).settings, { maxConcurrent: null });
     const before = fs.readFileSync(path.join(home, 'projects.json'), 'utf8');
@@ -157,6 +162,7 @@ describe('forge project', { concurrency: 4 }, () => {
       [['0'], ['65'], ['x'], []].map((v) => cli(['project', 'settings', '--max-concurrent', ...v, '--json'], { cwd, env })),
     );
     for (const r of bad) assert.deepEqual([r.status, json(r).error.code], [2, 'usage'], r.stdout);
+    assert.match(json(bad[0]!).error.message, /--max-concurrent must be an integer 1-64 or off/);
     const daemon = { ...env, FORGE_DAEMON: '1' };
     const refused = await cli(['project', 'settings', '--max-concurrent', '8', '--json'], { cwd, env: daemon });
     assert.equal(refused.status, 1);

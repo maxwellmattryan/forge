@@ -143,6 +143,9 @@ export const API_CHANGES = [
   // WaitingOn `overlap` (a mandate's merge queue holds the merge); MandateRow.mergeQueue (MergeQueue, MergeQueueEntry):
   // the mandate's open PRs ranked within each overlap group, with the merge-now and unchecked ones.
   { id: 'merge-queue' },
+  // Per-project pools: DaemonSessionState.waitingFor ('project' | 'machine' | null); DaemonPoolState.machine is null
+  // without an explicit machine cap; ProjectsResponse.machine.maxConcurrent is number | null and .source is gone.
+  { id: 'pool-per-project' },
 ] as const;
 
 /**

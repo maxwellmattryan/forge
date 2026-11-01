@@ -1,4 +1,4 @@
-<!-- Machine: this machine's dashboard address, its machine cap and its registered projects, from GET /api/projects
+<!-- Machine: this machine's dashboard address, its optional machine cap (none while unset) and its registered projects, from GET /api/projects
      (S.machine). Read-only: each section names the CLI command that changes it. -->
 <script lang="ts">
   import Banner from '../components/ui/feedback/Banner.svelte';
@@ -43,9 +43,9 @@
     <h2 id="machine-cap" class="label callout mb-3">{$t('machine.cap')}</h2>
     {#if m}
       <dl class="grid gap-3 sm:grid-cols-3">
-        {@render fact($t('machine.capValue'), m.machine.maxConcurrent)}
+        {@render fact($t('machine.capValue'), m.machine.maxConcurrent ?? $t('machine.capNone'))}
         {@render fact($t('machine.live'), m.machine.live)}
-        {@render fact($t('machine.source'), m.machine.source === 'auto' ? $t('machine.sourceAuto') : $t('machine.sourceSettings'))}
+        {@render fact($t('machine.source'), m.machine.maxConcurrent === null ? $t('machine.sourceNone') : $t('machine.sourceSettings'))}
       </dl>
     {:else if S.machineOnline !== false}<MachineCapSkeleton />{/if}
     {@render command($t('machine.capCommand'))}

@@ -1,8 +1,8 @@
-// The machine cap's slot gate: one per machine dashboard, shared by every project's pool. Each pool
-// still caps its own job sessions at daemon.maxConcurrent; this caps them across projects, so the
-// account's usage limits hold however many projects run. A free slot goes to the waiting job with
-// the oldest pending request on the machine (request ids start with Date.now(), so they compare
-// across projects). Also the one place a pool session's child is started and handed work, what a spawn of a
+// The opt-in machine cap's slot gate: one per machine dashboard, shared by every project's pool. Each pool caps,
+// orders and evicts its own job sessions at daemon.maxConcurrent; the gate holds them only when the machine
+// index sets a cap (an opt-in bound on the account's usage across projects), as one shared count. It never
+// orders waiters across projects and never stops a session: another project's pool can't hold back or
+// stop this one's. Also the one place a pool session's child is started and handed work, what a spawn of a
 // scope gets (effort, model, Forge's browser), and what kind of session a scope is: only job sessions count
 // against `daemon.maxConcurrent` and the machine cap; the inbox, the office and the chats never do, and
 // neither do the gate runs (lib/office/foreman/run.ts), which are no sessions. docs/architecture/daemon.md
@@ -88,41 +88,25 @@ export function startWork(s: Session, c: Config, reason: string, eligible: strin
   return true;
 }
 
-/** An idle, unkept job session a member could stop to free its slot. */
-export interface IdleSession {
-  lastResultAt: string | null;
-  stop(): void;
-}
-
 /** One project's pool as the gate sees it. */
 export interface SlotMember {
   /** Running job sessions. */
   live(): number;
-  maxConcurrent(): number;
-  /**
-   * The oldest pending request id among its waiting job sessions, only while the pool is wanted and
-   * below its own maxConcurrent: a waiter the machine cap holds. Null otherwise.
-   */
-  oldestWaiting(): string | null;
-  /** Its idle job sessions with no agents keeping them. */
-  idle(): IdleSession[];
-  /** Job sessions already stopping, whose slots are about to be free. */
-  stopping(): number;
+  /** While the pool is wanted and open: its last tick held a waiter below its own maxConcurrent because of the machine cap. */
+  held(): boolean;
   poke(): void;
 }
 
 export interface MachineSlots {
-  /** The machine cap: the settings value, else the highest member maxConcurrent, else 1. */
-  cap(): number;
+  /** The explicit machine cap: the settings value when it is an integer ≥ 1, else null (no machine cap). */
+  cap(): number | null;
   /** Running job sessions across every member. */
   live(): number;
   /** Adds a member; the function returned removes it. */
   join(member: SlotMember): () => void;
-  /** Whether `member` may spawn the job whose oldest pending request is `oldest`: a slot is free and no other member's held waiter is older. */
-  mayTake(member: SlotMember, oldest: string): boolean;
-  /** Stops up to `n` idle, unkept job sessions in other members, oldest result first, less the slots already free or being freed. */
-  reclaim(member: SlotMember, n: number): number;
-  /** A member's job session exited: every other member gets a tick, so a held waiter can take the slot. */
+  /** Whether `member` may spawn a job session: always without a machine cap, else while fewer than the cap run across members. */
+  mayTake(member: SlotMember): boolean;
+  /** A member's job session exited: with a machine cap, each other member the cap holds gets a tick, so its waiter can take the slot. */
   freed(member: SlotMember): void;
 }
 
@@ -138,10 +122,9 @@ const safe = (fn: () => void): void => {
 export function createMachineSlots(setting: () => number | null): MachineSlots {
   const members = new Set<SlotMember>();
   const others = (m: SlotMember) => [...members].filter((x) => x !== m);
-  const cap = (): number => {
+  const cap = (): number | null => {
     const s = setting();
-    if (Number.isInteger(s) && (s as number) >= 1) return s as number;
-    return Math.max(1, ...[...members].map((m) => m.maxConcurrent()));
+    return Number.isInteger(s) && (s as number) >= 1 ? (s as number) : null;
   };
   const live = (): number => [...members].reduce((n, m) => n + m.live(), 0);
   return {
@@ -151,30 +134,15 @@ export function createMachineSlots(setting: () => number | null): MachineSlots {
       members.add(member);
       return () => void members.delete(member);
     },
-    mayTake(member, oldest) {
-      if (live() >= cap()) return false;
-      const older = others(member).filter((m) => {
-        const o = m.oldestWaiting();
-        return o !== null && o < oldest;
-      });
-      if (!older.length) return true;
-      // The older waiter's pool may not tick for a poll interval: give it the slot now.
-      setImmediate(() => older.forEach((m) => safe(() => m.poke())));
-      return false;
-    },
-    reclaim(member, n) {
-      const pending = Math.max(0, cap() - live()) + others(member).reduce((k, m) => k + m.stopping(), 0);
-      const want = n - pending;
-      if (want <= 0) return 0;
-      const idle = others(member)
-        .flatMap((m) => m.idle())
-        .sort((a, b) => (a.lastResultAt ?? '').localeCompare(b.lastResultAt ?? ''))
-        .slice(0, want);
-      for (const s of idle) safe(() => s.stop());
-      return idle.length;
+    mayTake() {
+      const c = cap();
+      return c === null || live() < c;
     },
     freed(member) {
-      for (const m of others(member)) safe(() => m.poke());
+      if (cap() === null) return;
+      const held = others(member).filter((m) => m.held());
+      // A held pool may not tick for a poll interval: give it the slot now.
+      if (held.length) setImmediate(() => held.forEach((m) => safe(() => m.poke())));
     },
   };
 }

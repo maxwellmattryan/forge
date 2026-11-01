@@ -1,5 +1,6 @@
 // One machine server for every registered project: each project's routes, jobs, pool, event streams
-// and ledgers stay its own under /api/p/<project>/, the machine cap holds across projects, the server
+// and ledgers stay its own under /api/p/<project>/, each pool is governed by its own daemon.* (the
+// opt-in machine cap is a shared count that never orders or stops across projects), the server
 // follows the machine index while it runs, and /api/projects summarises it. Every pool gets fake claude
 // children (fakeClaude), so nothing real is spawned or signalled.
 import test from 'node:test';
@@ -16,6 +17,7 @@ import { loadConfig } from '#core/config/load.ts';
 import { createJob, repoAuditFile, updateJob } from '#core/job/store.ts';
 import { auditAll } from '#engine/ops/audit.ts';
 import { ackRequest, enqueue } from '#core/job/requests.ts';
+import { sessionFiles } from '#core/job/session-files.ts';
 import { meterFile } from '#engine/metrics/meter.ts';
 import { addProject, removeProject, setMachineSettings } from '#engine/project/machine-index.ts';
 import { approveTrust, trustApproved } from '#engine/project/trust-approval.ts';
@@ -208,6 +210,115 @@ test("each project's pool runs on its own", async () => {
   }
 });
 
+/** The supervisor lines with `event` in one session's log file, parsed: the file outlives a pruned session. */
+function logEvents(dir: string, scope: string, event: string): Record<string, unknown>[] {
+  const file = sessionFiles(dir, scope).log;
+  if (!fs.existsSync(file)) return [];
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.startsWith('{'))
+    .map((l) => JSON.parse(l) as Record<string, unknown>)
+    .filter((e) => e.type === 'forge-daemon' && e.event === event);
+}
+
+/** A job session's child ends its turn with the request done: idle, its slot still held. */
+function idleAfterTurn(c: FakeClaudeChild, dir: string, request: string): void {
+  ackRequest(dir, request, { status: 'done' });
+  c.emit({ kind: 'turn-started' });
+  c.emit({ kind: 'turn-ended', ok: true });
+}
+
+test('with no machine cap each project runs up to its own daemon.maxConcurrent', async () => {
+  const a = daemonRepo(4);
+  const b = daemonRepo(4);
+  const k = kit();
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b' }], { daemon: k.opts });
+  try {
+    const job = (r: ReturnType<typeof tempRepo>, title: string) => createJob(r.dir, loadConfig(r.dir).config, { title }).id;
+    const as = [1, 2, 3, 4, 5].map((n) => job(a, `a ${n}`));
+    const bs = [1, 2, 3, 4].map((n) => job(b, `b ${n}`));
+    const pa = s.entry('a')!.pool;
+    const pb = s.entry('b')!.pool;
+    for (const id of as.slice(0, 4)) enqueue(a.dir, null, { type: 'resume', job: id, from: 'dashboard' });
+    for (const id of bs) enqueue(b.dir, null, { type: 'resume', job: id, from: 'dashboard' });
+    pa.poke();
+    pb.poke();
+    await waitFor(() => k.liveJobs() === 8, { what: '4 + 4 job sessions' });
+    for (const p of ['a', 'b']) {
+      const st = (await getJson(s, s.api(p, '/state'))).daemons;
+      assert.equal(st.machine, null, `${p}: no machine cap to report`);
+      assert.deepEqual(Object.values(st.jobs).map((j: any) => [j.waiting, j.waitingFor]), [[false, null], [false, null], [false, null], [false, null]], p);
+    }
+    // A fifth job in a waits on a's own cap only, while b's sessions keep running.
+    enqueue(a.dir, null, { type: 'resume', job: as[4]!, from: 'dashboard' });
+    pa.poke();
+    const fifth = (await getJson(s, s.api('a', '/state'))).daemons.jobs[as[4]!];
+    assert.deepEqual([fifth?.waiting, fifth?.waitingFor], [true, 'project']);
+    assert.deepEqual(logEvents(a.dir, as[4]!, 'waiting').map((e) => [e.cap, e.maxConcurrent]), [['project', 4]]);
+    assert.ok(bs.every((id) => k.alive(id).length === 1 && k.alive(id)[0]!.signals.length === 0), "b's sessions run on");
+    assert.equal(k.liveJobs(), 8);
+    const projects = await getJson(s, '/api/projects');
+    assert.equal(projects.machine.maxConcurrent, null);
+    assert.equal('source' in projects.machine, false);
+    assert.equal(projects.machine.live, 8);
+  } finally {
+    await s.cleanup();
+    a.cleanup();
+    b.cleanup();
+  }
+});
+
+test('a project never stops another project\'s job sessions', async () => {
+  const a = daemonRepo(1);
+  const b = daemonRepo(1);
+  const k = kit();
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b' }], { daemon: k.opts });
+  try {
+    setMachineSettings(s.home, { maxConcurrent: 1 });
+    s.refresh();
+    const job = (r: ReturnType<typeof tempRepo>, title: string) => createJob(r.dir, loadConfig(r.dir).config, { title }).id;
+    const [a1, b1, b2] = [job(a, 'a one'), job(b, 'b one'), job(b, 'b two')];
+    const pa = s.entry('a')!.pool;
+    const pb = s.entry('b')!.pool;
+    const reqs: Record<string, string> = {};
+    const ask = (r: ReturnType<typeof tempRepo>, id: string) => (reqs[id] = enqueue(r.dir, null, { type: 'resume', job: id, from: 'dashboard' }).id);
+    ask(a, a1);
+    pa.poke();
+    await waitFor(() => k.alive(a1).length === 1, { what: 'a1' });
+    const ca = k.alive(a1)[0]!;
+    idleAfterTurn(ca, a.dir, reqs[a1]!);
+    await waitFor(() => pa.state().jobs[a1]?.status === 'idle', { what: 'a1 idle' });
+    // a's idle, unkept session holds the machine's one slot: b's job waits, and a's child is never signalled.
+    ask(b, b1);
+    for (let i = 0; i < 3; i++) {
+      pb.poke();
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(pb.state().jobs[b1]?.waitingFor, 'machine');
+    assert.equal(k.alive(b1).length, 0);
+    assert.deepEqual([ca.signals, ca.inputEnded, ca.exited], [[], false, false], "a's child gets no signal");
+    assert.deepEqual(logEvents(a.dir, a1, 'idle-stop'), []);
+
+    // a's session ends on its own: the freed slot pokes b, the pool the machine cap holds.
+    ca.exit(0, null);
+    await waitFor(() => k.alive(b1).length === 1, { what: 'b1 to take the freed slot' });
+    // Within b, a second job still gets the slot of b's own idle session.
+    const cb = k.alive(b1)[0]!;
+    idleAfterTurn(cb, b.dir, reqs[b1]!);
+    await waitFor(() => pb.state().jobs[b1]?.status === 'idle', { what: 'b1 idle' });
+    ask(b, b2);
+    pb.poke();
+    await waitFor(() => k.alive(b2).length === 1, { what: "b2 to take b1's slot" });
+    assert.ok(cb.exited, "b1's child stopped");
+    assert.deepEqual(logEvents(b.dir, b1, 'idle-stop').map((e) => e.reason), ['slot']);
+  } finally {
+    await s.cleanup();
+    a.cleanup();
+    b.cleanup();
+  }
+});
+
 test('the machine cap holds across projects', async () => {
   const a = daemonRepo(2);
   const b = daemonRepo(2);
@@ -221,25 +332,26 @@ test('the machine cap holds across projects', async () => {
     const pa = s.entry('a')!.pool;
     const pb = s.entry('b')!.pool;
     const reqs: Record<string, string> = {};
-    const ask = async (r: ReturnType<typeof tempRepo>, id: string) => {
-      reqs[id] = enqueue(r.dir, null, { type: 'resume', job: id, from: 'dashboard' }).id;
-      // Request ids start with Date.now(): a millisecond apart, so their order is the enqueue order.
-      await new Promise((res) => setTimeout(res, 3));
-    };
-    await ask(a, a1);
+    const ask = (r: ReturnType<typeof tempRepo>, id: string) => (reqs[id] = enqueue(r.dir, null, { type: 'resume', job: id, from: 'dashboard' }).id);
+    ask(a, a1);
     pa.poke();
-    await ask(b, b1);
+    ask(b, b1);
     pb.poke();
     await waitFor(() => k.liveJobs() === 2, { what: 'a1 and b1' });
-    // b2 is older than a2, and both wait on the machine cap, not their own.
-    await ask(b, b2);
-    await ask(a, a2);
-    pa.poke();
-    pb.poke();
+    // a2 and b2 are below their own cap of 2: only the machine cap holds them, and each pool says so.
+    ask(b, b2);
+    ask(a, a2);
+    for (let i = 0; i < 3; i++) {
+      pa.poke();
+      pb.poke();
+    }
     assert.equal(k.liveJobs(), 2);
-    assert.deepEqual(k.order, [a1, b1]);
     const st = (await getJson(s, s.api('a', '/state'))).daemons;
     assert.deepEqual(st.machine, { maxConcurrent: 2, live: 2 });
+    assert.deepEqual([st.jobs[a2]?.waiting, st.jobs[a2]?.waitingFor], [true, 'machine']);
+    assert.equal((await getJson(s, s.api('b', '/state'))).daemons.jobs[b2]?.waitingFor, 'machine');
+    assert.deepEqual(logEvents(a.dir, a2, 'waiting').map((e) => [e.cap, e.maxConcurrent]), [['machine', 2]], 'one waiting line over repeated pokes');
+    assert.equal((await getJson(s, '/api/projects')).machine.maxConcurrent, 2);
 
     // Inbox sessions never count: one spawns while the cap is full.
     const inboxes = k.children.filter((c) => c.scope === '_inbox' && c.cwd === a.dir).length;
@@ -253,13 +365,14 @@ test('the machine cap holds across projects', async () => {
       ackRequest(r.dir, reqs[id]!, { status: 'done' });
       k.alive(id)[0]!.exit(0, null);
     };
-    // a1 frees a slot in a, but b2's request is older than a2's: b gets it.
+    // A slot a1 frees goes to a held job: a's own exit tick hands it to a2.
     finish(a, a1);
-    await waitFor(() => k.order.length === 3, { what: 'the third job session' });
-    assert.equal(k.order[2], b2);
-    finish(b, b1);
-    await waitFor(() => k.order.length === 4, { what: 'the fourth job session' });
-    assert.deepEqual(k.order, [a1, b1, b2, a2]);
+    await waitFor(() => k.alive(a2).length === 1, { what: 'a2 to take the freed slot' });
+    assert.equal(k.alive(b2).length, 0, 'b2 still waits on the machine cap');
+    // a has no waiter left: a2's exit pokes b, the pool the machine cap holds, and b2 takes the slot.
+    finish(a, a2);
+    await waitFor(() => k.alive(b2).length === 1, { what: 'b2 to take the freed slot' });
+    assert.equal((await getJson(s, s.api('b', '/state'))).daemons.jobs[b2]?.waitingFor, null);
     assert.ok(k.maxJobs <= 2, `at most 2 job children at once (saw ${k.maxJobs})`);
   } finally {
     await s.cleanup();
@@ -288,7 +401,7 @@ test("a project whose ticks fail holds no slot from another project's waiter", a
     await ask(b, b1);
     pb.poke();
     await waitFor(() => k.alive(b1).length === 1, { what: 'b1' });
-    // a1 is older than b2, so while b1 has the machine's one slot, a holds the next one for a1.
+    // While b1 has the machine's one slot, a1 and b2 both wait on the machine cap.
     await ask(a, a1);
     pa.poke();
     await ask(b, b2);
@@ -529,8 +642,8 @@ test('/api/projects and its stream', async () => {
     gone.cleanup();
     const body = await getJson(s, '/api/projects');
     assert.equal(body.error, null);
-    assert.deepEqual(Object.keys(body.machine).sort(), ['launchPermissionMode', 'live', 'maxConcurrent', 'source']);
-    assert.equal(body.machine.source, 'auto');
+    assert.deepEqual(Object.keys(body.machine).sort(), ['launchPermissionMode', 'live', 'maxConcurrent']);
+    assert.equal(body.machine.maxConcurrent, null, 'no machine setting: no machine cap');
     assert.equal(body.machine.launchPermissionMode, null, 'a run without --permission-mode');
     assert.equal(fs.existsSync(repoAuditFile(a.dir)), false, 'and no daemon-mode audit line');
     const [pa, pg] = body.projects;

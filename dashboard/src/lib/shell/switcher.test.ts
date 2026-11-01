@@ -15,7 +15,7 @@ const project = (name: string, over: Partial<MachineProjectSummary> = {}): Machi
   daemon: { enabled: true, wanted: true, foreman: false, office: 'off', live: 1, maxConcurrent: 3 },
   ...over,
 });
-const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, source: 'auto', live: 1, launchPermissionMode: null }, projects });
+const response = (projects: MachineProjectSummary[]): ProjectsResponse => ({ error: null, machine: { maxConcurrent: 4, live: 1, launchPermissionMode: null }, projects });
 
 test('switcherEntries', () => {
   assert.deepEqual(switcherEntries(null), [], 'before the list loads');

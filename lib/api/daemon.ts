@@ -3,9 +3,9 @@
 // and the owner's chats with the Foreman (/api/p/<project>/chats…).
 import type { Effort, GateClass, GateRunOutcome, JobState, OfficeRunOutcome, Stage } from './enums.ts';
 
-/** The machine cap as a pool reports it: DaemonPoolState.machine. */
+/** The explicit machine cap as a pool reports it: DaemonPoolState.machine. */
 export interface MachineSlotsState {
-  /** The machine cap: the machine index's settings.maxConcurrent, else the highest loaded project's daemon.maxConcurrent. */
+  /** The machine index's settings.maxConcurrent: how many job sessions run at once across projects. */
   maxConcurrent: number;
   /** Running job sessions across every project. */
   live: number;
@@ -53,8 +53,12 @@ export interface ProjectsStatsResponse {
 export interface ProjectsResponse {
   /** Why the machine index could not be read at the last refresh (the loaded projects stay), else null. */
   error: string | null;
-  /** `launchPermissionMode`: `forge dash --permission-mode`, the run's launch mode for every project; null without one. */
-  machine: { maxConcurrent: number; source: 'settings' | 'auto'; live: number; launchPermissionMode: DaemonPermissionMode | null };
+  /**
+   * `maxConcurrent`: the explicit machine cap, null when none is set (each project runs up to its own daemon.maxConcurrent).
+   * `live`: running job sessions across every loaded project. `launchPermissionMode`: `forge dash --permission-mode`,
+   * the run's launch mode for every project; null without one.
+   */
+  machine: { maxConcurrent: number | null; live: number; launchPermissionMode: DaemonPermissionMode | null };
   /** Sorted by name. */
   projects: MachineProjectSummary[];
 }
@@ -118,8 +122,13 @@ export interface DaemonSessionState {
   turns: number;
   failures: number;
   held: 'budget' | 'repo-budget' | null;
-  /** Has fresh work but no free slot under daemon.maxConcurrent. */
+  /** Has fresh work but no free slot: under its project's daemon.maxConcurrent or the explicit machine cap. */
   waiting: boolean;
+  /**
+   * Why it waits: `project`, held by its own daemon.maxConcurrent (also when both caps are full); `machine`, below
+   * its own cap but held by the explicit machine cap; null when not waiting.
+   */
+  waitingFor: 'project' | 'machine' | null;
   lastError: string | null;
   /** Tool calls outside the allowlist the session is waiting on a human for, oldest first. */
   permissions: DaemonPermissionPrompt[];
@@ -274,7 +283,7 @@ export interface DaemonPoolState {
   jobPermissionMode: DaemonPermissionMode | null;
   /** `forge dash --permission-mode`, the run's launch mode: the job, inbox and office sessions start in it; null without one. */
   launchPermissionMode: DaemonPermissionMode | null;
-  /** The machine cap across every project the machine dashboard serves; null for a pool outside one. */
+  /** The explicit machine cap across every project the machine dashboard serves; null without one, and for a pool outside a machine dashboard. */
   machine: MachineSlotsState | null;
   /** Open event streams on the machine dashboard. */
   clients: number;
