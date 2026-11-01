@@ -193,7 +193,12 @@ export interface Session {
   setPermissionMode(mode: DaemonPermissionMode): boolean;
   kill(event: string, endStdin: boolean, reason?: string): Promise<void>;
   logEvent(event: string, extra?: Record<string, unknown>): void;
-  setWaiting(waiting: boolean): void;
+  /**
+   * Waiting for a slot, or not. `machineCap`, a number, means the explicit machine cap at that value holds it below its
+   * own daemon.maxConcurrent; absent or null, its own cap does. The `waiting` event is logged when waiting starts and
+   * whenever that reason changes, never on each tick.
+   */
+  setWaiting(waiting: boolean, machineCap?: number | null): void;
   setWanted(wanted: boolean): void;
   /** A human (re)started it: wanted again, with a clean failure count and error. */
   reset(): void;

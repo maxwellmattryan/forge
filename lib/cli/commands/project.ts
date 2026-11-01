@@ -34,10 +34,10 @@ const PROJECT: HelpGroup = {
     },
     {
       command: 'project settings',
-      args: '[--max-concurrent <1-64|auto>]',
+      args: '[--max-concurrent <1-64|off>]',
       summary:
-        "the machine settings ({home, settings: {maxConcurrent}}). maxConcurrent is the machine cap: how many job sessions run at once across every project the machine's dashboard serves, on top of each project's daemon.maxConcurrent; null (auto, the default) uses the highest loaded project's daemon.maxConcurrent. With the flag it writes first, under the index lock",
-      flags: [['--max-concurrent N|auto', 'set the machine cap to N (1-64), or auto to unset it']],
+        "the machine settings ({home, settings: {maxConcurrent}}). maxConcurrent is the machine cap: when set, how many job sessions run at once across every project the machine's dashboard serves, on top of each project's daemon.maxConcurrent; null (off, the default) sets no machine cap, so each project runs up to its own daemon.maxConcurrent. With the flag it writes first, under the index lock",
+      flags: [['--max-concurrent N|off', 'set the machine cap to N (1-64), or off to unset it (auto is the old spelling of off)']],
       exits: [[1, 'a daemon session set it, or the index file is unreadable or from a newer Forge']],
     },
   ],
@@ -54,14 +54,14 @@ const SETTINGS_DAEMON_REFUSAL = 'forge project settings --max-concurrent changes
 
 const usage = (sub?: string) => usageError(PROJECT, sub);
 
-/** `--max-concurrent`'s value: an integer 1–64, or `auto` (null); anything else is a usage error. */
+/** `--max-concurrent`'s value: an integer 1–64, or `off` (null: no machine cap; `auto` is its old spelling); anything else is a usage error. */
 function maxConcurrentFlag(v: unknown): number | null {
-  if (v === 'auto') return null;
+  if (v === 'off' || v === 'auto') return null;
   if (typeof v === 'string' && /^[0-9]{1,2}$/.test(v)) {
     const n = Number(v);
     if (n >= 1 && n <= MACHINE_MAX_CONCURRENT) return n;
   }
-  throw new ForgeError(`--max-concurrent must be an integer 1-${MACHINE_MAX_CONCURRENT} or auto`, 'usage', 'forge help project settings');
+  throw new ForgeError(`--max-concurrent must be an integer 1-${MACHINE_MAX_CONCURRENT} or off`, 'usage', 'forge help project settings');
 }
 
 /** `forge project <sub> …`: prints its result. `words` are the positionals after `project`. */

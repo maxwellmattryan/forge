@@ -41,6 +41,10 @@ export interface PoolModel {
   cap: number;
   held: string[];
   waiting: string[];
+  /** The explicit machine cap and the job sessions running across projects, or null without one (or from an older server). */
+  machine: { cap: number; live: number } | null;
+  /** Job sessions below this project's own cap that the machine cap holds. */
+  machineWaiting: string[];
   /** Job sessions kept by running agents of their job. */
   kept: string[];
   /** Listed job sessions, in status order. */
@@ -62,10 +66,11 @@ const running = (s: unknown) => obj(s).running === true;
 export const asking = (s: unknown): boolean => running(s) && Array.isArray(obj(s).permissions) && obj(s).permissions.length > 0;
 
 /** Status labels in the order the Workers popover lists job sessions. */
-const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'held: repo budget', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
+const ORDER = ['needs permission', 'busy', 'agents running', 'failing', 'idle', 'stopping', 'waiting for slot', 'waiting for machine cap', 'held: repo budget', 'held: budget', 'error', 'stopped', 'standby', 'no session'];
 
 /**
- * One session's status chip: needs permission (a tool call waits on a human), busy, stopping, waiting for slot, held: repo budget, held: budget,
+ * One session's status chip: needs permission (a tool call waits on a human), busy, stopping, waiting for machine cap (below its project's own
+ * cap, held by the explicit machine cap), waiting for slot (its project's own cap, or an older server's waiting), held: repo budget, held: budget,
  * failing (alive, but its last turn failed) or error, agents running (idle, but its job's agents keep it), idle, stopped, standby or no session.
  */
 export function sessionPill(session: SessionInput): Pill {
@@ -76,6 +81,7 @@ export function sessionPill(session: SessionInput): Pill {
   else if (asking(s)) [label, tone] = ['needs permission', 'warn'];
   else if (s.status === 'busy') [label, tone] = ['busy', 'live'];
   else if (s.status === 'stopping') [label, tone] = ['stopping', 'warn'];
+  else if (s.waiting && s.waitingFor === 'machine') [label, tone] = ['waiting for machine cap', 'warn'];
   else if (s.waiting) [label, tone] = ['waiting for slot', 'warn'];
   else if (s.held === 'repo-budget') [label, tone] = ['held: repo budget', 'warn'];
   else if (s.held) [label, tone] = ['held: budget', 'warn'];
@@ -93,6 +99,7 @@ export function sessionPill(session: SessionInput): Pill {
         ...(Number(s.failures) ? [`${Number(s.failures)} failed starts`] : []),
         ...(s.lastError ? [String(s.lastError)] : []),
         ...(label === 'agents running' ? ['kept: its job has agents running'] : []),
+        ...(label === 'waiting for machine cap' ? ['the machine cap is full: forge project settings --max-concurrent'] : []),
         ...(label === 'standby' || label === 'no session' ? ['starts on its next request'] : []),
       ].join('\n');
   return { label, tone, title };
@@ -107,6 +114,12 @@ export function familyPill(sessions: readonly { name: string; session: SessionIn
   if (pills.length <= 1) return pills[0]?.pill ?? sessionPill(null);
   const top = pills.reduce((a, b) => (ORDER.indexOf(b.pill.label) < ORDER.indexOf(a.pill.label) ? b : a)).pill;
   return { label: top.label, tone: top.tone, title: pills.map(({ name, pill }) => `${name}: ${pill.label}`).join('\n') };
+}
+
+/** DaemonPoolState.machine as {cap, live} when its maxConcurrent is an integer >= 1, else null: no explicit machine cap. */
+function machineOf(v: unknown): PoolModel['machine'] {
+  const m = obj(v);
+  return Number.isInteger(m.maxConcurrent) && m.maxConcurrent >= 1 ? { cap: m.maxConcurrent, live: Number(m.live) || 0 } : null;
 }
 
 /** Everything the Workers popover shows, and the inbox pill the Inbox popover shows, or null exactly when the daemon is off (not enabled, not wanted, nothing running). */
@@ -147,6 +160,8 @@ export function poolModel(pool: PoolInput, { pending }: { pending: boolean }): P
     cap: Number(p.maxConcurrent) || 0,
     held: jobs.filter(([, s]) => s.held).map(([id]) => id),
     waiting: jobs.filter(([, s]) => s.waiting).map(([id]) => id),
+    machine: machineOf(p.machine),
+    machineWaiting: jobs.filter(([, s]) => s.waiting && s.waitingFor === 'machine').map(([id]) => id),
     kept: jobs.filter(([, s]) => s.kept === 'agents').map(([id]) => id),
     jobs: chips,
     error: p.lastError && label !== 'error' ? String(p.lastError) : null,

@@ -50,3 +50,17 @@ test('barLamps: the Inbox lamp follows the inbox session only', () => {
   const lamps = barLamps(barModel(base as any, { pending: false }), { needs: 0, conn: 'live' });
   assert.deepEqual(Object.keys(lamps).sort(), ['connection', 'foreman', 'inbox', 'needs', 'workers']);
 });
+
+test('barModel counts the job sessions the machine cap holds', () => {
+  const base = { enabled: true, wanted: true, maxConcurrent: 2, live: 1, lastError: null, foreman: false, permissionModes: {}, machine: { maxConcurrent: 1, live: 1 } };
+  const job = (waitingFor: string | null) => ({ status: 'off', running: false, wanted: true, waiting: waitingFor !== null, waitingFor });
+  const rows: [string, object, { waiting: number; machineWaiting: number }][] = [
+    ['one on the machine cap, one on its own', { ...base, jobs: { a: job('machine'), b: job('project') } }, { waiting: 2, machineWaiting: 1 }],
+    ['an older server sends no waitingFor', { ...base, jobs: { a: { status: 'off', running: false, wanted: true, waiting: true } } }, { waiting: 1, machineWaiting: 0 }],
+    ['the daemon off', { ...base, enabled: false, wanted: false, live: 0, jobs: { a: job('machine') } }, { waiting: 0, machineWaiting: 0 }],
+  ];
+  for (const [name, pool, want] of rows) {
+    const m = barModel(pool as any, { pending: false });
+    assert.deepEqual({ waiting: m.waiting, machineWaiting: m.machineWaiting }, want, name);
+  }
+});

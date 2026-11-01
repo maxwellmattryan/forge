@@ -1,7 +1,8 @@
 <!-- The Workers popover's body: the daemon pool and its job sessions. One controls row: the pool pill and live/cap on the
-     left; on the right the job sessions' default permission mode (a job's own choice in its Log tab overrides it; Auto
-     adds a warn icon whose tooltip carries the warning) and the pool's one Start/Stop icon toggle. Under it the pool error
-     or, for a project whose files no human has approved, the line that says to review them and press Start, and a line when
+     left, then `machine live/cap` while an explicit machine cap is set; on the right the job sessions' default permission
+     mode (a job's own choice in its Log tab overrides it; Auto adds a warn icon whose tooltip carries the warning) and the
+     pool's one Start/Stop icon toggle. Under it the pool error or, for a project whose files no human has approved, the
+     line that says to review them and press Start, a warn line while the machine cap holds any of its job sessions, and a line when
      billing variables are set where forge dash started (warn tone for a provider switch or ANTHROPIC_BASE_URL, as doctor),
      and a line naming the run's launch mode (forge dash --permission-mode; warn tone for Auto), shown with the daemon on or off.
      Then one row per job session in status order, in a fixed-height list that alone scrolls, or a muted line when there is
@@ -86,6 +87,7 @@
       <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Chip tone={model.pill.tone} extra="sm" title={model.pill.title} text={$t('daemon.pill', { label: model.pill.label })} />
         <span class="mono muted num">{$t('daemon.live', { live: model.live, cap: model.cap })}</span>
+        {#if model.machine}<span class="mono muted num">{$t('daemon.machineLive', { live: model.machine.live, cap: model.machine.cap })}</span>{/if}
       </div>
       <div class="flex items-center gap-1.5" title={$t('statusbar.workers.jobModeAbout')}>
         <!-- Left of the select, so turning Auto on or off never moves it or Start/Stop under the pointer. As the session controls: an icon, hover shows the tooltip, a tap toggles it. -->
@@ -96,6 +98,7 @@
     </div>
     {#if model.error !== null}<p class="text-sm text-bad whitespace-pre-line break-words">{model.error}</p>{/if}
     {#if model.approval}<p class="text-sm text-warn break-words">{$t('statusbar.workers.approval')}</p>{/if}
+    {#if model.machineWaiting.length && model.machine}<p class="text-xs text-warn">{$t('statusbar.workers.machineHeld', { count: model.machineWaiting.length, live: model.machine.live, cap: model.machine.cap })}</p>{/if}
     {#if note}<p class="text-xs {note.warn ? 'text-warn' : 'muted'}">{note.passed ? $t('statusbar.workers.billingPassed', { vars: note.vars }) : $t('statusbar.workers.billingIgnored', { vars: note.vars })}</p>{/if}
     {@render launchLine()}
     {#if rows.length === 0}
