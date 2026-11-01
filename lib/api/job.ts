@@ -271,6 +271,10 @@ export interface VerifyRun {
   failure?: string | null;
   /** One record per member repo, only when the job has members: verify in lib/engine/verify/gate.ts. */
   repos?: VerifyRunRepo[];
+  /** `forge verify --fast` ran every group but the last: a partial run verifies no HEAD (lib/engine/verify/record.ts). */
+  partial?: true;
+  /** The wall time of the `forge verify` call; absent on runs from before it was recorded. */
+  durationMs?: number;
 }
 
 /** One member repo's part of a verify run: the HEAD it checked and its first failing step. */

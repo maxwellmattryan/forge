@@ -30,10 +30,13 @@ export const RULES = [
   'SP8',
   'D1', 'D2', 'D3',
   'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B6b', 'B7', 'B8',
-  'V1', 'V2', 'V2b', 'V3', 'V3b',
+  // V1b: under review.startAfter fast, a partial verify (every group but the last) before the panel.
+  'V1', 'V1b', 'V2', 'V2b', 'V3', 'V3b',
   // Verifiers between a passing verify and the panel: run, spawn the verifier agent, record its answers.
   'VF1', 'VF2', 'VF2b', 'VF3',
   'RV1', 'RV2', 'RV3', 'RV4', 'RV5', 'RV5b', 'RV6', 'RV7', 'RV8', 'RV8b', 'RV8c', 'RV8d', 'RV9', 'RV10', 'RV11',
+  // After a partial pass: the full verify alongside the panel (RV12), and on its late failure the lens runs cancelled (RV13), then build (RV13b).
+  'RV12', 'RV13', 'RV13b',
   'DC1', 'DC2', 'DC3', 'DC4', 'DC5', 'DC6', 'DC9', 'DC9b', 'DC10', 'DC11',
   // The gate reasons, once per review, before the approver (PR19 computes them in pr for a job decided without them).
   'DC12',

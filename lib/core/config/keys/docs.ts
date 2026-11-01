@@ -177,6 +177,7 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
   },
   'review.onPrFeedback': { doc: 'changed | full | none (which lenses re-run after PR feedback; changed = the always: true lenses)' },
   'review.onRework': { doc: 'narrow | full: rounds 2+ re-run only the rework panel, or every lens (see "Rework panel")' },
+  'review.startAfter': { doc: 'verify | fast: start the panel after every verify group passed, or after all but the last, which then runs alongside the reviewers (see "How step reads the pipeline keys")' },
 
   approver: { doc: 'what the approver never approves on its own' },
   'approver.alwaysEscalate': { doc: 'plain-language classes the approver must escalate', layout: 'block' },

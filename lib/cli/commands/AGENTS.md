@@ -32,7 +32,7 @@ One module per command group, each with its `HELP` table, and the human-mode ren
 | `init.ts` | `forge init write` and `forge migrate`: setting a repo up and keeping its files current. |
 | `job.ts` | `forge job …`: every write to a job's state goes through here. |
 | `job/agent-run.ts` | `forge job agent run`: one spawn `forge job step` chose, run as its own headless claude child in the job's worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself and its usage taken from the child's own result line. |
-| `job/agent.ts` | `forge job agent start\|end\|attach`: recording an agent's run, its usage and the secret scan of what it wrote. |
+| `job/agent.ts` | `forge job agent start\|end\|attach\|cancel`: recording an agent's run, its usage and the secret scan of what it wrote, and voiding a lens run a late verify failure made stale. |
 | `job/create.ts` | `forge job new\|from-ref\|link\|split`: creating a job, starting one from a tracker item, the issues it carries, and a split's child jobs. |
 | `job/decide.ts` | `forge job human\|apply\|assist`: recording a person's decision at a gate, the refusal of a foreman one (only forge dash's gate runner records those, in-process), applying one job request by the human-command table, and the read-only assist for a person's own terminal. |
 | `job/help.ts` | `forge job`'s help table: every subcommand's usage, flags and exits, which `forge help job` prints and `npm run docs` reads. |

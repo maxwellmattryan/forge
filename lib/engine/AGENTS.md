@@ -20,6 +20,6 @@ What Forge does: the pipeline, worktrees, PRs, tracker sync, guards, releases, e
 | `project/` | Multi-repo projects: member repos and trackers, a job's repos and their order, proposals, links and downstream checks, the machine index of registered projects, the machine's login service and uptime record, and the overlap check. |
 | `release/` | Releases: plans, runs and approvals, and interim releases across member repos. |
 | `trackers/` | Tracker sync: the adapter loader with its security wrappers, mirrors, issue links, triage and request refresh. |
-| `verify/` | `forge verify` and the verify record: the gate's steps, and the one reader of `job.verifyRuns`. |
+| `verify/` | `forge verify` and the verify record: the gate's steps, the check cache, the one reader of `job.verifyRuns`, and the cancel of a lens run a late verify failure voids. |
 | `workspace/` | Job worktrees and what runs in them: checkouts, focus, the editor, regeneration and configured job commands. |
 <!-- forge:map:end -->

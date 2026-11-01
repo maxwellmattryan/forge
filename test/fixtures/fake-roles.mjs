@@ -68,8 +68,11 @@ export default function role({ agent, brief, cwd, env }) {
       write(outputs[0], SPEC);
       return 'SPEC: done · 1 AC';
     case 'forge:builder': {
-      // A commit in the worktree, as the builder makes through `forge git commit`.
-      write(path.join(cwd, 'added.txt'), `round ${round}\n`);
+      // A commit in the worktree, as the builder makes through `forge git commit`. A rerun in the same round (after a
+      // failed verify) adds a line, so every run has a change to commit.
+      const added = path.join(cwd, 'added.txt');
+      const prev = fs.existsSync(added) ? fs.readFileSync(added, 'utf8') : '';
+      write(added, prev.startsWith(`round ${round}\n`) ? `${prev}round ${round}\n` : `round ${round}\n`);
       const git = (/** @type {string[]} */ ...args) => execFileSync('git', args, { cwd, env: { ...env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'pipe' });
       git('add', 'added.txt');
       git('-c', 'user.name=Forge Test', '-c', 'user.email=forge@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', `feat: add the file (round ${round})`);

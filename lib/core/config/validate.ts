@@ -169,6 +169,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   problems.push(...effortProblems(c));
   problems.push(...modelProblems(c));
   if (c.review?.onRework !== undefined) oneOf('review.onRework', c.review.onRework, ['narrow', 'full']);
+  if (c.review?.startAfter !== undefined) oneOf('review.startAfter', c.review.startAfter, ['verify', 'fast']);
   if (!Number.isInteger(c.pipeline.maxRounds) || c.pipeline.maxRounds < 1) problems.push('pipeline.maxRounds must be a positive integer');
   const total = c.pipeline.maxTotalRounds;
   if (total !== null && total !== undefined && !(Number.isInteger(total) && total >= 1))

@@ -1,7 +1,9 @@
-// `forge job agent start|end|attach`: recording an agent's run, its usage and the secret scan of what it wrote.
+// `forge job agent start|end|attach|cancel`: recording an agent's run, its usage and the secret scan of what it wrote,
+// and voiding a lens run a late verify failure made stale.
 import fs from 'node:fs';
 import path from 'node:path';
 import { enforceBudget } from '#engine/metrics/budget.ts';
+import { cancelLensRun } from '#engine/verify/cancel-lens.ts';
 import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, importCursor, jobDir, loadJob, recordAgent, renewLease, resolveAgentOutput, type Fence } from '#core/job/store.ts';
 import { logSecrets, scanAgentOutputs } from '#engine/guard/secrets.ts';
@@ -27,10 +29,16 @@ type ImportedUsage = AgentUsage & { transcript?: string; through?: string | null
 export function agent(root: string, config: Config, rest: string[], flags: Record<string, any>, env: NodeJS.ProcessEnv = process.env) {
   const id = rest[0];
   const jobId = requireJob(root, id).id;
-  const phase = req(rest[1], 'start|end|attach');
-  if (!['start', 'end', 'attach'].includes(phase)) throw new ForgeError('phase must be start, end or attach', 'usage');
+  const phase = req(rest[1], 'start|end|attach|cancel');
+  if (!['start', 'end', 'attach', 'cancel'].includes(phase)) throw new ForgeError('phase must be start, end, attach or cancel', 'usage');
   // A job.json key and an output path: checked before anything is read or written.
   const role = agentRole(req(flags.role, '--role'));
+  if (phase === 'cancel') {
+    // Only a lens run is ever voided: step cancels the round's lens runs after a late verify failure.
+    if (!role.startsWith('reviewer:')) throw new ForgeError('forge job agent cancel takes --role reviewer:<lens>', 'usage');
+    refuseInboxDrive(jobId);
+    return cancelLensRun(root, jobId, role, epochFence(flags));
+  }
   if (phase === 'attach') {
     const agentId = flags['agent-id'];
     // Checked before anything is written: the id becomes a transcript file name.

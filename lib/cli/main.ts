@@ -210,7 +210,9 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       return ok(await focusCmd(root, config, pos.slice(1), flags));
     case 'verify': {
       needInit();
-      const r = await verify(root, config, req(sub, 'job id'));
+      // Refused before anything runs or is recorded: a word after --fast is parsed as its value.
+      if (flags.fast !== undefined && flags.fast !== true) throw new ForgeError('forge verify: --fast takes no value');
+      const r = await verify(root, config, req(sub, 'job id'), undefined, { fast: flags.fast === true });
       return { data: r, exitCode: r.ok ? 0 : 1 };
     }
     case 'secrets':

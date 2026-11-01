@@ -9,6 +9,7 @@ import { PLUGIN_ROOT } from '#core/paths.ts';
 import { defaults } from '#core/config/load.ts';
 import { acCoverage } from '#engine/pipeline/acs.ts';
 import { REVIEWED_HEAD_NOTE } from '#engine/pipeline/step/facts.ts';
+import { retryLens } from '#engine/pipeline/step/stages/review.ts';
 import { JOB_DIR, RECALL_HASH, ROOT, WT, ag, ev, fixture, t, verdicts } from './step-fixture.ts';
 import type { FixtureOpts } from './step-fixture.ts';
 
@@ -64,7 +65,10 @@ export function assertWant(a: Record<string, unknown>, want: Record<string, unkn
     else assert.deepEqual(a[k], v, `${name}: ${k}`);
   }
 }
-const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test'): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure });
+const vr = (round: number, at: number, ok: boolean, failure: string | null = ok ? null : 'test', opts: { partial?: boolean } = {}): VerifyRun => ({ round, attempt: 1, sha: 's', ok, at: t(at), file: `verify/round-${round}.md`, failure, ...(opts.partial ? { partial: true as const } : {}) });
+/** review.startAfter fast, and a partial pass of round 1 at minute `at` (`forge verify --fast`). */
+const FAST = (c: Config) => (c.review.startAfter = 'fast');
+const partialPass = (at: number): VerifyRun => vr(1, at, true, null, { partial: true });
 const job = (j: Partial<Job>): Partial<Job> => ({ state: 'running', ...j });
 /** The actor a foreman decision (and forge sync's CI rework) records. */
 const FOREMAN = { login: null, source: 'foreman' };
@@ -1290,6 +1294,16 @@ export const rows: Row[] = [
   { name: 'V1 verifies the round', fx: { job: job({ stage: 'verify', round: 1, agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verify', 'j'), shell: "forge verify j" } },
   { name: 'V1 re-verifies after the builder fixed it', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 4, false)], agents: { builder: ag(1, 5, 6) } }) }, want: run('verify', 'j') },
   { name: 'V2b a pass goes to review', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'set', 'j', '--stage', 'review', '--state', 'running') },
+  // review.startAfter fast: a partial verify, then review, which finishes the verify (RV12).
+  { name: 'V1b verifies all but the last group under fast', fx: { config: FAST, job: job({ stage: 'verify', round: 1, agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verify', 'j', '--fast'), rule: 'V1b', shell: 'forge verify j --fast' } },
+  { name: 'V1b re-verifies after the builder fixed a late failure', fx: { config: FAST, job: job({ stage: 'verify', round: 1, verifyRuns: [partialPass(4), vr(1, 5, false)], agents: { builder: ag(1, 6, 7) } }) }, want: { ...run('verify', 'j', '--fast'), rule: 'V1b' } },
+  {
+    name: 'V1 a PR rework that skips review verifies in full under fast',
+    fx: { config: (c) => (FAST(c), (c.review.onPrFeedback = 'none')), job: job({ stage: 'verify', round: 2, agents: { builder: ag(2, 5, 6) }, pr: OPEN_PR }) },
+    want: { ...run('verify', 'j'), rule: 'V1', shell: 'forge verify j' },
+  },
+  { name: "V2b a partial pass with V2's conditions goes to review, not pr", fx: { config: (c) => (c.review.onPrFeedback = 'none'), job: job({ stage: 'verify', round: 2, verifyRuns: [vr(2, 7, true, null, { partial: true })], agents: { builder: ag(2, 5, 6) }, pr: OPEN_PR }) }, want: { ...run('job', 'set', 'j', '--stage', 'review', '--state', 'running'), rule: 'V2b' } },
+  { name: 'V2b a partial pass goes to review', fx: { config: FAST, job: job({ stage: 'verify', round: 1, verifyRuns: [partialPass(7)], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('job', 'set', 'j', '--stage', 'review', '--state', 'running'), rule: 'V2b' } },
   { name: 'V3b a failure goes back to build', fx: { job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, false)], agents: { builder: ag(1, 5, 6) } }) }, want: run('job', 'set', 'j', '--stage', 'build', '--state', 'running') },
   // Verifiers (VF1–VF3): only when the main checkout has .forge/verifiers/*.md, between a passing verify and V2.
   { name: 'VF1 runs the verifiers after a passing verify', fx: { verifiers: 2, job: job({ stage: 'verify', round: 1, verifyRuns: [vr(1, 7, true)], agents: { builder: ag(1, 5, 6) } }) }, want: { ...run('verifiers', 'run', 'j'), shell: 'forge verifiers run j' } },
@@ -1505,6 +1519,87 @@ export const rows: Row[] = [
   },
   { name: 'RV5b malformed twice counts as CHANGES', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false, retry: true }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'MALFORMED', tests: 'PASS' }) } }, want: run('job', 'verdicts', 'j', '--malformed', 'changes') },
   { name: 'RV6 records the verdicts', fx: { job: inReview({ 'reviewer:code': ag(1, 12, 13, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }), events: scoped, verdicts: { round: verdicts({ code: 'PASS', tests: 'CHANGES' }) } }, want: run('job', 'verdicts', 'j') },
+
+  // review.startAfter fast: the panel started on a partial pass (minute 10, panel and scope at 11).
+  {
+    name: 'RV12 runs the full verify while every lens reviews',
+    fx: { config: FAST, job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { verifyRuns: [partialPass(10)] }), events: scoped },
+    want: { ...run('verify', 'j'), rule: 'RV12', shell: 'forge verify j' },
+  },
+  { name: 'RV12 comes before RV1 with an empty panel', fx: { config: (c) => (FAST(c), (c.review.panel = [])), job: inReview({}, { reviewers: [], verifyRuns: [partialPass(10)] }), events: scoped }, want: { ...run('verify', 'j'), rule: 'RV12' } },
+  { name: 'RV1 an empty panel goes to pr after the full pass', fx: { config: (c) => (FAST(c), (c.review.panel = [])), job: inReview({}, { reviewers: [], verifyRuns: [partialPass(10), vr(1, 12, true)] }), events: scoped }, want: { ...run('job', 'set', 'j', '--stage', 'pr', '--state', 'running'), rule: 'RV1' } },
+  { name: 'RV4 spawns the panel on a partial pass before RV12', fx: { config: FAST, job: inReview({}, { verifyRuns: [partialPass(10)] }), events: scoped }, want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' } },
+  {
+    name: 'G5 waits on the reviewers after the full pass',
+    fx: { config: FAST, job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { verifyRuns: [partialPass(10), vr(1, 14, true)] }), events: scoped },
+    want: { action: 'wait', rule: 'G5', waitingOn: 'agents', running: ['reviewer:code', 'reviewer:tests'] },
+  },
+  {
+    name: 'RV6 records the verdicts after the full pass, without a second panel or scope',
+    fx: {
+      config: FAST,
+      job: inReview({ 'reviewer:code': ag(1, 12, 15, { outputMissing: false }), 'reviewer:tests': ag(1, 12, 16, { outputMissing: false }) }, { verifyRuns: [partialPass(10), vr(1, 14, true)] }),
+      events: scoped,
+      verdicts: { round: verdicts({ code: 'PASS', tests: 'PASS' }) },
+    },
+    want: { ...run('job', 'verdicts', 'j'), rule: 'RV6' },
+  },
+  // A late failure: the full verify failed at minute 14 while the panel reviewed.
+  {
+    name: 'RV13 cancels the first lens run after a late failure',
+    fx: { config: FAST, job: inReview({ 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }), 'reviewer:code': ag(1, 12) }, { verifyRuns: [partialPass(10), vr(1, 14, false)] }), events: scoped },
+    want: { ...run('job', 'agent', 'j', 'cancel', '--role', 'reviewer:code'), rule: 'RV13' },
+  },
+  {
+    name: 'RV13 then cancels the ended one',
+    fx: { config: FAST, job: inReview({ 'reviewer:code': ag(1, 12, 15, { status: 'cancelled' }), 'reviewer:tests': ag(1, 12, 13, { outputMissing: false }) }, { verifyRuns: [partialPass(10), vr(1, 14, false)] }), events: scoped },
+    want: { ...run('job', 'agent', 'j', 'cancel', '--role', 'reviewer:tests'), rule: 'RV13' },
+  },
+  {
+    name: 'RV13b sends the round back to the builder once every lens run is cancelled',
+    fx: { config: FAST, job: inReview({ 'reviewer:code': ag(1, 12, 15, { status: 'cancelled' }), 'reviewer:tests': ag(1, 12, 13, { status: 'cancelled' }) }, { verifyRuns: [partialPass(10), vr(1, 14, false)] }), events: scoped },
+    want: { ...run('job', 'set', 'j', '--stage', 'build', '--state', 'running'), rule: 'RV13b' },
+  },
+  {
+    name: 'G5 a verifiers failure after a partial pass is no late failure',
+    fx: { config: FAST, job: inReview({ 'reviewer:code': ag(1, 12), 'reviewer:tests': ag(1, 12) }, { verifyRuns: [partialPass(10), vr(1, 14, false, 'verifiers')] }), events: scoped },
+    want: { action: 'wait', rule: 'G5' },
+  },
+  {
+    name: 'B4 respawns the builder after a late failure, with the verify failure',
+    fx: {
+      config: FAST,
+      files: ['spec', 'tasks', 'build'],
+      present: [path.join(JOB_DIR, 'verify', 'round-1.md')],
+      job: job({ stage: 'build', round: 1, verifyRuns: [partialPass(10), vr(1, 14, false)], agents: { builder: ag(1, 5, 9), 'reviewer:code': ag(1, 12, 15, { status: 'cancelled' }) } }),
+      events: [ev('round', 4)],
+    },
+    want: { action: 'spawn', rule: 'B4', role: 'builder' },
+    check: (a) => assert.ok(a.brief.split('\n').includes('Rework: verify')),
+  },
+  {
+    name: 'RV4 spawns the cancelled lenses again after the next partial pass',
+    fx: {
+      config: FAST,
+      job: inReview(
+        { builder: ag(1, 16, 19), 'reviewer:code': ag(1, 12, 15, { status: 'cancelled' }), 'reviewer:tests': ag(1, 12, 13, { status: 'cancelled', outputMissing: true }) },
+        { verifyRuns: [partialPass(10), vr(1, 14, false), partialPass(20)] },
+      ),
+      events: [...scoped, ev('panel', 21, { round: 1 }), ev('scope', 21, { round: 1 })],
+    },
+    want: { action: 'spawn', rule: 'RV4', role: 'reviewer:code' },
+    check: (a) => {
+      assert.deepEqual(a.spawns.map((s: any) => s.lens), ['tests']);
+      assert.ok(!a.retry && !a.spawns[0].retry, 'a fresh spawn, not a retry');
+      const x = fixture({ config: FAST, job: inReview({ 'reviewer:tests': ag(1, 12, 13, { status: 'cancelled', outputMissing: true }) }) });
+      assert.equal(retryLens(x), null, 'retryLens ignores a cancelled lens with a missing output');
+    },
+  },
+  {
+    name: 'RV9 a cancelled lens does not count as reviewing',
+    fx: { config: FAST, job: inReview({ builder: ag(1, 16, 19), 'reviewer:code': ag(1, 12, 15, { status: 'cancelled' }) }, { verifyRuns: [partialPass(10), vr(1, 14, false), partialPass(20)] }), events: scoped },
+    want: { ...run('job', 'panel', 'j'), rule: 'RV9' },
+  },
   { name: 'RV7 stops the dev server once verdicts are in', fx: { job: inReview({}, { verdicts: { 1: { code: 'PASS', tests: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
   { name: 'RV7 stops a UI review\'s dev server', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['ui'], verdicts: { 1: { ui: 'PASS' } } }), events: scoped, runtime: ['dev'] }, want: run('stop', 'j') },
   { name: 'RV8c a UI lens with the dev server stopped moves on, never restarting it', fx: { config: (c) => (c.commands.dev = 'npm run dev'), job: inReview({ 'reviewer:code': ag(1, 12, 13), 'reviewer:ui': ag(1, 12, 13) }, { reviewers: ['code', 'ui'], verdicts: { 1: { code: 'PASS', ui: 'PASS' } } }), events: scoped, runtime: [] }, want: run('job', 'set', 'j', '--stage', 'integrate', '--state', 'running') },

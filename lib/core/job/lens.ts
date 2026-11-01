@@ -4,7 +4,7 @@
 // Both reach shell lines, file names and job.json keys, so every caller checks names here first.
 import { REPO_NAME } from '#engine/project/member-repos.ts';
 import { ForgeError } from '../errors.ts';
-import type { Job } from '../types.ts';
+import type { AgentRecordChange, Job, JobAgent } from '../types.ts';
 
 export const LENS_NAME = /^[a-z0-9][a-z0-9-]*$/;
 /** A plain role: the rule `agents/*.md` names follow. */
@@ -71,4 +71,14 @@ export function lensRepoAllowed(job: { repos?: Job['repos'] }, lens: string): bo
   const s = splitLens(lens);
   if (!s) return false;
   return s.repo === null || reviewedRepoNames(job).includes(s.repo);
+}
+
+/**
+ * Whether an agent end is the late end of a cancelled lens run (lib/engine/verify/cancel-lens.ts), which
+ * recordAgent only bills: the record ended `cancelled`, or the lens runs again under another agent id while its last
+ * finished run is the cancelled one. A race, not an attacker: without both agent ids the end is the running run's.
+ */
+export function cancelledRunEnd(a: JobAgent, rec: Pick<AgentRecordChange, 'agentId'>): boolean {
+  if (a.status !== 'running') return a.status === 'cancelled';
+  return Boolean(rec.agentId && a.agentId && rec.agentId !== a.agentId && a.runHistory?.at(-1)?.status === 'cancelled');
 }

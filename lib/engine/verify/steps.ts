@@ -15,6 +15,7 @@ import { memberComponent, restoreLocks } from '../workspace/run.ts';
 import type { CommandResult, RunOptions } from '../workspace/run.ts';
 import type { Config, Job, JobRepo, VerifyRunRepo } from '#core/types.ts';
 import type { SecretScan } from '../guard/types.ts';
+import type { CacheMiss } from './cache.ts';
 import { ForgeError } from '#core/errors.ts';
 
 /** One verify step: a command's result, a skipped step, or a gate verify adds itself (worktree-clean, secrets, protected, integrity). */
@@ -30,6 +31,12 @@ export interface VerifyStep {
   durationMs?: number;
   links?: string[];
   restored?: string[];
+  /** A pass reused from the check cache (./cache.ts): the command did not run, `log` is the original run's. */
+  cached?: true;
+  cachedAt?: string;
+  cachedDurationMs?: number;
+  /** Why the step ran instead of reusing a pass. */
+  cacheMiss?: CacheMiss;
 }
 
 /** How verify runs a configured command: `runCommand` and `runCommandAsync` in production, a stub in tests. */
@@ -241,7 +248,8 @@ export function renderSteps(lines: string[], results: VerifyStep[], secrets: Sec
       else lines.push('## interim: FAILED', '', 'Interim pins or release bumps (docs/CONFIG.md "Interim strategies") could not be written; no configured step ran:', '', ...String(r.tail).split('\n').map((l) => `- ${l}`), '');
       continue;
     }
-    lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? 'ok' : `FAILED (exit ${r.exit})`}`);
+    const ok = r.cached ? `ok (cached: passed on this tree at ${r.cachedAt} in ${((r.cachedDurationMs ?? 0) / 1000).toFixed(1)} s)` : 'ok';
+    lines.push(`## ${r.name}: ${r.skipped ? `skipped (${r.reason ?? 'no command configured'})` : r.ok ? ok : `FAILED (exit ${r.exit})`}`);
     if ('cmd' in r) lines.push('', '`' + r.cmd + '` · log: `' + r.log + '`');
     if (r.reason && !r.skipped) lines.push('', `Trigger: ${r.reason}`);
     if ('tail' in r && !r.ok) lines.push('', '```', r.tail!, '```'); // 'tail' in r: the step has one

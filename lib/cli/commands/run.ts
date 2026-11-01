@@ -31,7 +31,7 @@ export async function runCmd(root: string, config: Config, argv: string[]): Prom
     if (args.length) throw new ForgeError('forge run --changed takes no -- <args…>: it passes the related tests itself');
     if (flags.background) throw new ForgeError('forge run --changed takes no --background: it runs the tests and returns');
     if (repo !== undefined) throw new ForgeError('forge run --changed takes no --repo: it runs only in the root worktree');
-    const r = runChanged(root, config, id, name, { tail });
+    const r = runChanged(root, config, id, name, { tail, checks: 'record' });
     return { data: r, exitCode: r.ok ? 0 : 1 };
   }
   // Member worktrees get no port, so a server there would collide with the root's.
@@ -41,6 +41,7 @@ export async function runCmd(root: string, config: Config, argv: string[]): Prom
     if (args.length) throw new ForgeError('forge run --background takes no extra arguments');
     return { data: await startBackground(root, config, id, name), exitCode: 0 };
   }
-  const r = runCommand(root, config, id, name, { tail, args, ...(repo !== undefined ? { repo } : {}) });
+  // A pass on a clean committed tree goes in the check cache, which verify reuses (lib/engine/verify/cache.ts).
+  const r = runCommand(root, config, id, name, { tail, args, checks: 'record', ...(repo !== undefined ? { repo } : {}) });
   return { data: r, exitCode: r.ok ? 0 : 1 };
 }
