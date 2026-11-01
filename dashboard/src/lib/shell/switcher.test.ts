@@ -1,7 +1,7 @@
 // The registered projects as the switcher, the Overview and the command bar list them: sorted, with their state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADD_PROJECT, othersWaiting, selectionOpenable, switcherChoice, switcherEntries, switcherOptions, type SwitcherEntry } from './switcher.ts';
+import { ADD_PROJECT, othersWaiting, selectionOpenable, switcherChoice, switcherEntries, switcherKey, switcherKeyShortcuts, switcherOptions, switcherShortcutLabel, type SwitcherEntry } from './switcher.ts';
 import { PROJECT_NAME_SOURCE, type MachineProjectSummary, type ProjectsResponse } from '../core/types.ts';
 import type { Route } from './routes.ts';
 
@@ -112,4 +112,40 @@ test('selectionOpenable', () => {
   assert.equal(selectionOpenable(entries, 'gone'), false, 'moved or deleted: its directory is missing');
   assert.equal(selectionOpenable(entries, 'old-name'), false, 'renamed or removed: not registered');
   assert.equal(selectionOpenable([], 'web'), false);
+});
+
+test('switcherKey', () => {
+  const none = { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false };
+  const cmd = { ...none, key: 'o', metaKey: true, mac: true };
+  const ctrl = { ...none, key: 'o', ctrlKey: true, mac: false };
+  assert.equal(switcherKey(cmd), 'toggle', 'Cmd+O on a Mac');
+  assert.equal(switcherKey(ctrl), 'toggle', 'Ctrl+O elsewhere');
+  assert.equal(switcherKey({ ...cmd, key: 'O' }), 'toggle', 'Caps Lock');
+  assert.equal(switcherKey({ ...ctrl, key: 'O' }), 'toggle', 'Caps Lock');
+  assert.equal(switcherKey({ ...none, key: 'o', ctrlKey: true, mac: true }), null, 'Ctrl+O on a Mac');
+  assert.equal(switcherKey({ ...none, key: 'o', metaKey: true, mac: false }), null, 'Meta+O elsewhere');
+  assert.equal(switcherKey({ ...cmd, ctrlKey: true }), null, 'Cmd+Ctrl+O on a Mac');
+  assert.equal(switcherKey({ ...ctrl, metaKey: true }), null, 'Cmd+Ctrl+O elsewhere');
+  for (const base of [cmd, ctrl]) {
+    assert.equal(switcherKey({ ...base, altKey: true }), null, 'Alt held');
+    assert.equal(switcherKey({ ...base, shiftKey: true }), null, 'Shift held');
+    assert.equal(switcherKey({ ...none, key: 'o', mac: base.mac }), null, 'a bare o');
+    assert.equal(switcherKey({ ...base, key: 'k' }), null, 'another key');
+    assert.equal(switcherKey({ ...base, key: ',' }), null, 'another key');
+    for (const flag of ['palette', 'settings', 'addProject', 'drawer', 'repeat'] as const) {
+      assert.equal(switcherKey({ ...base, [flag]: true }), 'block', `${flag} blocks`);
+    }
+    assert.equal(switcherKey({ ...base, composing: true }), null, 'composing');
+    assert.equal(switcherKey({ ...base, composing: true, palette: true, settings: true, addProject: true, drawer: true, repeat: true }), null, 'composing, whatever else is set');
+    assert.equal(switcherKey({ ...base, key: 'k', palette: true }), null, 'a blocked state is not the chord');
+  }
+});
+
+test('switcher shortcut labels', () => {
+  assert.equal(switcherShortcutLabel('MacIntel'), '⌘O');
+  assert.equal(switcherShortcutLabel('iPad'), '⌘O');
+  assert.equal(switcherShortcutLabel('Win32'), 'Ctrl O');
+  assert.equal(switcherShortcutLabel(''), 'Ctrl O');
+  assert.equal(switcherKeyShortcuts('MacIntel'), 'Meta+O');
+  assert.equal(switcherKeyShortcuts('Linux x86_64'), 'Control+O');
 });

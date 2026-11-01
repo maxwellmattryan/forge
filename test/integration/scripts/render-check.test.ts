@@ -71,11 +71,12 @@ describe('scripts/render-check.ts', () => {
       assert.deepEqual(of('machine'), registered);
       assert.deepEqual(of('switch'), ['could not switch to other-project in the project switcher']);
       assert.deepEqual(of('add'), ['could not choose Add project in the project switcher']);
+      assert.deepEqual(of('shortcut'), ['the chord did not open the sidebar switcher from #sidebar-command with the current project active']);
       // The fixture build has no login: its link neither signs in nor drops the key.
       assert.deepEqual(of('login'), ['the login link did not sign in and open #/p/repo/pipeline', 'the login key stayed in the URL']);
       // Nor does it show the signed-out banner, so the paste-into-an-open-page check stops at the first step.
       assert.deepEqual(of('relogin'), ['a page without the login cookie did not show the signed-out banner']);
-      assert.equal(result.checked, VIEW_IDS.length + 1 + 6);
+      assert.equal(result.checked, VIEW_IDS.length + 1 + 7);
       assert.equal(result.passed, 6);
       assert.equal(renderExitCode(result), 1);
     } finally {

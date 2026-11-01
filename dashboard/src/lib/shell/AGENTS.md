@@ -19,5 +19,5 @@ The frame around every page: the hash router, the sidebar's pages and rail, the 
 | `routes.ts` | The hash router: `#/overview` and `#/machine` (global pages, which keep the selected project) and `#/p/<project>/<view>`. |
 | `sidebar.ts` | The sidebar's width, its icon-only rail and the separator's keyboard rules, as plain functions node:test can pin. |
 | `statusbar.ts` | The status bar's pure half: its Foreman, Workers and Inbox indicators and their lamps, the facts strip's drop order, the model label, the connection state, the prompt announcement, and the rule of the sidebar's "New job or command" input. |
-| `switcher.ts` | The machine's registered projects as the project switcher, the Overview, the Machine page, the command bar and the Add project dialog show them. |
+| `switcher.ts` | The machine's registered projects as the project switcher, the Overview, the Machine page, the command bar and the Add project dialog show them, and the Cmd/Ctrl+O shortcut that opens the switcher. |
 <!-- forge:map:end -->

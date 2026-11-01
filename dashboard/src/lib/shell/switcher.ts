@@ -1,8 +1,9 @@
 // The machine's registered projects as the project switcher, the Overview, the Machine page, the command bar and the
-// Add project dialog show them.
+// Add project dialog show them, and the Cmd/Ctrl+O shortcut that opens the switcher.
 import type { MachineProjectSummary, ProjectsResponse } from '../core/types.ts';
 import { PROJECT_NAME_SOURCE } from '../core/types.ts';
 import type { SelectOption } from '../ui/select.ts';
+import { isMac } from './command.ts';
 import { switchHash, type Route } from './routes.ts';
 
 const PROJECT_NAME = new RegExp(PROJECT_NAME_SOURCE);
@@ -77,3 +78,46 @@ export function switcherChoice(value: string, current: string | null, route: Rou
 
 /** Whether `name` can stay selected: it is registered and its pages can be opened. */
 export const selectionOpenable = (entries: SwitcherEntry[], name: string): boolean => entries.some((e) => e.name === name && e.openable);
+
+export interface SwitcherKeyInput {
+  key: string;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  altKey: boolean;
+  shiftKey: boolean;
+  /** Apple platforms take Cmd+O, the rest Ctrl+O. */
+  mac: boolean;
+  /** The palette is open: it owns the keyboard. */
+  palette?: boolean;
+  /** Settings is open. */
+  settings?: boolean;
+  /** The Add project dialog is open. */
+  addProject?: boolean;
+  /** A job or issue drawer is open: the sidebar and the phone strip are inert under it. */
+  drawer?: boolean;
+  /** A held key's auto-repeat. */
+  repeat?: boolean;
+  /** Part of an IME composition. */
+  composing?: boolean;
+}
+
+/**
+ * `toggle` for Cmd+O (mac) or Ctrl+O (elsewhere): it opens or closes the visible switcher. `block` is the chord in a state
+ * where it does nothing but must still preventDefault (the browser's Open file): the palette, Settings, the Add project
+ * dialog or a drawer is open, or the key repeats. null is not the chord, and a composing key never is. A modified key types
+ * nothing, so it works from inside a form field too.
+ */
+export function switcherKey(e: SwitcherKeyInput): 'toggle' | 'block' | null {
+  if (e.composing) return null;
+  if (e.key.toLowerCase() !== 'o' || e.altKey || e.shiftKey) return null;
+  const chord = e.mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  if (!chord) return null;
+  if (e.palette || e.settings || e.addProject || e.drawer || e.repeat) return 'block';
+  return 'toggle';
+}
+
+/** The switcher shortcut as its title and the rail tooltip show it. */
+export const switcherShortcutLabel = (platform: string): string => (isMac(platform) ? '⌘O' : 'Ctrl O');
+
+/** The switcher shortcut for `aria-keyshortcuts`. */
+export const switcherKeyShortcuts = (platform: string): string => (isMac(platform) ? 'Meta+O' : 'Control+O');
