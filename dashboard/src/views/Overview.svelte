@@ -1,8 +1,9 @@
 <!-- Overview: one card per registered project from GET /api/projects (S.machine), what waits on you first; then the jobs
      shipped and cost per UTC day stacked by project (GET /api/projects/stats, S.overview, over the overviewWindow pref);
-     then the machine cap and today's and this month's spend. A card's name opens its Pipeline, and its waiting count
-     opens it on the Waiting filter (written to that project's filter pref before the navigation). A missing or
-     unavailable project is plain text with its chip. Job titles are job text and render as text. -->
+     then the machine cap (a meter while one is set, else the job sessions running) and today's and this month's spend.
+     A card's name opens its Pipeline, and its waiting count opens it on the Waiting filter (written to that project's
+     filter pref before the navigation). A missing or unavailable project is plain text with its chip. Job titles are job
+     text and render as text. -->
 <script lang="ts">
   import Banner from '../components/ui/feedback/Banner.svelte';
   import Chip from '../components/ui/Chip.svelte';
@@ -14,7 +15,7 @@
   import Select from '../components/ui/Select.svelte';
   import StackedBars from '../components/metrics/StackedBars.svelte';
   import { S, setOverviewWindow } from '../lib/core/app.svelte.ts';
-  import { OVERVIEW_WINDOWS, overviewCards, stackedSeries, type OverviewCard } from '../lib/metrics/overview.ts';
+  import { OVERVIEW_WINDOWS, machineMeter, overviewCards, stackedSeries, type OverviewCard } from '../lib/metrics/overview.ts';
   import { pref } from '../lib/settings/prefs.ts';
   import { ago, num, usd } from '../lib/core/util.ts';
   import { ticker } from '../lib/core/clock.svelte.ts';
@@ -26,8 +27,7 @@
   const spend = $derived(
     S.overview ? S.overview.projects.reduce((n, p) => ({ day: n.day + p.dayUsd, month: n.month + p.monthUsd }), { day: 0, month: 0 }) : null,
   );
-  const cap = $derived(S.machine?.machine ?? null);
-  const capPercent = $derived(cap && cap.maxConcurrent > 0 ? Math.min(100, Math.round((cap.live / cap.maxConcurrent) * 100)) : 0);
+  const meter = $derived(machineMeter(S.machine?.machine));
 
   const foremanText = (f: OverviewCard['foreman']): string =>
     f === 'none' ? $t('overview.foremanNone') : f === 'idle' ? $t('overview.foremanIdle') : f === 'busy' ? $t('overview.foremanBusy') : f === 'stopping' ? $t('overview.foremanStopping') : $t('overview.foremanOff');
@@ -112,10 +112,13 @@
     <div class="grid gap-4 md:grid-cols-3">
       <div class="flex flex-col gap-2 min-w-0">
         <span class="label">{$t('overview.machineCap')}</span>
-        {#if cap}
-          <span class="font-mono text-sm num">{$t('overview.machineLive', { live: cap.live, cap: cap.maxConcurrent })}</span>
-          <div class="track" role="meter" aria-label={$t('overview.machineMeter')} aria-valuemin={0} aria-valuemax={cap.maxConcurrent} aria-valuenow={cap.live} aria-valuetext={$t('overview.machineLive', { live: cap.live, cap: cap.maxConcurrent })}><div class="fill {capPercent >= 100 ? 'warn' : ''}" style="width:{capPercent}%"></div></div>
-          <span class="caption muted">{cap.source === 'auto' ? $t('machine.sourceAuto') : $t('machine.sourceSettings')}</span>
+        {#if meter && meter.cap !== null}
+          <span class="font-mono text-sm num">{$t('overview.machineLive', { live: meter.live, cap: meter.cap })}</span>
+          <div class="track" role="meter" aria-label={$t('overview.machineMeter')} aria-valuemin={0} aria-valuemax={meter.cap} aria-valuenow={meter.live} aria-valuetext={$t('overview.machineLive', { live: meter.live, cap: meter.cap })}><div class="fill {meter.percent >= 100 ? 'warn' : ''}" style="width:{meter.percent}%"></div></div>
+          <span class="caption muted">{$t('machine.sourceSettings')}</span>
+        {:else if meter}
+          <span class="font-mono text-sm num">{$t('overview.machineRunning', { live: meter.live })}</span>
+          <span class="caption muted">{$t('machine.sourceNone')}</span>
         {/if}
       </div>
       <div class="kpi p-0">

@@ -130,6 +130,28 @@ test('timedOutPrompts lists denied prompts newest first and tolerates an older s
   for (const none of [older, null, undefined, {}] as any[]) assert.deepEqual(timedOutPrompts(none), [], JSON.stringify(none));
 });
 
+test('a session waiting on the machine cap says so', () => {
+  const waiting = (waitingFor?: string | null) => ({ status: 'off', running: false, wanted: true, waiting: true, ...(waitingFor !== undefined ? { waitingFor } : {}) }) as any;
+  const machine = sessionPill(waiting('machine'));
+  assert.deepEqual([machine.label, machine.tone], ['waiting for machine cap', 'warn']);
+  assert.ok(machine.title.split('\n').includes('the machine cap is full: forge project settings --max-concurrent'));
+  for (const [name, s] of [['its own cap', waiting('project')], ['an older server', waiting()], ['a null reason', waiting(null)]] as const) {
+    const pill = sessionPill(s);
+    assert.deepEqual([pill.label, pill.tone], ['waiting for slot', 'warn'], name);
+    assert.ok(!pill.title.includes('machine cap'), name);
+  }
+
+  const pool = { enabled: true, wanted: true, maxConcurrent: 3, live: 1, lastError: null, foreman: false, permissionModes: {} };
+  const jobs = { 'a-job': waiting('machine'), 'b-job': waiting('project'), 'c-job': { status: 'idle', running: true, wanted: true } };
+  const held = poolModel({ ...pool, jobs, machine: { maxConcurrent: 2, live: 2 } } as any, { pending: false })!;
+  assert.deepEqual([held.machine, held.machineWaiting], [{ cap: 2, live: 2 }, ['a-job']]);
+  assert.deepEqual(held.jobs.map((j) => [j.id, j.pill.label]), [['c-job', 'idle'], ['b-job', 'waiting for slot'], ['a-job', 'waiting for machine cap']], 'the machine cap right after its own cap');
+  for (const m of [null, undefined, { maxConcurrent: null, live: 2 }, { maxConcurrent: 0, live: 1 }, { maxConcurrent: 1.5, live: 1 }, 'junk']) {
+    assert.equal(poolModel({ ...pool, jobs: {}, machine: m } as any, { pending: false })!.machine, null, JSON.stringify(m));
+  }
+  assert.deepEqual(poolModel({ ...pool, jobs: { 'b-job': waiting('project') } } as any, { pending: false })!.machineWaiting, []);
+});
+
 test('launchMode reads only the three modes', () => {
   for (const mode of ['default', 'auto', 'dontAsk']) assert.equal(launchMode({ launchPermissionMode: mode }), mode);
   for (const v of [{}, { launchPermissionMode: 'bypassPermissions' }, { launchPermissionMode: 1 }, { launchPermissionMode: null }, null, undefined]) assert.equal(launchMode(v), null, JSON.stringify(v));

@@ -46,6 +46,7 @@
   import { settingsKey, settingsKeyShortcuts, settingsShortcutLabel, type SettingsTabId } from './lib/settings/modal.ts';
   import { commandKey, isMac, shellEscape, shortcutAction, shortcutLabel } from './lib/shell/command.ts';
   import { closePalette, openPalette, palette } from './lib/shell/palette.svelte.ts';
+  import { switcherKey } from './lib/shell/switcher.ts';
   import { addProjectDialog, closeAddProject } from './lib/shell/add-project.svelte.ts';
   import { closePopover, popover } from './lib/ui/overlay/popover.svelte.ts';
   import { closeCard, ghCard } from './lib/ui/overlay/github-card.svelte.ts';
@@ -57,6 +58,9 @@
   let settingsStart = $state<SettingsTabId | undefined>();
   let settings = $state<ReturnType<typeof SettingsModal>>();
   let command = $state<ReturnType<typeof CommandBar>>();
+  // The sidebar's Nav and the phone strip's: Cmd/Ctrl+O toggles the visible one's project switcher.
+  let sideNav = $state<ReturnType<typeof Nav>>();
+  let phoneNav = $state<ReturnType<typeof Nav>>();
   // Focus goes back here when Settings closes (the palette keeps its own, in palette.svelte.ts).
   let settingsOpener: HTMLElement | null = null;
   const platform = typeof navigator === 'undefined' ? '' : navigator.platform;
@@ -205,6 +209,17 @@
       } else if (layer === 'drawer') closeDrawer();
       return;
     }
+    // Cmd/Ctrl+O opens the visible switcher (S.pane.md is the breakpoint that shows the sidebar's or the phone strip's).
+    // Blocked, it still cancels the browser's Open file.
+    const sw = switcherKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey, mac, palette: palette.open, settings: settingsOpen, addProject: addProjectDialog.open, drawer: S.drawer.open, repeat: e.repeat, composing: e.isComposing });
+    if (sw !== null) {
+      e.preventDefault();
+      if (sw === 'toggle') {
+        closePopover('external');
+        (S.pane.md ? sideNav : phoneNav)?.toggleSwitcher();
+      }
+      return;
+    }
     const action = settingsKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: settingsOpen || addProjectDialog.open, mac, palette: palette.open, repeat: e.repeat, composing: e.isComposing });
     if (action === 'open') {
       e.preventDefault();
@@ -287,7 +302,7 @@
       <kbd class="mono muted pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-[10px]" aria-hidden="true">{shortcut}</kbd>
       {/if}
     </span>
-    <nav id="nav" class="flex flex-col gap-1"><Nav {compact} /></nav>
+    <nav id="nav" class="flex flex-col gap-1"><Nav bind:this={sideNav} {compact} /></nav>
     <div class="mt-auto flex flex-col gap-2 pt-3">
       <div class="navlist {compact ? 'rail' : ''}"><button id="settings-open" aria-label={compact ? $t('settings.open') : undefined} aria-haspopup="dialog" aria-keyshortcuts={settingsKeyShortcuts(platform)} onclick={() => openSettings()} {@attach compact && railTipOn($t('settings.open'))}>{#if compact}<Icon name="settings" />{:else}<span class="lbl"><Icon name="settings" />{$t('settings.open')}</span><kbd class="mono muted text-[10px] normal-case" aria-hidden="true">{settingsShortcut}</kbd>{/if}</button></div>
     </div>
@@ -320,7 +335,7 @@
   <main class="falloff flex-1 min-w-0">
     <!-- The palette and settings buttons stay outside the scrolling nav, so they are always on screen. -->
     <header class="md:hidden flex items-center gap-1 border-b chrome border-line-strong pr-2" inert={covered}>
-      <nav id="mobile-nav" class="flex flex-1 min-w-0 items-center gap-1 overflow-x-auto p-2"><Nav mobile /></nav>
+      <nav id="mobile-nav" class="flex flex-1 min-w-0 items-center gap-1 overflow-x-auto p-2"><Nav bind:this={phoneNav} mobile /></nav>
       <button id="mobile-command" class="btn touch shrink-0 px-2.5! normal-case tracking-normal" aria-haspopup="dialog" onclick={(e) => openPalette({ opener: e.currentTarget })}><Icon name="command" /><span class="max-sm:sr-only">{$t('command.open')}</span></button>
       <button bind:this={settingsMobile} id="settings-open-mobile" class="btn icon touch shrink-0" aria-label={$t('settings.open')} aria-haspopup="dialog" onclick={() => openSettings()}><Icon name="settings" /></button>
     </header>

@@ -149,6 +149,8 @@ export interface BarModel {
   prompts: number;
   held: number;
   waiting: number;
+  /** Of those waiting, the job sessions the explicit machine cap holds; 0 while the daemon is off. */
+  machineWaiting: number;
 }
 
 /** The left cluster, built only from poolModel, activeSessions and pendingPrompts, so the bar and the board agree. */
@@ -164,6 +166,7 @@ export function barModel(pool: PoolInput, opts: { pending: boolean }): BarModel 
     prompts,
     held: m ? m.held.length : 0,
     waiting: m ? m.waiting.length : 0,
+    machineWaiting: m ? m.machineWaiting.length : 0,
   };
 }
 

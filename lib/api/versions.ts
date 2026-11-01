@@ -143,6 +143,9 @@ export const API_CHANGES = [
   // WaitingOn `overlap` (a mandate's merge queue holds the merge); MandateRow.mergeQueue (MergeQueue, MergeQueueEntry):
   // the mandate's open PRs ranked within each overlap group, with the merge-now and unchecked ones.
   { id: 'merge-queue' },
+  // Per-project pools: DaemonSessionState.waitingFor ('project' | 'machine' | null); DaemonPoolState.machine is null
+  // without an explicit machine cap; ProjectsResponse.machine.maxConcurrent is number | null and .source is gone.
+  { id: 'pool-per-project' },
   // VerifyRun.partial (true, optional) and VerifyRun.durationMs (number, optional): `forge verify --fast`'s partial run
   // and the call's wall time; `cancelled` is a new AgentRow.status and runs[].status (a lens run a late verify failure voided).
   { id: 'partial-verify' },

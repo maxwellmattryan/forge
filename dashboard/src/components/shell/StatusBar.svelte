@@ -112,6 +112,8 @@
       bar.daemon.off ? $t('statusbar.workers.daemonOff') : `${$t('statusbar.workers.name')} · ${bar.daemon.pill.label}`,
       $t('daemon.live', { live: bar.daemon.off ? 0 : bar.daemon.live, cap: bar.daemon.cap }),
       ...(holdsOut ? [holdText] : []),
+      // Another project's sessions fill the machine cap: the tooltip says so, so the project's own live/cap isn't read as room.
+      ...(bar.machineWaiting > 0 ? [$t('daemon.machineWaiting', { count: bar.machineWaiting })] : []),
     ].join(' · '),
     inbox: bar.inbox.off ? $t('statusbar.inbox.daemonOff') : `${$t('statusbar.inbox.title')} · ${bar.inbox.pill.label}`,
     needs: $t('statusbar.needs.name'),

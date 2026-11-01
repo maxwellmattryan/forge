@@ -281,7 +281,7 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     refresh,
     summaries: (): ProjectsResponse => ({
       error,
-      machine: { maxConcurrent: machine.slots.cap(), source: setting === null ? 'auto' : 'settings', live: machine.slots.live(), launchPermissionMode: opts.daemon?.launchPermissionMode ?? null },
+      machine: { maxConcurrent: machine.slots.cap(), live: machine.slots.live(), launchPermissionMode: opts.daemon?.launchPermissionMode ?? null },
       projects: statuses.map(summary),
     }),
     onProject(fn) {

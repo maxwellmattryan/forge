@@ -175,14 +175,11 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   overlay = intake.state;
   // Shared sessions (inbox, chats) are never job sessions: never counted against a cap, never pruned.
   const jobSessions = () => [...sessions.values()].filter((s) => !shared(s.scope));
-  /** The oldest request the machine cap held at the last tick, below this pool's own cap (lib/office/slots.ts). */
-  let heldOldest: string | null = null;
+  /** The last tick held a waiter below this pool's own cap because of the machine cap (lib/office/slots.ts). */
+  let machineHeld = false;
   const member: SlotMember = {
     live: () => jobSessions().filter((s) => s.running).length,
-    maxConcurrent: () => maxConcurrent,
-    oldestWaiting: () => (wanted && !closed && member.live() < maxConcurrent ? heldOldest : null),
-    idle: () => jobSessions().filter((s) => s.status === 'idle' && s.keptBy() === null).map((s) => ({ lastResultAt: s.lastResultAt, stop: () => void s.kill('idle-stop', true, 'slot') })),
-    stopping: () => jobSessions().filter((s) => s.status === 'stopping').length,
+    held: () => wanted && !closed && machineHeld,
     poke: () => tick(),
   };
   const leave = slots?.join(member) ?? null;
@@ -276,8 +273,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   }
 
   function tick(): void {
-    // First: a tick that throws below (a broken config.yml) spawns nothing, so it must hold no other project's waiter.
-    heldOldest = null;
+    // First: a tick that throws below (a broken config.yml) holds no waiter, so a freed machine slot never pokes it.
+    machineHeld = false;
     if (!wanted || closed) return;
     try {
       const c = config();
@@ -316,31 +313,27 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       officeRuns.take(c, foreman ? (groups.get(OFFICE_SCOPE) ?? []) : []);
       intake.take(c, handled);
       if (!wanted) return;
-      // Slots go to the job whose oldest pending request is oldest (request ids sort by time).
+      // This pool's slots go to its job whose oldest pending request is oldest (request ids sort by time); other projects' waiters never count.
       waiters.sort((a, b) => a.oldest.localeCompare(b.oldest));
       let live = jobSessions().filter((s) => s.running).length;
-      let held = 0;
       for (const w of waiters) {
         if (!wanted) return;
-        if (live < maxConcurrent && (!slots || slots.mayTake(member, w.oldest))) {
-          if (startWork(w.s, c, 'work', w.eligible)) live++;
-        } else {
-          w.s.setWaiting(true);
-          // Below this pool's own cap, only the machine cap holds it.
-          if (live < maxConcurrent && held++ === 0) heldOldest = w.oldest;
-        }
+        if (live >= maxConcurrent) w.s.setWaiting(true);
+        else if (slots && !slots.mayTake(member)) {
+          // Below this pool's own cap, only the explicit machine cap holds it.
+          w.s.setWaiting(true, slots.cap());
+          machineHeld = true;
+        } else if (startWork(w.s, c, 'work', w.eligible)) live++;
       }
       for (const s of jobSessions()) if (s.running) s.refreshKept();
-      // Each waiting job gets the slot of an idle session (oldest result first), unless one is already being freed.
-      // A session whose job has agents running keeps its slot.
+      // Each waiting job gets the slot of an idle session in this project (oldest result first), unless one is already being freed.
+      // A session whose job has agents running keeps its slot, and another project's session is never stopped.
       const short = waiters.filter((w) => w.s.waiting).length - jobSessions().filter((s) => s.status === 'stopping').length;
       if (short > 0) {
         const idle = jobSessions()
           .filter((s) => s.status === 'idle' && s.keptBy() === null)
           .sort((a, b) => (a.lastResultAt ?? '').localeCompare(b.lastResultAt ?? ''));
         for (const s of idle.slice(0, short)) void s.kill('idle-stop', true, 'slot');
-        // Still short while the machine cap holds a waiter: an idle session in another project makes room.
-        if (slots && held && short > idle.length) slots.reclaim(member, Math.min(held, short - idle.length));
       }
       prune(groups);
     } catch (e) {
@@ -409,6 +402,8 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
   function state(): PoolState {
     const jobs: Record<string, DaemonSessionState> = {};
     for (const s of jobSessions().sort((a, b) => (a.scope < b.scope ? -1 : 1))) if (listed(s)) jobs[s.scope] = s.state();
+    // Only an explicit machine cap is shown: without one, each project runs up to its own maxConcurrent.
+    const cap = slots?.cap() ?? null;
     return {
       enabled,
       wanted,
@@ -421,7 +416,7 @@ export function createPool(root: string, opts: PoolOptions = {}): DaemonPool {
       gates: gates.state(),
       jobs,
       ...modes.state(),
-      machine: slots ? { maxConcurrent: slots.cap(), live: slots.live() } : null,
+      machine: slots && cap !== null ? { maxConcurrent: cap, live: slots.live() } : null,
     };
   }
 

@@ -324,7 +324,7 @@ test('run and sync reach their outcome through real forge children', async (t) =
   assert.equal(loadConfig(root).config.tracker.kind, 'local');
   // A full machine cap, so the job's resume waits and no job session spawns: this test is about the inbox alone.
   const slots = createMachineSlots(() => 1);
-  slots.join({ live: () => 1, maxConcurrent: () => 1, oldestWaiting: () => null, idle: () => [], stopping: () => 0, poke() {} });
+  slots.join({ live: () => 1, held: () => false, poke() {} });
   const fake = fakeClaude();
   const pool = poolFor(t, root, { claude: fake.adapter, slots });
   const ref = slugify('Add a status flag', 8);

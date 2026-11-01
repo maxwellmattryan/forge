@@ -14,6 +14,12 @@
 
   let { mobile = false, compact = false }: { mobile?: boolean; compact?: boolean } = $props();
   const project = $derived(S.selected);
+  // Each Nav renders one ProjectSwitcher, in its mobile, compact or default branch.
+  let switcher = $state<ReturnType<typeof ProjectSwitcher>>();
+  /** The Cmd/Ctrl+O shortcut, from App's key handler: this Nav's switcher opens or closes. */
+  export function toggleSwitcher(): void {
+    switcher?.toggle();
+  }
   const counts = $derived(navCounts(S.data?.jobs ?? []));
   const labels = $derived<Record<GlobalViewId | ViewId, string>>({
     overview: $t('nav.overview'),
@@ -63,13 +69,13 @@
 {#if mobile}
   {@render globals()}
   <span class="h-6 shrink-0 border-l border-line-strong" aria-hidden="true"></span>
-  <ProjectSwitcher variant="phone" />
+  <ProjectSwitcher bind:this={switcher} variant="phone" />
   {#if project}{@render views(project)}{/if}
 {:else if compact}
   <div class="navlist-marks slide-marker flex flex-col gap-1" {@attach marker}>
     {@render globals()}
     <div class="mx-2 my-1.5 border-t border-line-strong" aria-hidden="true"></div>
-    <div class="navlist rail"><ProjectSwitcher variant="rail" /></div>
+    <div class="navlist rail"><ProjectSwitcher bind:this={switcher} variant="rail" /></div>
     {#if project}{@render views(project)}{/if}
   </div>
 {:else}
@@ -80,7 +86,7 @@
   </div>
   <div role="group" aria-labelledby="project-switcher-label" class="mt-3 flex flex-col gap-1.5">
     <div id="project-switcher-label" class="label px-2.5">{$t('switcher.label')}</div>
-    <ProjectSwitcher variant="field" labelledby="project-switcher-label" />
+    <ProjectSwitcher bind:this={switcher} variant="field" labelledby="project-switcher-label" />
     {#if project}<div class="mt-1">{@render views(project)}</div>{/if}
   </div>
   </div>

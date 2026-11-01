@@ -27,6 +27,7 @@
     "machineCap": "Machine cap",
     "machineLive": "{live} of {cap} job sessions running",
     "machineMeter": "Job sessions against the machine cap",
+    "machineRunning": "{live} job sessions running",
     "spendToday": "Spent today",
     "spendMonth": "Spent this month",
     "spendSub": "Across loaded projects, UTC",

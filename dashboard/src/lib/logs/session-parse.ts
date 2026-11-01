@@ -13,7 +13,7 @@ export interface Entry {
 export const PREVIEW_CHARS = 300;
 export const LONG_TEXT = 2000;
 const SUMMARY_CHARS = 120;
-const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision', 'mode', 'roles', 'level', 'source'];
+const SUPERVISOR_KEYS = ['message', 'pid', 'sessionId', 'requests', 'held', 'jobs', 'code', 'signal', 'reason', 'state', 'maxConcurrent', 'bytes', 'from', 'to', 'tool', 'decision', 'mode', 'roles', 'level', 'source', 'cap'];
 /** The tools that start a subagent, whose lines nest under the call. */
 export const AGENT_TOOLS = new Set(['Agent', 'Task']);
 /**
