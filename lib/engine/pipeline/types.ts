@@ -24,7 +24,7 @@ export interface StepSpawn extends StepBase {
   round: number;
   output?: string;
   retry?: true;
-  /** The session the run continues: N2's and IG10b's answered agent, or a rework spawn's role's last run (reworkResume). */
+  /** The session the run continues: N2's, IG7c's and IG10b's answered agent, or a rework spawn's role's last run (reworkResume). */
   resume?: string;
   /** Why a rework spawn of a role that ran before does not resume (reworkResume in step/facts.ts); absent on a role's first run. */
   resumeSkipped?: ResumeSkip;

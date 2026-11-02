@@ -2,7 +2,7 @@
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
 import path from 'node:path';
 import { backingLine } from '../environment/backing.ts';
-import { autoMerge, lensNeedsApp, resolveEffort } from '#core/config/load.ts';
+import { autoMerge, lensNeedsApp, resolveEffort, verifySteps } from '#core/config/load.ts';
 import { jobDir, reviewDir } from '#core/job/store.ts';
 import { memberEntry, memberRepos } from '../project/job-repos.ts';
 import { downstreamMembers } from '../project/downstream.ts';
@@ -201,8 +201,8 @@ export interface RoleContext {
   rework?: ('review' | 'verify' | 'verifiers' | 'pr-feedback' | 'feedback' | 'answer')[];
   /** Absolute paths of the previous round's non-PASS review files. */
   reworkReviews?: string[];
-  /** The integration: conflicted files from the integrate-conflicts event, the generated ones Forge rebuilds, and whether this is the fix pass. */
-  integration?: { conflicts: string[]; regenerated?: string[]; fix?: boolean };
+  /** The integration: conflicted files from the integrate-conflicts event, the generated ones Forge rebuilds, and whether this is the review's fix pass, or the check a failed verify's fix pass answers. */
+  integration?: { conflicts: string[]; regenerated?: string[]; fix?: boolean; verifyFailed?: string };
   strategy?: string;
   /** The verifier agent: how many verifiers the pending run selected. */
   verifiers?: number;
@@ -404,13 +404,16 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
     case 'integrator':
       return out(
         [p('build')],
-        [p('spec'), p('build'), ...(ctx.integration?.fix ? [p('integrationReview')] : []), ...(ctx.answered ? [p('questions')] : [])],
+        [p('spec'), p('build'), ...(ctx.integration?.fix ? [p('integrationReview')] : []), ...(ctx.integration?.verifyFailed ? [p('verify')] : []), ...(ctx.answered ? [p('questions')] : [])],
         [
           `Strategy: ${ctx.strategy ?? 'merge'}`,
           `Conflicts: ${JSON.stringify(ctx.integration?.conflicts ?? [])}`,
+          // Every verify step that runs a command, so the integrator's own run finds what verify would.
+          `Checks: ${JSON.stringify(verifySteps(c.verify).filter((s) => c.commands[s]))}`,
           // JSON for the same reason as Conflicts: a file name must not start a line of the brief.
           ...(ctx.integration?.regenerated?.length ? [`Regenerated: ${JSON.stringify(ctx.integration.regenerated)} (Forge rebuilds these at --continue; don't hand-merge them)`] : []),
           ...(ctx.integration?.fix ? [`Integration review: ${p('integrationReview')}`] : []),
+          ...(ctx.integration?.verifyFailed ? [`Verify failed: ${ctx.integration.verifyFailed} · report ${p('verify')}`] : []),
         ],
       );
     case 'verifier':
@@ -507,6 +510,16 @@ function promptTimeoutLines(gate: GateClass, reason: unknown, dir: string): stri
 }
 
 /**
+ * The `Integration verify` line at IG7b's park: the head verify failed on, which no earlier file describes. A
+ * checked sha only: job.json is agent-writable, and the reason may be anything.
+ */
+function integrationParkLines(gate: GateClass, job: Job): string[] {
+  const sha = lastRun(job)?.sha;
+  if (gate !== 'escalation' || job.stage !== 'integrate' || !String(job.reason ?? '').startsWith('integration: verify') || typeof sha !== 'string' || !/^[0-9a-f]{7,64}$/.test(sha)) return [];
+  return [`Integration verify: failed on merge ${sha.slice(0, 12)}, not yet pushed; decision.md and the reviews describe the head before that merge`];
+}
+
+/**
  * The forge:assistant brief a gate run writes to its child's stdin (lib/office/foreman/decide.ts gateAssist,
  * and `forge job assist` for a person): paths, the gate class and the reserved list, never file contents.
  * Reads nothing: every path is listed whether or not it exists, and the assistant skips the missing. A senior
@@ -562,6 +575,7 @@ export function assistantBrief(
       : []),
     releaseGateLine(config, job, events),
     ...(gate === 'escalation' ? [gateReasonsLine(events, events.findLastIndex((e) => e.type === 'round'))] : []),
+    ...integrationParkLines(gate, job),
     ...(security ? [`Security review: ${security}. Approving is refused while it stands: security always has to pass, so rework or revise to fix the findings.`] : []),
     ...promptTimeoutLines(gate, job.reason, dir),
     ...(repos ? [repos] : []),
