@@ -98,10 +98,10 @@ function builderRework(x: StepInput): NonNullable<RoleContext['rework']> {
 }
 
 /**
- * A spawn of `role` with the context its stage implies. `resume`: N2's and IG10b's answered agent. `rework`: B4 and the
+ * A spawn of `role` with the context its stage implies. `resume`: N2's, IG7c's and IG10b's answered agent. `rework`: B4 and the
  * review panel, which continue the role's last session when reworkResume allows it, or carry why not.
  */
-export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; rework?: boolean; retry?: boolean; retryLine?: string; answered?: boolean } = {}): StepSpawn {
+export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: boolean; rework?: boolean; retry?: boolean; retryLine?: string; answered?: boolean; verifyFailed?: string } = {}): StepSpawn {
   const j = x.job;
   const base = role.split(':')[0];
   const lens = base === 'reviewer' ? role.slice('reviewer:'.length) : undefined;
@@ -130,9 +130,9 @@ export function spawn(x: StepInput, rule: RuleId, role: string, o: { resume?: bo
     ctx.verifiers = Array.isArray(sel) ? sel.length : 0;
   }
   if (base === 'integrator') {
-    // The fix pass: an integration review of this episode's resolution asked for changes.
+    // The fix pass: an integration review of this episode's resolution asked for changes, or (verifyFailed) verify failed on it.
     const reviewAt = lastIdx(x, (e) => e.type === 'integration-review');
-    ctx.integration = { conflicts: conflictFiles, regenerated, fix: reviewAt >= 0 && x.events[reviewAt].outcome === 'CHANGES' && afterIdx(reviewAt, orNull(conflictsAt)) };
+    ctx.integration = { conflicts: conflictFiles, regenerated, fix: !o.verifyFailed && reviewAt >= 0 && x.events[reviewAt].outcome === 'CHANGES' && afterIdx(reviewAt, orNull(conflictsAt)), verifyFailed: o.verifyFailed };
     ctx.strategy = x.config.pr.updateStrategy;
   }
   const model = resolveModel(x.config, x.job, role, ctx.rework ?? []);

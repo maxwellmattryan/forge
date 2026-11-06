@@ -91,6 +91,8 @@ function gateLine(x: StepInput, waitingOn: WaitingOn): string {
       // The escalation park names the file behind each rule it lists; any other escalation keeps its stage's file.
       const held = reason.startsWith(PUSH_HELD_PREFIX);
       const rules = reason.startsWith(held ? `${PUSH_HELD_PREFIX}${ESCALATION_PREFIX}` : ESCALATION_PREFIX) ? parseEscalationReason(reason) : [];
+      // Approving here decides again, and the new merge goes back through review: it fixes no check.
+      if (reason.startsWith('integration: verify')) return `${id} escalated (${reason}): see ${p(x, 'verify')}. /forge rework ${id} <note> has the builder fix it; /forge approve ${id} only sends the unpushed merge through decide and review, which fixes no check`;
       if (!rules.length) return `${id} escalated (${reason}): see ${escalationFile(x)}. /forge approve ${id} or /forge rework ${id} <note>`;
       const files = [...new Set(rules.map((r) => ruleFile(x, r)).filter((f): f is string => f !== null))];
       const pushed = held ? ' The push is held: nothing has left this machine.' : '';

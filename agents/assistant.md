@@ -43,6 +43,8 @@ Approve when `plan.md`'s child jobs are independent enough to ship one at a time
 ## escalation
 Read `decision.md` (its `## Why` and `## For the human`), the latest review files and `verify`. Approve only when what is left is cosmetic (naming, wording, a nit) and the acceptance criteria hold. `rework` when the remaining findings are concrete code fixes within the spec. `revise` when the spec itself is wrong. Anything about risk, policy or an `alwaysEscalate` class: `escalate`. The reason lists every rule the job waits on, and the brief's `Gate reasons` line their details: approving accepts every one of them, so approve only when you accept each.
 
+When the reason starts `integration: verify`, verify failed on the merge that resolved the job's conflicts, and the integrator's fix pass (when the reason names one) did not clear it. The brief's `Integration verify:` line names that merge: `verify` describes it, while `decision.md` and the reviews describe the head before it, so a pass there is older, not a contradiction, and an acceptance criterion a person accepted there still stands. Never approve this park: it sends the merge through decide and review, which fixes no check. `rework` when the report names a concrete fix within the spec, with the check and the file in `feedback.md`. `escalate` when the report points at the base branch or a flaky test.
+
 ## rounds-exhausted
 As for escalation: approve when the open findings are cosmetic, `rework` when one more round would clear concrete, in-scope findings, otherwise `escalate`. Past the total-round ceiling (the reason names it) the foreman is refused whatever you answer: `escalate` and leave it to a human. The same holds on a PR whose reason starts `CI rework cap:`.
 

@@ -36,6 +36,16 @@ test('approver and assistant briefs carry the gate reasons', () => {
   assert.deepEqual(lines('spec-approval', [gateEv()]), [], 'no line at another gate');
 });
 
+test('the assistant brief names the merge an integration verify failed on', () => {
+  const SHA = 'a'.repeat(40);
+  const lines = (over: Record<string, unknown>) =>
+    assistantBrief(ROOT, defaults(), normalizeJob({ id: 'j', title: 'T', stage: 'integrate', state: 'waiting', waitingOn: 'escalation', reason: 'integration: verify failed on lint after conflict resolution', round: 1, verifyRuns: [{ round: 1, attempt: 1, sha: SHA, ok: false, at: 't', file: 'f', failure: 'lint' }], ...over }), 'escalation', [], []).split('\n').filter((l) => l.startsWith('Integration verify:'));
+  assert.ok(lines({})[0].includes(SHA.slice(0, 12)));
+  assert.deepEqual(lines({ reason: 'integration review: CHANGES' }), [], 'not at another integrate park');
+  assert.deepEqual(lines({ stage: 'build' }), [], 'not once the job left integrate');
+  assert.deepEqual(lines({ verifyRuns: [{ round: 1, attempt: 1, sha: '$(id)\nx', ok: false, at: 't', file: 'f', failure: 'lint' }] }), [], 'an agent-written sha never reaches the brief');
+});
+
 test('withPrefixLine swaps or inserts the prefix line', () => {
   const head = ['Job id: j', 'Role: reviewer · lens code', 'Round: 1', 'Output: /x/review/code.md', 'Effort: high'];
   const tail = ['Lens: code', 'Checklist: /x/reviewers/code.md', REPLY_LINE];

@@ -4,9 +4,9 @@ import { generatedConfig } from '../../../workspace/regenerate.ts';
 import { inSpec } from '#core/glob.ts';
 import type { JobAgent, JobEvent, VerifyRun } from '#core/types.ts';
 import type { StepInput } from '../../types.ts';
-import { park, run, set, spawn, toStage } from '../actions.ts';
-import { after, afterIdx, agent, approvedSinceReview, isPrRework, lastEvent, lastIdx, p } from '../facts.ts';
-import type { Facts } from '../facts.ts';
+import { park, run, safe, set, spawn, toStage } from '../actions.ts';
+import { after, afterIdx, agent, approvedSinceReview, isPrRework, lastEvent, lastIdx, p, stageOf } from '../facts.ts';
+import type { Approval, Facts } from '../facts.ts';
 import { missingOutputRows, needsInputRows } from '../generic.ts';
 import { lastRun, roundRuns, runsSince } from '../../../verify/record.ts';
 import { inStage } from '../rules.ts';
@@ -114,6 +114,30 @@ const behind = (c: IntegrateCtx) => integrated(c) && Number(c.first!.behind) > 0
 const unreviewed = (c: IntegrateCtx) => !after(c.reviewer?.startedAt, c.integrator?.endedAt);
 const malformed = (c: IntegrateCtx) => !c.fresh && c.x.verdicts.integration?.reviewers.code?.verdict === 'MALFORMED';
 const skipped = (c: IntegrateCtx) => (c.first ? integrationReviewSkippable(c.x, c.first) : 0);
+/** The last verify since the integrator ended failed. */
+const failedChecks = (c: IntegrateCtx) => !c.checks.at(-1)!.ok;
+/** The check it failed on: a step name, but job.json is agent-writable and this reaches a command. */
+const failedCheck = (c: IntegrateCtx) => safe(c.checks.at(-1)!.failure, /^[A-Za-z0-9._:-]{1,64}$/, 'a check');
+/** A person decides these: a secret, an inactive link or a weakened check is never the integrator's to clear. */
+const NOT_THE_INTEGRATORS = ['secrets', 'links', 'integrity'];
+const integratorStarts = ({ x, at }: IntegrateCtx) => x.events.filter((e, i) => i > at && e.type === 'agent-start' && e.role === 'integrator');
+/** The integrator's starts that answered a failed verify: the last verify run before the start failed. */
+const verifyFixes = (c: IntegrateCtx) => integratorStarts(c).filter((e) => c.merged.findLast((r) => after(e.ts, r.at))?.ok === false);
+/** A decision that lets the integrator resolve conflicts: GA4's actions, at a conflicts park. */
+const answersConflicts = (d: Approval | undefined) => Boolean(d) && ['approve', 'rework'].includes(String(d!.e.action)) && d!.park.state === 'waiting' && d!.park.waitingOn === 'conflicts';
+/**
+ * A person let the integrator resolve this episode's conflicts: an approve or a conflicts answer since
+ * they showed up, or the answer that moved the job here from a conflicts park in another stage (GA4),
+ * which IG1's `forge integrate` logs its conflicts after.
+ */
+function conflictsAnswered({ x, f, at }: IntegrateCtx): boolean {
+  if (afterIdx(lastIdx(x, (e) => e.type === 'human' && e.action === 'approve'), at)) return true;
+  if (f.decisions.some((d) => d.i > at && answersConflicts(d))) return true;
+  const entry = f.stageEntry;
+  if (!entry || stageOf(x.events[entry.i].from).waitingOn !== 'conflicts') return false;
+  const parkAt = x.events.findLastIndex((e, i) => i < entry.i && e.type === 'transition');
+  return answersConflicts(f.decisions.findLast((d) => d.i < entry.i && d.parkAt === parkAt));
+}
 /** The why for a move on to `next`. */
 const onward = (c: IntegrateCtx, what: string) => `${what}: ${c.next === 'pr' ? 'open the PR' : 'the approver decides'}`;
 
@@ -128,14 +152,25 @@ export const INTEGRATE: Table<IntegrateCtx> = {
     { id: 'IG3', when: integrated, then: (c) => toStage(c.x, 'IG3', c.next, onward(c, 'the branch is up to date')) },
     {
       id: 'IG4',
-      when: ({ x, at }) => x.config.pr.conflicts === 'ask' && !afterIdx(lastIdx(x, (e) => e.type === 'human' && e.action === 'approve'), at),
+      when: (c) => c.x.config.pr.conflicts === 'ask' && !conflictsAnswered(c),
       then: ({ x, first }) => set(x, 'IG4', { state: 'waiting', waitingOn: 'conflicts', reason: `conflicts with base: ${Array.isArray(first!.conflicts) ? first!.conflicts.length : 0} files` }, 'a human decides how to resolve conflicts'),
     },
     { id: 'IG5', when: ({ x }) => x.config.pr.conflicts === 'defer', then: (c) => toStage(c.x, 'IG5', c.next, onward(c, 'conflicts deferred by pr.conflicts'), { note: 'conflicts with base deferred' }) },
     { id: 'IG6', when: ({ integrator, first }) => !integrator || !after(integrator.startedAt, first!.ts), then: ({ x }) => spawn(x, 'IG6', 'integrator') },
     needsInputRows('integrator'),
     { id: 'IG7', when: (c) => !c.checks.length, then: ({ x }) => run(x, 'IG7', ['verify', x.job.id], 'verify the conflict resolution') },
-    { id: 'IG7b', when: (c) => !c.checks.at(-1)!.ok, then: ({ x }) => park(x, 'IG7b', 'escalation', 'integration: verify failed after conflict resolution') },
+    // One fix pass per episode: a merge often breaks something mechanical (a formatter's line width), and a
+    // failure inherited from the base or a flaky one still reaches a person when the next verify fails too.
+    {
+      id: 'IG7c',
+      when: (c) => failedChecks(c) && !NOT_THE_INTEGRATORS.includes(String(c.checks.at(-1)!.failure)) && !verifyFixes(c).length,
+      then: (c) => spawn(c.x, 'IG7c', 'integrator', { resume: true, verifyFailed: failedCheck(c) }),
+    },
+    {
+      id: 'IG7b',
+      when: failedChecks,
+      then: (c) => park(c.x, 'IG7b', 'escalation', verifyFixes(c).length ? `integration: verify still fails on ${failedCheck(c)} after a fix pass` : `integration: verify failed on ${failedCheck(c)} after conflict resolution`),
+    },
     // The note carries only a count: conflicted names are untrusted and never reach the command.
     {
       id: 'IG11',
@@ -152,10 +187,10 @@ export const INTEGRATE: Table<IntegrateCtx> = {
     { id: 'IG13', when: malformed, then: ({ x }) => run(x, 'IG13', ['job', 'verdicts', x.job.id, '--round', 'integration', '--compact', '--malformed', 'changes'], 'the integration review failed the format twice: count it as CHANGES') },
     { id: 'IG9', when: (c) => !c.fresh, then: ({ x }) => run(x, 'IG9', ['job', 'verdicts', x.job.id, '--round', 'integration', '--compact'], 'record the integration review') },
     { id: 'IG10', when: (c) => c.fresh?.outcome === 'PASS', then: (c) => toStage(c.x, 'IG10', c.next, onward(c, 'the integration review passed')) },
-    // One fix pass: the integrator ran once this episode.
+    // One fix pass: the integrator ran once this episode, leaving aside a run that fixed a failed verify (IG7c).
     {
       id: 'IG10b',
-      when: ({ x, at }) => x.events.filter((e, i) => i > at && e.type === 'agent-start' && e.role === 'integrator').length === 1,
+      when: (c) => integratorStarts(c).length - verifyFixes(c).length === 1,
       then: ({ x }) => spawn(x, 'IG10b', 'integrator', { resume: true }),
     },
     { id: 'IG10c', when: () => true, then: ({ x }) => park(x, 'IG10c', 'escalation', 'integration review: CHANGES') },
