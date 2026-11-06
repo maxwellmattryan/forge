@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { tempRepo } from '../../helpers.ts';
-import { check, parseChanges, pickBase, RULES } from '../../../scripts/check-touchpoints.ts';
+import { check, DOC_ALLOWLIST_FILE, parseChanges, pickBase, RULES } from '../../../scripts/check-touchpoints.ts';
 import type { Change } from '../../../scripts/check-touchpoints.ts';
 
 const SCRIPT = path.resolve(import.meta.dirname, '..', '..', '..', 'scripts', 'check-touchpoints.ts');
@@ -21,6 +21,9 @@ const DEPRECATE = (key: string) => ch('lib/core/config/validators/deprecations.t
 const MOVED_TYPE =['/** A job row. */', 'export interface Row {', '  id: string;', '}'];
 const MOVED_FN = ['export function notes(x: string): string {', '  return x.trim();', '}'];
 const PIN = (sha: string, v: string) => `      - uses: actions/checkout@${sha} # ${v}`;
+const ALLOW = DOC_ALLOWLIST_FILE;
+const ENTRY = (file: string, words?: number, topic?: number, reason = '#694: x') =>
+  `  '${file}': { ${words === undefined ? '' : `words: ${words}, `}${topic === undefined ? '' : `topic: ${topic}, `}reason: '${reason}' },`;
 
 // [what, rule id, changes, whether that rule reports a finding]
 const ROWS: [string, string, Change[], boolean][] = [
@@ -63,6 +66,19 @@ const ROWS: [string, string, Change[], boolean][] = [
   ['a tracker contract change', 'tracker-docs', [ch('lib/api/tracker.ts', ['  close(id: string): Promise<void>;'])], true],
   ['a tracker contract change with docs/TRACKERS.md', 'tracker-docs', [ch('lib/api/tracker.ts', ['  close(id: string): Promise<void>;']), ch('docs/TRACKERS.md', ['- close'])], false],
   ['a comment-only tracker edit', 'tracker-docs', [ch('lib/api/tracker.ts', ['// adapters read this'], ['// adapters use this'])], false],
+  ['a new doc-size allowlist entry', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/NEW.md', 300)])], true],
+  ['a raised words pin', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/A.md', 301)], [ENTRY('docs/A.md', 300)])], true],
+  ['a raised topic pin', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/architecture/t.md', 300, 7001)], [ENTRY('docs/architecture/t.md', 300, 7000)])], true],
+  ['a pin field added to an entry', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/architecture/t.md', 300, 7000)], [ENTRY('docs/architecture/t.md', undefined, 7000)])], true],
+  ['a spread into the allowlist', 'doc-size-allowlist', [ch(ALLOW, ['  ...MORE,'])], true],
+  ['an entry re-split across lines', 'doc-size-allowlist', [ch(ALLOW, ["  'docs/A.md': {", '    words: 900,', "    reason: '#694: x',", '  },'], [ENTRY('docs/A.md', 300)])], true],
+  ['an allowlist entry under a renamed file', 'doc-size-allowlist', [{ path: 'test/invariants/doc-size-list.ts', from: ALLOW, status: 'R', added: [ENTRY('docs/NEW.md', 300)], removed: [] }], true],
+  ['a lowered pin', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/architecture/t.md', 250, 6500)], [ENTRY('docs/architecture/t.md', 300, 7000)])], false],
+  ['a removed entry', 'doc-size-allowlist', [ch(ALLOW, [], [ENTRY('docs/A.md', 300)])], false],
+  ['a dropped pin field', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/architecture/t.md', undefined, 7000)], [ENTRY('docs/architecture/t.md', 300, 7000)])], false],
+  ['a reworded reason', 'doc-size-allowlist', [ch(ALLOW, [ENTRY('docs/A.md', 300, undefined, "#694: it\\'s generated")], [ENTRY('docs/A.md', 300)])], false],
+  ['an allowlist comment edit', 'doc-size-allowlist', [ch(ALLOW, ['// Pins only shrink.', ' * new note'], ['// Pins shrink.', ' * old note'])], false],
+  ['the allowlist created whole', 'doc-size-allowlist', [ch(ALLOW, ['export const DOC_ALLOWED = {', ENTRY('docs/A.md', 300), '};'], [], 'A')], false],
 ];
 
 test('each touchpoint rule fires only when its companion is missing', () => {
