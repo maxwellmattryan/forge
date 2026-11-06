@@ -17,9 +17,9 @@ import type { HelpGroup } from '../types.ts';
  * `forge doctor --include-text <job>` doesn't read the job as the flag's, `forge job audit --csv <id>` keeps its id,
  * `forge job archive --done <id>` is refused as a usage error instead of reading the id as --done's value,
  * `forge focus --clear <id>` is refused rather than reading the id as --clear's,
- * `forge dash --quiet` never swallows the argument after it, and `forge job decision --clean <id>` keeps its id.
+ * `forge dash --quiet` (and `--open`, `--no-open`) never swallows the argument after it, and `forge job decision --clean <id>` keeps its id.
  */
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run', 'clear', 'no-issue', 'verify-only', 'confirm', 'quiet', 'cold', 'clean', 'ipc']);
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'pretty', 'include-text', 'csv', 'done', 'dry-run', 'clear', 'no-issue', 'verify-only', 'confirm', 'quiet', 'cold', 'clean', 'ipc', 'open', 'no-open']);
 
 export function parseArgs(argv: string[]): { pos: string[]; flags: Record<string, any> } {
   const pos: string[] = [];

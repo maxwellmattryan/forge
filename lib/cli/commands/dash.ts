@@ -28,6 +28,7 @@ import {
   writeDashboardLogin,
   type DashboardRecord,
 } from '#engine/ops/dashboard-record.ts';
+import { clearDashboardOpen, openDashboard, shouldOpen } from '#engine/ops/dashboard-open.ts';
 import { adoptCommandPath } from '#engine/guard/command-env.ts';
 import { spawnSleepHelper } from '#integrations/os-service/sleep.ts';
 import * as yaml from '#core/format/yaml.ts';
@@ -44,9 +45,9 @@ export const HELP: HelpGroup[] = [
     commands: [
       {
         command: 'dash',
-        args: '[--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet]',
+        args: '[--background|--stop|--service] [--port N] [--permission-mode MODE] [--dev] [--quiet] [--open|--no-open]',
         summary:
-          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url, pid, running: true, project, added, permissionMode}, or starts it in the foreground (prints its login link), or detached with --background ({url, pid, started: true, project, added, permissionMode}); outside a project it registers nothing (project: null). url is the login link, <origin>/?project=<name>#k=<key>: a browser that opens it signs in once and drops the key from the address bar (without ?project= outside a project; bare when no login record matches, as for a dashboard started by an older Forge). permissionMode is the run's launch mode (--permission-mode), or null. Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt, permissionMode}, 0600, never the token; the mode is only reported, never applied), and the key is in <FORGE_HOME>/dashboard-login.json ({pid, token}, 0600); a daemon session may only get the report for a registered project, whose url carries no key",
+          "open the machine's dashboard, one server for every project in the machine index: in a repo with .forge/config.yml it registers that repo first (forge project add's default name) and, when it registers it or starts the dashboard, approves the files Forge trusts there as they are (a project's daemon boots with the dashboard only while they still match; a report for a repo already registered approves nothing), then prints the running one's {url, pid, running: true, project, added, permissionMode}, or starts it in the foreground (prints its login link), or detached with --background ({url, pid, started: true, project, added, permissionMode}); outside a project it registers nothing (project: null). url is the login link, <origin>/?project=<name>#k=<key>: a browser that opens it signs in once and drops the key from the address bar (without ?project= outside a project; bare when no login record matches, as for a dashboard started by an older Forge). permissionMode is the run's launch mode (--permission-mode), or null. Its record is <FORGE_HOME>/dashboard.json ({pid, url, startedAt, permissionMode}, 0600, never the token; the mode is only reported, never applied), and the key is in <FORGE_HOME>/dashboard-login.json ({pid, token}, 0600); a daemon session may only get the report for a registered project, whose url carries no key. Run by a person in a terminal (human mode, a TTY stdout, no --dev) it also opens the login link in the default browser; --open and --no-open choose, and FORGE_BROWSER=none never opens",
         flags: [
           ['--background', 'start it detached and print {url, pid, started: true, project, added, permissionMode}, url the login link (bare when the start is unconfirmed)'],
           ['--stop', "stop the machine's dashboard and, in a repo, an older per-repo dashboard (.forge/runtime/dashboard.json), then reap every registered project's orphaned sessions ({stopped, daemonReaped}); a record whose pid is not provably that dashboard is cleared without signalling anything"],
@@ -56,6 +57,11 @@ export const HELP: HelpGroup[] = [
           ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
           [
+            '--open',
+            'open the login link in the default browser (FORGE_BROWSER picks another; through a 0600 redirect file under <FORGE_HOME>/runtime, never the key in a command line), even outside a terminal; the default when a person runs it in a terminal in human mode, without --dev',
+          ],
+          ['--no-open', 'never open a browser'],
+          [
             '--service',
             "what the login service runs (forge service install): in the foreground, and once the boot passes of the projects loaded at start settle, it records the restart in <FORGE_HOME>/runtime/uptime.json and sends each project with running jobs or open Office requests one service-restarted notification; its banner (in the service's log) prints the bare URL, never the login link; a usage error with --background, --stop or --dev",
           ],
@@ -63,9 +69,9 @@ export const HELP: HelpGroup[] = [
         exits: [
           [
             1,
-            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, --permission-mode that differs from the running machine dashboard's, or a daemon session that would start, stop or register, or ran --service (only the report for a registered project is allowed)",
+            "no free port near N, --dev from a forge without Vite or while a proven machine dashboard is running, this repo's default name registered for another path, --permission-mode in a daemon session, --permission-mode that differs from the running machine dashboard's, or a daemon session that would start, stop, register or open, or ran --service (only the report for a registered project is allowed)",
           ],
-          [2, 'a word after dash other than url'],
+          [2, 'a word after dash other than url, --open with --no-open, or either with --service or --stop'],
         ],
       },
       {
@@ -228,6 +234,7 @@ function stopDashboards(home: string, root: string | null, current: DashboardRec
   ensureMachineDirs(home);
   writeJsonPrivate(machineDashboardFile(home), {});
   clearDashboardLogin(home);
+  clearDashboardOpen(home);
   let legacy: DashboardRecord | null = null;
   if (root) {
     const file = legacyDashboardFile(root);
@@ -259,6 +266,8 @@ export async function dash(root: string | null, config: Config | null, flags: Re
     return dashUrl(root, flags);
   }
   if (flags.service && (flags.background || flags.stop || flags.dev)) throw new ForgeError('--service runs the dashboard in the foreground, so it takes no --background, --stop or --dev', 'usage', 'forge help dash');
+  // Decided once, before anything is registered or written, so a usage error leaves no trace.
+  const opening = shouldOpen(flags, { env: process.env, mode: outputMode(), isTTY: Boolean(process.stdout.isTTY) });
   const mode = launchPermissionMode(flags);
   const home = forgeHome();
   const machineFile = machineDashboardFile(home);
@@ -269,11 +278,15 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   if (process.env.FORGE_DAEMON === '1') {
     // Only a report: a running machine dashboard, for a project already registered.
     const known = project ? projectByRoot(home, project) : null;
-    if (flags.stop || flags.dev || flags.background || flags.foreground || flags.service || !current || !known) throw new ForgeError(DASH_DAEMON_REFUSAL);
+    // Nor may it open a browser: a session misled by tracker or PR text must not drive the human's screen.
+    if (flags.stop || flags.dev || flags.background || flags.foreground || flags.service || flags.open || flags['no-open'] || !current || !known) throw new ForgeError(DASH_DAEMON_REFUSAL);
     // No key: the login link is a human's to open.
     return out({ url: loginUrl(current.url, known.name, null), pid: current.pid, running: true, project: known.name, added: false, permissionMode: current.permissionMode }, flags);
   }
   if (flags.stop) return stopDashboards(home, root, current, flags);
+  if (opening.note) process.stderr.write(`${opening.note}\n`);
+  // Only after the report or banner, with the exact link it shows; a failure is one stderr line, never the exit code.
+  const openIf = (url: string): Promise<void> => (opening.open ? openDashboard(home, url, { explicit: opening.explicit }) : Promise.resolve());
   // The dev build comes from a checkout's `npm run dev`; an installed plugin has no Vite, so its page would
   // answer 503 for good.
   if (flags.dev && !exists(path.join(PLUGIN_ROOT, 'node_modules', 'vite'))) {
@@ -310,7 +323,9 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   // The running server picks up a new registration at its next index refresh (2 s).
   if (current && !flags.foreground) {
     const url = urlOf(current.url, readDashboardLogin(home, current.pid));
-    return out({ url, pid: current.pid, running: true, ...named, permissionMode: current.permissionMode, ...uninitialized }, flags);
+    out({ url, pid: current.pid, running: true, ...named, permissionMode: current.permissionMode, ...uninitialized }, flags);
+    await openIf(url);
+    return;
   }
   const port = Number(flags.port ?? config?.dashboard.port ?? 7400);
   const note = project && config ? await dashNotes(project, config, flags) : {};
@@ -332,7 +347,9 @@ export async function dash(root: string | null, config: Config | null, flags: Re
       // The child writes its login file before its record, so it is there once the record is.
       if (url && child.pid !== undefined) {
         const login = urlOf(url, readDashboardLogin(home, child.pid));
-        return out({ url: login, pid: child.pid, started: true, ...named, permissionMode: mode, ...uninitialized, ...note }, flags);
+        out({ url: login, pid: child.pid, started: true, ...named, permissionMode: mode, ...uninitialized, ...note }, flags);
+        await openIf(login);
+        return;
       }
       sleepSync(50);
     }
@@ -399,6 +416,8 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   process.on('exit', () => server.killSync());
   // The login service's stdout is its log file, which must never hold the key.
   process.stdout.write(`⚒️  Forge dashboard${flags.dev ? ' (dev)' : ''} → ${urlOf(res.url, flags.service ? null : res.token)}\n`);
+  // The record and the login file are written, so the page signs straight in.
+  if (!flags.service) await openIf(urlOf(res.url, res.token));
   // A start by hand sends nothing: only the login service's start is a restart worth telling a team about.
   if (flags.service) {
     const { recordRestart } = await import('../../server/uptime.ts');

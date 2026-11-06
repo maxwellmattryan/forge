@@ -326,7 +326,74 @@ test('dash in a second repo opens the running machine dashboard', { skip: proces
   }
 });
 
-test('a daemon session may only ask for the running dashboard of a registered project', { skip: process.platform === 'win32' }, async () => {
+test('dash --open hands the browser a redirect file, never the key', { skip: process.platform === 'win32' }, async () => {
+  const repo = setupRepo();
+  const home = freshHome();
+  const scratch = path.dirname(home);
+  const log = path.join(scratch, 'browser.log');
+  const stub = path.join(scratch, 'browser.mjs');
+  fs.writeFileSync(stub, `import fs from 'node:fs';\nfs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`);
+  const env = { FORGE_HOME: home, FORGE_BROWSER: `"${process.execPath}" "${stub}"` };
+  const calls = (): string[][] => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []);
+  const file = path.join(home, 'runtime', 'dashboard-open.html');
+  let pid: number | undefined;
+  try {
+    // Conflicts are usage errors, before anything is written.
+    for (const args of [['dash', '--open', '--no-open', '--json'], ['dash', '--service', '--open', '--json'], ['dash', '--stop', '--no-open', '--json']]) {
+      const r = await forgeAsync(repo.dir, args, env);
+      assert.equal(r.status, 2, `${args.join(' ')}: ${r.stdout}${r.stderr}`);
+    }
+    assert.equal(fs.existsSync(path.join(home, 'projects.json')), false, 'a usage error registers nothing');
+
+    const port = await freePort();
+    const started = await forgeAsync(repo.dir, ['dash', '--background', '--open', '--port', String(port), '--json'], env);
+    assert.equal(started.status, 0, started.stderr);
+    const report = json(started.stdout);
+    pid = report.pid as number;
+    assert.deepEqual(Object.keys(report).sort(), ['added', 'permissionMode', 'pid', 'project', 'started', 'url'], 'no new report field');
+    const token = JSON.parse(fs.readFileSync(dashboardLoginFile(home), 'utf8')).token as string;
+    assert.ok(report.url.endsWith(`#k=${token}`), report.url);
+    await waitFor(() => calls().length === 1, { what: 'the stub browser' });
+    const [argv] = calls();
+    assert.equal(argv!.at(-1), file);
+    assert.ok(argv!.every((a) => !a.includes(token)), `no argument holds the key: ${JSON.stringify(argv)}`);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.ok(fs.readFileSync(file, 'utf8').includes(report.url), 'the redirect file holds the reported link');
+
+    // The "already running" report opens it again.
+    const again = await forgeAsync(repo.dir, ['dash', '--open', '--json'], env);
+    assert.equal(again.status, 0, again.stderr);
+    assert.equal(json(again.stdout).running, true);
+    await waitFor(() => calls().length === 2, { what: 'the second open' });
+
+    // Without --open, a non-TTY stdout never opens: no redirect file is written and the stub never runs.
+    fs.rmSync(file);
+    const quiet = await forgeAsync(repo.dir, ['dash', '--json'], env);
+    assert.equal(quiet.status, 0, quiet.stderr);
+    assert.equal(fs.existsSync(file), false, 'no redirect file without --open');
+    assert.equal(calls().length, 2, 'the stub did not run');
+
+    // A browser that does not exist changes neither the exit code nor stdout: one stderr line says why.
+    const missing = await forgeAsync(repo.dir, ['dash', '--open', '--json'], { ...env, FORGE_BROWSER: '/nonexistent/browser' });
+    assert.equal(missing.status, 0, missing.stderr);
+    assert.deepEqual(json(missing.stdout), json(again.stdout));
+    const lines = missing.stderr.trim().split('\n');
+    assert.equal(lines.length, 1, missing.stderr);
+    assert.match(lines[0]!, /^could not open a browser/);
+
+    const stopped = await forgeAsync(repo.dir, ['dash', '--stop', '--json'], env);
+    assert.equal(stopped.status, 0, stopped.stderr);
+    assert.equal(fs.existsSync(file), false, '--stop removes the redirect file');
+  } finally {
+    await forgeAsync(repo.dir, ['dash', '--stop', '--json'], env);
+    try {
+      if (pid) process.kill(pid, 'SIGKILL');
+    } catch {}
+    repo.cleanup();
+  }
+});
+
+test('a daemon session may only ask for the running dashboard of a registered project',{ skip: process.platform === 'win32' }, async () => {
   const repo = setupRepo();
   const registered = setupRepo();
   const home = freshHome();
@@ -362,6 +429,12 @@ test('a daemon session may only ask for the running dashboard of a registered pr
     assert.deepEqual(json(report.stdout), { url: `${url}/?project=${name}`, pid, running: true, project: name, added: false, permissionMode: null });
     assert.equal(index(), added);
     assert.equal(trustApproved(home, registered.dir), false, "a session's report approves no files");
+    // Nor may it open the human's browser, even on a registered project's report.
+    for (const flag of ['--open', '--no-open']) {
+      const opened = await forgeAsync(registered.dir, ['dash', flag, '--json'], daemon(registered.dir));
+      assert.equal(opened.status, 1, `${flag}: ${opened.stdout}${opened.stderr}`);
+      assert.match(json(opened.stdout).error.message, /forge dash starts, stops and registers the machine's dashboard, which a daemon session may not do/);
+    }
 
     // A login file left by another process is no login link, even for a human.
     writeJsonAtomic(dashboardLoginFile(home), { pid: pid + 1, token });

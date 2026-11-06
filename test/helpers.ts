@@ -71,6 +71,8 @@ process.on('exit', () => fs.rmSync(FORGE_HOME, { recursive: true, force: true })
 // Every `forge dash` the suite starts would otherwise hold the developer's machine awake with a real
 // caffeinate or systemd-inhibit. Tests of the sleep assertion pass startServer a fake spawn instead.
 process.env.FORGE_KEEP_AWAKE = 'never';
+// Nor may any `forge dash` open the developer's browser; the --open test passes its own stub FORGE_BROWSER.
+process.env.FORGE_BROWSER = 'none';
 // The suite parses the CLI's stdout, so a developer's own FORGE_MODE=human must not reach it.
 process.env.FORGE_MODE = 'agent';
 // Configured commands run as `/bin/sh -c`; `$SHELL -lc` only matters under commandEnv.loginShell: true
