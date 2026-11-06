@@ -109,6 +109,11 @@ export interface MachinePaths {
    * `dashboard` so nothing that reads the record ever touches the token.
    */
   dashboardLogin: string;
+  /**
+   * The redirect page `forge dash` hands the browser (lib/integrations/os-service/browser.ts): it holds the login link, 0600 in
+   * the 0700 runtime dir, so the key never sits in an opener's argv. Replaced on the next open, removed by --stop.
+   */
+  dashboardOpen: string;
   /** The machine dashboard's runtime files (0700): the login service's log and the uptime record (lib/engine/project/login-service.ts). */
   runtime: string;
 }
@@ -121,6 +126,7 @@ export function machinePaths(home: string = forgeHome()): MachinePaths {
     dashboard: path.join(home, 'dashboard.json'),
     dashboardLogin: path.join(home, 'dashboard-login.json'),
     runtime: path.join(home, 'runtime'),
+    dashboardOpen: path.join(home, 'runtime', 'dashboard-open.html'),
   };
 }
 

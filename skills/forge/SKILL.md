@@ -42,7 +42,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | `approve <job> [<ref>\|new\|none] [note]`, `revise`, `answer`, `rework`, `cancel <job> [note]` | `forge requests add <approve\|revise-spec\|answer\|rework\|cancel> --job <job> --text "<everything after the job id>"`, then `forge job apply <job> --request <its id> --session ${CLAUDE_SESSION_ID}` (it records the decision: `reference/commands.md`; exit 3: a pool session took it), then **Run a job** |
 | `shelve <job> <reason>` | `reference/commands.md` |
 | `sync` | the sync above; report |
-| `dash` | `forge dash --background`; give the URL, the login link (`forge dash url` reprints it) |
+| `dash` | `forge dash --background --open`; it opens the browser signed in; give the URL too, the login link (`forge dash url` reprints it) |
 | `init`, `retro`, `eval …`, `requests`, `triage` | `reference/init.md`, `retro.md`, `evals.md`, `requests.md`, `triage.md` |
 | `doctor` | `forge doctor`; explain failures and warnings with fixes; bug report: `forge doctor --bundle`, human checks its manifest |
 | `update` | `forge update` only; report `from → to`, each `warnings` and `next` entry, or the error. |
