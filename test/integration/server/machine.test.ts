@@ -255,6 +255,8 @@ test('with no machine cap each project runs up to its own daemon.maxConcurrent',
     pa.poke();
     const fifth = (await getJson(s, s.api('a', '/state'))).daemons.jobs[as[4]!];
     assert.deepEqual([fifth?.waiting, fifth?.waitingFor], [true, 'project']);
+    // The session log is a write stream: its line can reach the file after the state reports the wait.
+    await waitFor(() => logEvents(a.dir, as[4]!, 'waiting').length > 0, { what: "the fifth job's waiting line" });
     assert.deepEqual(logEvents(a.dir, as[4]!, 'waiting').map((e) => [e.cap, e.maxConcurrent]), [['project', 4]]);
     assert.ok(bs.every((id) => k.alive(id).length === 1 && k.alive(id)[0]!.signals.length === 0), "b's sessions run on");
     assert.equal(k.liveJobs(), 8);

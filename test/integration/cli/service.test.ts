@@ -84,6 +84,8 @@ describe('forge service', { concurrency: 4 }, () => {
       const rec = await waitFor(() => fs.existsSync(file) && JSON.parse(fs.readFileSync(file, 'utf8')), { timeoutMs: 20_000, what: 'uptime.json' });
       assert.deepEqual(rec.restart.projects, []);
       assert.equal(rec.restart.pid, child.pid);
+      // The banner is written before the record, but the pipe can deliver it after the file appears.
+      await waitFor(() => /Forge dashboard → [^\n]*\n/.test(stdout), { timeoutMs: 20_000, what: 'the banner line on stdout' });
       assert.match(stdout, /Forge dashboard → http:\/\/127\.0\.0\.1:\d+/);
       assert.doesNotMatch(stdout, /#k=/, "the service's log never holds the login key");
       // FORGE_KEEP_AWAKE=never (test/helpers.ts) reaches it, so it held nothing.
