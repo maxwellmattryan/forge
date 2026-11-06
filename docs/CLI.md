@@ -246,7 +246,7 @@ The log file gains a `(links <bin dir>)` line after `(cwd …)`. Background comm
 
 ## Foreman decisions
 
-`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (docs/architecture/audit-trail.md); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. Only `forge dash`'s gate runner records a foreman decision, in-process (docs/architecture/foreman.md › Gate runs). From the CLI, `--actor foreman` exits 1 in every scope, a person's terminal included, `approve-release` too, and writes nothing: `--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions`. `forge mandate draft approve|revise --actor foreman` is refused the same way. In the office (scope `_office`, an office run's children) any `forge job human` exits 1 (`the office records no gate decisions: forge dash's gate runner decides gates`). The gate runner's decisions pass the authority checks in docs/architecture/foreman.md: the job waits on a gate class in `foreman.decides`, the action belongs to that class, a note is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), and a pr-feedback `rework` has a queued gate request for the PR's current head.
+`forge job human <id> <action> [--actor human|foreman]` records who decided. Without `--actor` the event's `actor` is the resolved person, `{ "login": "<login>"|null, "source": "env"|"gh"|"git"|"os"|"dashboard"|"unknown" }` (docs/architecture/audit-trail.md); with `--actor foreman` it is `{ "login": null, "source": "foreman" }`. Events written before event schema v2 said `"human"` or `"foreman"`, and read as source `unknown` and `foreman`. Only `forge dash`'s gate runner records a foreman decision, in-process (docs/architecture/foreman/gates.md › Gate runs). From the CLI, `--actor foreman` exits 1 in every scope, a person's terminal included, `approve-release` too, and writes nothing: `--actor foreman refused: only the Foreman's gate runner in forge dash records foreman decisions`. `forge mandate draft approve|revise --actor foreman` is refused the same way. In the office (scope `_office`, an office run's children) any `forge job human` exits 1 (`the office records no gate decisions: forge dash's gate runner decides gates`). The gate runner's decisions pass the authority checks in docs/architecture/foreman/authority.md: the job waits on a gate class in `foreman.decides`, the action belongs to that class, a note is given and no reserved pattern matches (nor a latest security verdict other than `PASS`), and a pr-feedback `rework` has a queued gate request for the PR's current head.
 
 `forge job assist <id> --gate <class>` is read-only and returns `{gate, stale, reserved, model, effort, subagent, brief}`: what a gate run's `forge:assistant` is briefed with for that gate, a brief of paths only. `stale: true` means the job no longer waits on that gate, and `reserved` is re-checked at call time. An unknown `--gate` exits 1, and so does any daemon session (`forge job assist is for a person's own terminal: forge dash's gate runner assists each gate in-process`). `forge requests add gate` always exits 1: only `forge job set` and `forge pr sync` write gate requests.
 
@@ -262,7 +262,7 @@ A **Foreman hand-off** is recorded only by a gate run, never from the CLI: when 
 
 `forge pr merge <id> [--repo NAME | --root] [--now]` syncs first, then decides one PR at a time, with exactly one `gh pr merge` call each at most. Without `--now`, each PR first passes these checks, in order, before any CI decision (docs/CONFIG.md "Merge"): `merge.auto` is on (else `reason: auto-off`); no rework, new round or stage change has replaced the approver's decision: the job is at stage `pr`, not `cancelled` or `failed` and not set to either after the last `decision` event, no `round` event and no `human` `rework` or `revise-spec` comes after it in the log, no `rework`, `revise-spec` or `cancel` request for the job is still `pending` or `in-progress` in the request inbox, no `gate` request for it waits on the Foreman (`pending` or `in-progress`), and no review on GitHub requests changes on any open PR of the job, the root's or a linked job's member PR, by the `changesRequested` this call's sync counted at each live head (else `reason: superseded`, `error` naming the rule that matched); the last `decision` event `forge job decision` recorded is an `APPROVE` marked auto-merge eligible and bound to a head (else `reason: decision`); the PR still targets the job's base on GitHub, and its live head is that head, or it with only clean merges of the base on top (else `reason: decision`); protected paths recomputed at the live head are all approved (else code `protected_path`); and the escalate floor finds nothing in the PR's diff (else `reason: floor`). A refusal exits 1, logs `pr-merge-refused` with its `reason` and calls nothing. Then CI: a direct merge when checks pass, or the base has no CI on any system Forge knows, at a head Forge pushed at least 5 minutes ago (passing while GitHub reports `UNSTABLE` counts as pending); queued with `--auto` while checks are pending or the head is settling, only when GitHub holds the PR, no protected-paths policy applies and the required checks do not come from `merge.requiredChecks`; deferred otherwise (`pr-merge-deferred`, `reason: settling` while the head settles); and refused when checks fail. The CI decision also needs the PR's required checks, each bound to its source (docs/CONFIG.md "Merge" › Required checks): the root's `merge.requiredChecks`, else the base branch's protection, read through `gh api` once per base per call (a member PR always uses its own repo's protection). A required check that has not reported from its source is pending; one failing, `SKIPPED`, `NEUTRAL` or reported by more than one source refuses with `required checks are not passing: <name> (<why>), …`. A root `merge.requiredChecks` that fails validation refuses the merge too, with `required: { source: "config", state: "failing", blocking: [], note }` and `error` set to the note, which names the first problem. A single-repo job has one PR, and the result is `{ merged, autoMerge, action, checks, mergeState?, reason?, error?, required? }` with `action` one of `already-merged`, `merged`, `auto`, `deferred`, `refused`, `failed`. `required` is `{ source, state, blocking, note? }` on every result that reached the CI decision without `--now`: `source` is `config`, `protection`, `none` (no required checks: the rollup alone decides, as before) or `unavailable` (protection could not be read: the rollup alone decides, and `note` says why); `state` is `passing`, `pending`, `failing` or null (for `none` and `unavailable`); `blocking` lists at most 10 `{ name, why }` with `why` one of `missing`, `pending`, `failing`, `skipped`, `neutral`, `foreign`, `status`, `ambiguous`, `incomplete`. `pr-merge-deferred` and the CI `pr-merge-refused` events carry the same `required`. Gate refusals, `already-merged` and `--now` results have none.
 
-`--now` is a human-only operation: before any `gh` call it needs a TTY on stdin and stderr (else exit 1, code `human_only`, so an agent, a script or a configured command can't run it), prints what it skips and asks the person to type the job id; any other answer exits 1 (`not confirmed; nothing changed`). No flag or env var skips the prompt; the dashboard's **Merge now** is the other way in. it skips every check above, logs `pr-merge-bypass` with the person's actor before the call and `pr-merged { bypass: true }` after it. Every `pr-merged`, with or without `--now`, carries `actor` (who ran the merge), `scope` (the `FORGE_DAEMON_SCOPE`) when a daemon session ran it, and `via: sync` when `forge sync` continued it; `pr-auto-merge` and `pr-merge-failed` carry an actor only with `--now`. In a daemon session (`FORGE_DAEMON=1`) `forge pr merge` refuses, before any `gh` call, `--now` with any value in every scope, a job id other than the session's own scope (the inbox included), the office, and a missing or invalid `FORGE_DAEMON_SCOPE`. `forge sync` continues each deferred merge itself (a row with `mergeDeferred: true` gets `merge: { action, reason?, error? }`), so no session merges another job. `mergeDeferred` is true for a single-repo job only when its PR is OPEN, its last merge event is a `pr-merge-deferred` logged after the last `decision` event, and the decision still stands (the superseded check above); for a linked job when the merge walk should go on and the decision still stands. Otherwise the row has no `merge` key and sync calls nothing. Before it continues one, sync asks the job's mandate merge queue (docs/architecture/foreman.md › Ship policy): while a ready PR ranked ahead of it in its overlap group is still open, the row carries `mergeHeld: <job id of that PR>` instead of `merge`, sync makes no GitHub call for it, and the next sync asks again. After the PR loop, sync releases each job at stage `pr` waiting on `overlap` with no live lease whose hold is gone (the PR ahead merged, closed, went red, was parked or refused, or the config no longer merges): it moves to `running` with the reason `forge sync: the merge queue no longer holds it`, under `daemon.enabled` gets one `resume` request unless one is pending, and adds a row `{ id, mergeQueueReleased: true }`. A job still held is left as it is. A failed release pass adds one `{ mergeQueue: "error", error }` row and never fails the sync. A person's own `forge pr merge` is never held.
+`--now` is a human-only operation: before any `gh` call it needs a TTY on stdin and stderr (else exit 1, code `human_only`, so an agent, a script or a configured command can't run it), prints what it skips and asks the person to type the job id; any other answer exits 1 (`not confirmed; nothing changed`). No flag or env var skips the prompt; the dashboard's **Merge now** is the other way in. it skips every check above, logs `pr-merge-bypass` with the person's actor before the call and `pr-merged { bypass: true }` after it. Every `pr-merged`, with or without `--now`, carries `actor` (who ran the merge), `scope` (the `FORGE_DAEMON_SCOPE`) when a daemon session ran it, and `via: sync` when `forge sync` continued it; `pr-auto-merge` and `pr-merge-failed` carry an actor only with `--now`. In a daemon session (`FORGE_DAEMON=1`) `forge pr merge` refuses, before any `gh` call, `--now` with any value in every scope, a job id other than the session's own scope (the inbox included), the office, and a missing or invalid `FORGE_DAEMON_SCOPE`. `forge sync` continues each deferred merge itself (a row with `mergeDeferred: true` gets `merge: { action, reason?, error? }`), so no session merges another job. `mergeDeferred` is true for a single-repo job only when its PR is OPEN, its last merge event is a `pr-merge-deferred` logged after the last `decision` event, and the decision still stands (the superseded check above); for a linked job when the merge walk should go on and the decision still stands. Otherwise the row has no `merge` key and sync calls nothing. Before it continues one, sync asks the job's mandate merge queue (docs/architecture/foreman/ship-policy.md › Ship policy): while a ready PR ranked ahead of it in its overlap group is still open, the row carries `mergeHeld: <job id of that PR>` instead of `merge`, sync makes no GitHub call for it, and the next sync asks again. After the PR loop, sync releases each job at stage `pr` waiting on `overlap` with no live lease whose hold is gone (the PR ahead merged, closed, went red, was parked or refused, or the config no longer merges): it moves to `running` with the reason `forge sync: the merge queue no longer holds it`, under `daemon.enabled` gets one `resume` request unless one is pending, and adds a row `{ id, mergeQueueReleased: true }`. A job still held is left as it is. A failed release pass adds one `{ mergeQueue: "error", error }` row and never fails the sync. A person's own `forge pr merge` is never held.
 
 A job with a member repo that gets a PR merges its PRs in the order of the components' `dependsOn` (docs/architecture/job-repos.md): a PR is merged, or queued with `--auto`, only when every PR it depends on is MERGED by this call's own sync. The walk goes on after a direct merge and stops at the first PR it queues, defers, refuses or fails to merge, so a consumer is never queued while a dependency is unmerged. `--repo NAME` merges only that member's PR and `--root` only the root's; either is refused while a PR it depends on is not merged, has no PR, or could not be read. The result adds `repo` (the PR acted on last, null for the root), `parts` (one `{ repo, number, action, checks, mergeState?, error?, required? }` per PR acted on, in order; the top-level `required` is the last part's) and, on an order refusal, `reason`: `order` when a dependency PR is not merged, `cycle` when the components' `dependsOn` form a cycle between the job's repos, which refuses every merge of the job. Both exit 1 with no `gh pr merge` call and log `pr-merge-refused` with that `reason`. `merged` is true only when every PR of the job is MERGED. Each PR gets the checks above against its own decided head (`heads.<repo>` for a member), and the walk's `reason` is the refused PR's. `--now` bypasses those checks for each PR it merges, never the order. `--repo` with `--root`, `--repo` naming no PR member, and `--root` with a value (`--root <id>` swallows the id) exit 1.
 
@@ -471,7 +471,7 @@ The commands worth knowing by hand, generated from the `HELP` rows marked `commo
 | `forge job step <id> [--session S] [--epoch N]` | the job's next action (`spawn` with a ready agent brief, `run`, `wait`, `procedure` or `done`); read-only, the same state always gives the same answer, except that `--session <driver>` renews that session's lease |
 | `forge mandate new [<id>] --title T [terms]` | create a mandate, active, with every contract term not given taken from foreman.mandate (scoring: all and no quality floor; the default decides cut to the classes the foreman may decide) ({ok, changed, mandate}, plus draft: {request} for a goal mandate, whose intake starts with that drafting run); without <id>, Forge picks m- and 8 random hex digits no mandate or mandate runtime dir holds (mandate.id) (see [Mandates](CONFIG.md#mandates)) |
 | `forge notify test [--event <name>]` | send one sample notification (job null, title "Forge test notification") to every valid notify.webhooks entry regardless of its events, and run notify.command if set; prints {event, results: [{target, host, format, ok, status, error, attempts}]} and records nothing (see [Notifications](CONFIG.md#notifications)) |
-| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary and one retro request over the mandate's jobs (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; for each closed mandate whose closing summary's card still has an open outcome, rewrite the card once when none is open (finalized); then queue one direct request, which forge dash runs as an office run, when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems, finalized}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman.md)) |
+| `forge office pass` | enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary and one retro request over the mandate's jobs (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; for each closed mandate whose closing summary's card still has an open outcome, rewrite the card once when none is open (finalized); then queue one direct request, which forge dash runs as an office run, when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems, finalized}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes (see [Foreman › Director loop](architecture/foreman/office.md#director-loop)) |
 | `forge overlap <id> \| '#<n>' \| --pr <n>` | check a job, or an open PR, against every other job in flight, every other open PR into its base and people's commits in the last overlap.recentHours hours: the counterparts that share files and line spans with it, whether nothing else is in flight (idle), and one timing (merge-now, wait-for, merge-first or needs-human) from a fixed rule; read-only apart from its report under .forge/runtime/overlap/, which `report` names (see [Overlap check](architecture/overlap.md)) |
 | `forge release plan [--job ID \| --since TAG \| --mandate ID] [--bump patch\|minor\|major] [--force]` | plan a release from each repo's release strategy, dependencies first: write .forge/runtime/release/release.md (steps, checks and rollback) and release.json; no release step runs. A repo with release.mechanism: script runs its release script's --draft-notes (the command environment, local git only) and gets a version bump (bumps: from, to, bump, inferred, reasons) and a notes file to edit, notes-root.md or notes-<repo>.md, which a re-plan of the same version keeps (notesKept). With --job, the job's PRs must be merged, except a consumer of an interim edge, which is skipped (it merges after its dependencies' release); the plan logs release-planned and, when the Foreman decides the release gate class, queues its gate request, and approval says who owns the publish decision. With --mandate, an until: released mandate's release is planned again since the root's latest tag (the Office pass plans it first, unless another plan in release.json holds the pass back), with the same event and gate request as the pass (see [Releasing a project](RELEASES.md#releasing-a-project)) |
 | `forge release run [--dry-run]` | run the plan step by step, checking each, with checkpoints so a second run resumes at the first step not done; a step whose check already passes is skipped, and publish steps ask on a terminal unless the repo sets release.publish: allow, and without a terminal they run only when the Foreman approved this exact plan (approvedBy: foreman). On a --job plan, each dependency repo whose last step finished in this run gets its release recorded on the job from the checks of this run (released: version, recorded, and a hint when no single version showed), which resumes the job to bump its consumers. Prints its own result. --dry-run recomputes and checks the plan as a run does and prints dryRun: true with each step (command, publish, manual, asks, check, status) and the bumps, running nothing and writing nothing (see [Releasing a project](RELEASES.md#releasing-a-project)) |
@@ -1047,7 +1047,7 @@ One job's state, agents and reviews; forge job step &lt;id> returns its next act
 | 3 | another live session drives the job, the session does not hold it, or stale_epoch: the lease moved past --epoch or was taken over before the end |
 | 5 | the role failed because claude never started (failure.class spawn) or closed without a result (exit) |
 
-**`forge job apply <id> --request <rid> --session S`**: apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a resume is a person's only for the dashboard's buttons (infra, external, conflicts, failed), and a plain resume, or any from another source, is given back pending for the step loop to answer. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime.md "Code driver")
+**`forge job apply <id> --request <rid> --session S`**: apply one job request (approve, revise-spec, answer, rework, cancel or resume) by the human-command table: claim it under S, record the decision with forge job human or move the job with forge job set, write feedback.md or the questions.md answer with the request text fenced as data, then ack it done with what was recorded. A decision request is applied only from a person (from dashboard or cli; any other source is acked rejected); a resume is a person's only for the dashboard's buttons (infra, external, conflicts, failed), and a plain resume, or any from another source, is given back pending for the step loop to answer. Exits 0 for done, rejected and pending alike: status says which (docs/architecture/daemon-runtime/code-driver.md#code-driver "Code driver")
 
 | Flag | Meaning |
 |---|---|
@@ -1472,7 +1472,7 @@ See [Mandates](CONFIG.md#mandates).
 | 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending (or filing), a pin doesn't match, a pre-flight check fails (secret_found for a likely secret), a decision is already running, a tracker call failed (filing.json keeps what was filed), --actor foreman is refused, or a daemon session ran it without --actor foreman |
 | 5 | gh failed while filing |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft assist <id> --request G`**: read-only, for a person's own terminal: what a gate run's forge:assistant is briefed with for a milestone-approval gate request ({mandate, gate, stale, reason?, reserved, subagent, model, effort, brief}); stale once the draft moved or was decided
 
@@ -1484,7 +1484,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | run in any daemon session, or G is not an in-progress milestone-approval gate request for this mandate |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft prepare <id> --request R`**: a draft office run's first step: write the survey and return the forge:drafter brief ({mandate, request, stale: false, subagent, model, effort, brief, survey, staging}; a revision request's brief adds the previous draft's path and its title and the note, both fenced as data), or {stale: true, reason} for a mandate that is missing, unreadable, closed, paused, has no goal or is filed
 
@@ -1496,7 +1496,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, R's revision note breaks the note rules, or a link or a file sits at the drafts dir |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft record <id> --request R [--agent-id A]`**: a draft office run's last step: append its spend to the mandate's ledger, then check the drafter's staging file and store it as draft.json ({ok, mandate, request, digest, draft: {issues, waves, existing}, spend, file}); notifies that the draft waits for approval, and queues its milestone-approval gate request when the project and the mandate delegate the class
 
@@ -1509,7 +1509,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | run in a daemon session other than the office, R is not an in-progress draft request for this mandate, the mandate can't be read, is closed or has no goal, or the draft breaks the rules (every problem named, at most 20; the spend stays recorded) |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft reject <id> [--note N] [--request R] [--digest D]`**: reject a pending milestone draft: closes the mandate with reason milestone draft rejected (and the note), files nothing, and starts the next link of its chain ({ok, decision, mandate, request, status})
 
@@ -1523,7 +1523,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, a decision is already running, or a daemon session ran it (reject is never the foreman's) |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft revise <id> --note N [--request R] [--digest D] [--actor foreman]`**: send a pending milestone draft back with a note: queues another drafting run whose brief carries the note and the previous draft, fenced ({ok, decision, mandate, request, queued})
 
@@ -1538,7 +1538,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | no such mandate (not_found), it can't be read, is paused or closed, the draft isn't pending, a pin doesn't match, the note breaks the rules, a decision is already running, --actor foreman is refused, or a daemon session ran it without --actor foreman |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft show <id>`**: a goal mandate's milestone draft: {mandate, title, status (queued, drafting, ready, unreadable, failed or none), request, note, problem, digest (the SHA-256 of draft.json's bytes, null without a readable draft), draft, gate: {status (none, pending, filing or filed), request, owner, filing}, spend: {runs, withUsage, tokens, usd, metered}, file}
 
@@ -1546,7 +1546,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | no such mandate (not_found), it can't be read, or it has no goal |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate draft start <id>`**: queue a drafting run for an active goal mandate, which forge dash runs as an office run ({ok, changed, request}; changed false with the request already pending or in progress)
 
@@ -1554,7 +1554,7 @@ See [Foreman › Intake](architecture/foreman.md).
 |---|---|
 | 1 | no such mandate (not_found), it can't be read, is not active, has no goal or its draft is filed, or a daemon session ran it |
 
-See [Foreman › Intake](architecture/foreman.md).
+See [Foreman › Intake](architecture/foreman/mandates.md#intake).
 
 **`forge mandate edit <id> [--title T] [terms]`**: replace only the terms given ({ok, changed, mandate}; changed false when nothing differs)
 
@@ -1736,7 +1736,7 @@ The Office's director loop: the pass forge dash runs, and the survey and directi
 |---|---|
 | 1 | foreman.surveyors.enabled is false, no such mandate or it can't be read, or run in a daemon session other than the office, or with a missing or invalid scope |
 
-See [Foreman › Director loop](architecture/foreman.md).
+See [Foreman › Director loop](architecture/foreman/office.md#director-loop).
 
 **`forge office note <mandate> --reason R`**: log a note directive on a mandate that is not closed, such as why nothing starts though candidates exist ({ok, mandate})
 
@@ -1748,7 +1748,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 |---|---|
 | 1 | the mandate is missing, unreadable or closed, or run in a daemon session other than the office, or with a missing or invalid scope |
 
-See [Foreman › Director loop](architecture/foreman.md).
+See [Foreman › Director loop](architecture/foreman/office.md#director-loop).
 
 **`forge office pass`**: enforce every mandate's contract once, with no model: onUnfinishable on failed jobs, bounce stalls, the self-close with its closing summary and one retro request over the mandate's jobs (and the next link of a chain, in the same pass), the budget pause, the quality pause and the cadence stall; an until: released mandate whose jobs have all merged plans its release since the root's latest tag and waits for release approval (no pause or stall meanwhile), closing once the release run finished; for each closed mandate whose closing summary's card still has an open outcome, rewrite the card once when none is open (finalized); then queue one direct request, which forge dash runs as an office run, when a mandate has work to start or resume ({ok, enabled, mandates: [{id, state, actions, inFlight, free, candidates, spentUsd, started, blocked, release}], direct, problems, finalized}; release is the mandate's release state for an effective until: released, else null); with foreman.enabled false it writes nothing. forge dash runs it every foreman.cadence minutes and when a mandate or a mandate job changes
 
@@ -1756,7 +1756,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 |---|---|
 | 1 | run in a daemon session (forge dash runs it) |
 
-See [Foreman › Director loop](architecture/foreman.md).
+See [Foreman › Director loop](architecture/foreman/office.md#director-loop).
 
 **`forge office resume <mandate> <job> --reason R`**: queue a resume for one of an active mandate's resumable jobs (queued, no live lease, no open request) and log a resume directive ({ok, mandate, job, request})
 
@@ -1768,7 +1768,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 |---|---|
 | 1 | the mandate is missing, unreadable or not active, the job is not one of its resumable jobs, or run in a daemon session other than the office, or with a missing or invalid scope |
 
-See [Foreman › Director loop](architecture/foreman.md).
+See [Foreman › Director loop](architecture/foreman/office.md#director-loop).
 
 **`forge office start <mandate> <ref> --reason R`**: start one issue of an active mandate: under the office lock, re-check its limits and that ref is in its window now (under order listed, its next issue), then create the job in the mandate, claim the issue, queue its resume and log a start directive ({ok, mandate, issue, job, request}); an issue the tracker reports closed or missing is skipped instead ({ok, skipped: true, issue, reason})
 
@@ -1782,7 +1782,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 | 3 | the tracker refused the claim |
 | 4 | the repo budget holds new work |
 
-See [Foreman › Director loop](architecture/foreman.md).
+See [Foreman › Director loop](architecture/foreman/office.md#director-loop).
 
 **`forge office survey`**: read-only: every active mandate's figures, its window of candidates (titles one line), its resumable jobs, its latest 5 directives and its guidance fenced as data ({enabled, cadence, surveyors, repoBudget, mandates, problems})
 
@@ -1790,7 +1790,7 @@ See [Foreman › Director loop](architecture/foreman.md).
 |---|---|
 | 1 | run in a daemon session other than the office, or with a missing or invalid scope |
 
-See [Foreman › Director loop](architecture/foreman.md).
+See [Foreman › Director loop](architecture/foreman/office.md#director-loop).
 
 ### `forge overlap`
 

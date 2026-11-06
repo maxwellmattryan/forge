@@ -1,7 +1,7 @@
 // The Foreman's decisions at a job's gate, in-process: the read-only assist (what `forge job assist`
 // returns), recording a foreman decision through the policy checks (./policy.ts), a Foreman hand-off,
 // and the title-only override. The gate runner (./run.ts) is the one caller that passes the authority;
-// the CLI passes none, so the same checks refuse it. docs/architecture/foreman.md.
+// the CLI passes none, so the same checks refuse it. docs/architecture/foreman/authority.md.
 import path from 'node:path';
 import { assistantBrief } from '#engine/pipeline/brief.ts';
 import { classReservation, gateClassFor, isGateClass, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';

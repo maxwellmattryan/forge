@@ -58,7 +58,7 @@ const TERMS: [string, string][] = [
 ];
 
 const DOCS: [string, string] = ['Mandates', 'docs/CONFIG.md#mandates'];
-const INTAKE: [string, string] = ['Foreman › Intake', 'docs/architecture/foreman.md'];
+const INTAKE: [string, string] = ['Foreman › Intake', 'docs/architecture/foreman/mandates.md#intake'];
 const RELEASE_DOCS: [string, string] = ['Releasing a project', 'docs/RELEASES.md#releasing-a-project'];
 const DAEMON_EXIT = 'a daemon session ran it';
 

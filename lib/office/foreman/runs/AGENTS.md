@@ -7,7 +7,7 @@ The office runs: forge dash's office runner, which runs each `draft` and `direct
 - Every child of a run, CLI or model, gets `FORGE_DAEMON=1`, scope `_office` and the pool's trust digest, so the CLI's office refusals apply. Model children run under `dontAsk` with Bash denied; only the drafter has a write root, the drafts dir computed in-process (`draftsDir`).
 - No start, resume or note runs until every model child of the run has ended (`direct.ts`), and the director's reply decides only through `parseDirect`'s strict `DIRECT:` line: an unparseable reply starts nothing.
 - The log (`_office.log`) carries events and cut reasons only, never claude's text or a CLI child's stdout.
-- Design: [Foreman](../../../../docs/architecture/foreman.md) › Office runs, [Daemon](../../../../docs/architecture/daemon.md).
+- Design: [Foreman › Office runs](../../../../docs/architecture/foreman/office.md#office-runs), [Daemon](../../../../docs/architecture/daemon.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

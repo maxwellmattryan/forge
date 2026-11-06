@@ -1,6 +1,6 @@
 // What an office run's steps share: the deps the runner hands a draft or direct run (its CLI and model
 // children, its log), how a run ends (its ack and outcome), and the two ways a step ends it early, a claim
-// given back uncounted (GiveBack) or a counted failure (RunFailed). docs/architecture/foreman.md › Office runs.
+// given back uncounted (GiveBack) or a counted failure (RunFailed). docs/architecture/foreman/office.md › Office runs.
 import type { OfficeArgs, OfficeCliResult, OfficeCommand } from './cli.ts';
 import type { ChildAgent } from '#integrations/claude/argv.ts';
 import type { Config, Effort, ForgeRequest, OfficeRunOutcome } from '#core/types.ts';

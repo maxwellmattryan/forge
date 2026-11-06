@@ -1,7 +1,7 @@
 // A gate run's verdict: the strict parser over the forge:assistant's last line, the reason it carries,
 // cleaned, and the gate table that turns a verdict into the decision the gate runner (./run.ts) records.
 // The assistant's reply is model output steered by job text, so nothing here is lenient: anything but
-// the exact line is malformed, and a malformed reply never becomes an approve. docs/architecture/foreman.md.
+// the exact line is malformed, and a malformed reply never becomes an approve. docs/architecture/foreman/gates.md › Gate runs.
 import type { GateClass } from '#core/types.ts';
 
 export const VERDICTS = ['approve', 'revise', 'rework', 'escalate'] as const;

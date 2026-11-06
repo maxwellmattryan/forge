@@ -3,7 +3,7 @@
 // can't be undone, so the class is a human's unless a project lists it in foreman.decides and drops
 // `gate:release` from foreman.reserved. Nothing here trusts release.json, the request inbox or
 // events.jsonl alone: every check recomputes the plan (freshPlan) and re-reads the policy, at approval
-// time and again at run time. docs/RELEASES.md "Releasing a project", docs/architecture/foreman.md.
+// time and again at run time. docs/RELEASES.md "Releasing a project", docs/architecture/foreman/releases.md › The release gate class.
 import { isForemanActor, loadJob, logEvent, readEvents } from '#core/job/store.ts';
 import { classReservation, foremanEnabled, reservedFor } from '../pipeline/moves/foreman-gates.ts';
 import { freshPlan, type ReleasePlan } from './plan.ts';
@@ -84,7 +84,7 @@ export function pendingReleaseHash(root: string, id: string, events: JobEvent[] 
 
 /**
  * Every check on a foreman release approval, before anything is written, in the order
- * docs/architecture/foreman.md lists them, the first being that `by` holds the gate runner's authority.
+ * docs/architecture/foreman/releases.md › The release gate class lists them, the first being that `by` holds the gate runner's authority.
  * Returns the plan hash to record. Throws ForgeError (exit 1). `narrow` is the job's mandate check, passed
  * in because engine code can't import lib/office/: the refusal it returns for `release` ends the
  * decision, after the policy checks.

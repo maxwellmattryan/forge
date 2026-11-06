@@ -1,7 +1,7 @@
 // createPool's office runner in-process over fakeClaude model children and real `forge` CLI children: each
 // pending draft or direct request becomes one office run, never a session turn, claimed as `office-run:…`,
 // run in code and acked; a failure requeues once, then rejects; the office cap holds the office and gate
-// runs together (docs/architecture/foreman.md › Office runs). Only the CLI children are real processes.
+// runs together (docs/architecture/foreman/office.md › Office runs). Only the CLI children are real processes.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

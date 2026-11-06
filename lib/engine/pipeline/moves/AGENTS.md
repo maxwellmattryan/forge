@@ -10,7 +10,7 @@ How a job moves between stages and states: the one move with its effects, the Fo
 - `deps.ts` imports nothing from this folder: `lib/engine/workspace/worktree.ts` imports it, and anything more would risk a cycle.
 - Import order: `foreman-gates.ts` ← `effects.ts` ← `apply.ts`. `approval-notes.ts` imports nothing from this folder, and `../step/facts.ts` imports it.
 - `escalation.ts` is pure and imports nothing from this folder or from `lib/engine/guard/protected.ts`: protected.ts imports it. `gate-reasons.ts` is its I/O half (`forge job gate`).
-- Design: [Job model](../../../../docs/architecture/job-model.md), [Foreman](../../../../docs/architecture/foreman.md).
+- Design: [Job model](../../../../docs/architecture/job-model.md), [Foreman › Gate runs](../../../../docs/architecture/foreman/gates.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

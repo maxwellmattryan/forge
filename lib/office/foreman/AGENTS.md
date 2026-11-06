@@ -8,7 +8,7 @@ The Foreman's gate decisions and office runs: the policy checks on every foreman
 - The assistant's reply is model output steered by job text: `verdict.ts` takes only the exact last line, and a malformed reply never becomes an approve. The brief reaches stdin only through `stream.ts` `briefLine`.
 - Office runs (`runs/`, its own map) hold no `ForemanAuthority`: they act only through the CLI's office commands as children, with scope `_office`.
 - A gate run never leaves a request claimed: a failure requeues it through `requeueOrphanedRequests` (counted), a usage limit or a stop gives it back with `releaseClaim` (not counted).
-- Design: [Foreman](../../../docs/architecture/foreman.md), [Daemon security](../../../docs/architecture/daemon-security.md).
+- Design: [Foreman › Gate runs](../../../docs/architecture/foreman/gates.md), [Foreman › Authority](../../../docs/architecture/foreman/authority.md), [Daemon security](../../../docs/architecture/daemon-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

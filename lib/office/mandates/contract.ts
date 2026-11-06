@@ -1,6 +1,6 @@
 // The mandate contract's rules: the stored shape a file needs to be read, the refusals of `forge mandate
 // new|edit`, the defaults a new mandate takes, the contract as it applies under the config (what it caps),
-// the derived state and chain, and the guidance and goal fences. Reads no file: store.ts does. docs/architecture/foreman.md.
+// the derived state and chain, and the guidance and goal fences. Reads no file: store.ts does. docs/architecture/foreman/mandates.md › Mandates.
 import { MANDATE_ID_SOURCE } from '#api/constants.ts';
 import { MANDATE_ON_UNFINISHABLE, MANDATE_ORDERS, MANDATE_SCORING, MANDATE_STATUSES, MANDATE_UNTIL } from '#core/job/schema.ts';
 import { MANDATE_SCHEMA_VERSION, MANDATE_STEPS } from '#core/versions/mandate.ts';
