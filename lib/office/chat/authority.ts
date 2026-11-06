@@ -3,7 +3,7 @@
 // security review that didn't pass, and any `forge job set` of a gated job beyond carrying out the decision
 // recorded at its park. The CLI asks before `forge job human` and `forge job set` write anything, whether or
 // not foreman.enabled is set. The gate policy is lib/engine/pipeline/moves/foreman-gates.ts;
-// docs/architecture/daemon-security.md › Chats.
+// docs/architecture/daemon-security/chats.md.
 import { readEvents } from '#core/job/store.ts';
 import { classReservation, gateClassFor, reservedFor, securityHold } from '#engine/pipeline/moves/foreman-gates.ts';
 import type { Config, Job, JobEvent } from '#core/types.ts';
