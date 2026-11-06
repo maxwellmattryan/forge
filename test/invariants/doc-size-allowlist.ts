@@ -14,8 +14,6 @@ export interface DocAllowance {
 export const DOC_ALLOWED: Record<string, DocAllowance> = {
   'docs/ARCHITECTURE.md': { words: 339, reason: '#694: a long index paragraph, split into a list' },
   'docs/CI.md': { words: 442, reason: '#694: the workflow-tests paragraph, split into a list' },
-  'docs/CLI.md': { words: 2114, reason: '#694: command reference paragraphs, split into lists' },
-  'docs/CONFIG.md': { words: 11462, reason: '#694: config reference paragraphs and list items, split into shorter items' },
   'docs/DASHBOARD.md': { words: 4176, reason: '#694: page reference list items, split into sub-items' },
   'docs/IMPROVEMENT.md': { words: 555, reason: '#694: long reference paragraphs, split into lists' },
   'docs/RELEASES.md': { words: 1297, reason: '#694: release pipeline paragraphs, split into lists' },
