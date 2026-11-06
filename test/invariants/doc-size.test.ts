@@ -3,8 +3,9 @@
 // (each heading, table row and list item is its own) of the docs agents read holds over 250 words, and no
 // architecture topic under docs/architecture/ holds over 6,000 words (about 8,000 tokens), past which it
 // becomes a folder with a small index. Today's offenders are pinned in doc-size-allowlist.ts; a pin may
-// shrink but never grow, and `npm run check:touchpoints` keeps the list from growing. It reads doc text
-// (docs/TESTING.md › Allowed source-text tests, entry 11).
+// shrink but never grow, and `npm run check:touchpoints` keeps the list from growing. The two big references,
+// docs/CLI.md and docs/CONFIG.md, also open with a **Contents** list that links every hand-written section,
+// so a cold reader can route to one. It reads doc text (docs/TESTING.md › Allowed source-text tests, entry 11).
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -87,6 +88,60 @@ function paragraphs(md: string): { line: number; words: number }[] {
   }
   end();
   return out;
+}
+
+/** GitHub's heading anchor, copied from `slug` in test/invariants/governance.test.ts (a `*.test.ts` is never imported). */
+function slug(heading: string): string {
+  return heading.toLowerCase().replace(/[^\p{L}\p{N} _-]/gu, '').replace(/ /g, '-');
+}
+
+const ATX = /^(#{1,6})[ \t]+(\S.*)$/;
+const GEN_START = /^<!-- forge:[\w-]+:start\b/;
+const GEN_END = /^<!-- forge:[\w-]+:end\b/;
+const CONTENTS = '**Contents**';
+const DOCS_WITH_CONTENTS = ['docs/CLI.md', 'docs/CONFIG.md'];
+
+/**
+ * What a doc's **Contents** list misses: no list at all, a hand-written `##`–`####` heading it doesn't link,
+ * or one whose anchor repeats another heading's. Headings in fenced code are not headings, and headings in a
+ * `<!-- forge:<name>:start` … `:end` block are generated, so the list may leave them out.
+ */
+function contentsProblems(md: string): string[] {
+  const lines = md.split('\n');
+  const heads: { level: number; text: string; generated: boolean }[] = [];
+  let fence: { ch: string; len: number } | null = null;
+  let generated = false;
+  for (const line of lines) {
+    if (fence) {
+      const m = FENCE_CLOSE.exec(line);
+      if (m && m[1][0] === fence.ch && m[1].length >= fence.len) fence = null;
+      continue;
+    }
+    const open = FENCE_OPEN.exec(line);
+    if (open) {
+      fence = { ch: open[1][0], len: open[1].length };
+      continue;
+    }
+    if (GEN_START.test(line)) generated = true;
+    else if (GEN_END.test(line)) generated = false;
+    const h = ATX.exec(line);
+    if (h) heads.push({ level: h[1].length, text: h[2].trim(), generated });
+  }
+  const at = lines.indexOf(CONTENTS);
+  if (at < 0) return [`no ${CONTENTS} list: add one after the first paragraph`];
+  let i = at + 1;
+  while (i < lines.length && lines[i].trim()) i++;
+  const targets = new Set<string>();
+  for (i++; i < lines.length && ITEM.test(lines[i]); i++) {
+    for (const m of lines[i].matchAll(/\]\(#([^)\s]+)\)/g)) targets.add(m[1]);
+  }
+  const count = new Map<string, number>();
+  for (const h of heads) count.set(slug(h.text), (count.get(slug(h.text)) ?? 0) + 1);
+  const own = heads.filter((h) => !h.generated && h.level >= 2 && h.level <= 4);
+  return [
+    ...own.filter((h) => !targets.has(slug(h.text))).map((h) => `${h.text} (#${slug(h.text)}) is missing from the contents list`),
+    ...own.filter((h) => (count.get(slug(h.text)) ?? 0) > 1).map((h) => `${h.text} (#${slug(h.text)}) repeats another heading's anchor: rename it`),
+  ];
 }
 
 /** Every checked doc, repo-relative with `/` separators, sorted, outside any node_modules or dist folder. */
@@ -274,4 +329,48 @@ test('every allowlist entry is one line the touchpoints rule can read', () => {
   for (const file of Object.keys(DOC_ALLOWED)) assert.equal(seen.get(file), 1, `${file}: on exactly one entry line`);
   const keys = Object.keys(DOC_ALLOWED);
   assert.deepEqual(keys, [...keys].sort(), 'entries sorted by path');
+});
+
+test('docs/CLI.md and docs/CONFIG.md route to every section from their contents list', () => {
+  for (const file of DOCS_WITH_CONTENTS) {
+    const md = fs.readFileSync(path.join(REPO, file), 'utf8');
+    const problems = contentsProblems(md);
+    assert.deepEqual(problems, [], `${file}:\n${problems.join('\n')}`);
+    const blocks = md.split(/\n{2,}/);
+    assert.equal(blocks[2], CONTENTS, `${file}: the ${CONTENTS} list comes right after the first paragraph`);
+  }
+  const cli = fs.readFileSync(path.join(REPO, 'docs/CLI.md'), 'utf8');
+  assert.match(cli, /^- \[Command reference\]\(#command-reference\).*`forge help <command>`/m, 'the Command reference item names the per-command entry');
+});
+
+test('the contents check reports a missing list, unlinked sections and repeated anchors', () => {
+  assert.deepEqual(contentsProblems('# T\n\nIntro.\n\n## A\n'), [`no ${CONTENTS} list: add one after the first paragraph`]);
+  const md = [
+    '# T',
+    '',
+    'Intro.',
+    '',
+    CONTENTS,
+    '',
+    '- [A](#a)',
+    '  - [Sub](#sub)',
+    '- [B](#b)',
+    '',
+    '## A',
+    '### Sub',
+    '## B',
+    '```md',
+    '## In a fence',
+    '```',
+    '<!-- forge:x:start (generated) -->',
+    '## Generated',
+    '<!-- forge:x:end -->',
+    '## C',
+    '## B',
+  ].join('\n');
+  assert.deepEqual(contentsProblems(md), [
+    'C (#c) is missing from the contents list',
+    "B (#b) repeats another heading's anchor: rename it",
+    "B (#b) repeats another heading's anchor: rename it",
+  ]);
 });
