@@ -153,6 +153,44 @@ function changed(globs: readonly string[]): (changes: readonly Change[]) => bool
   return (changes) => changes.some(match);
 }
 
+/** The doc-size allowlist that test/invariants/doc-size.test.ts enforces; this rule keeps it shrinking. */
+export const DOC_ALLOWLIST_FILE = 'test/invariants/doc-size-allowlist.ts';
+/** One allowlist entry, the only form the list holds: path, then the optional `words` and `topic` pins, then the reason. */
+export const ALLOWLIST_ENTRY = /^ {2}'([^'\s]+)': \{ (?:words: (\d+), )?(?:topic: (\d+), )?reason: '((?:[^'\\]|\\.)+)' \},$/;
+
+const isCommentLine = (t: string) => t.startsWith('//') || t.startsWith('/*') || t.startsWith('*');
+
+/**
+ * Fires when the doc-size allowlist gains an entry, a raised pin, a pin field the entry lacked, or a code
+ * line that is not an entry and was not moved (a spread, an entry split over lines). Lowering or dropping
+ * a pin or an entry, a reworded reason, a comment edit and the file created whole never fire. Nothing
+ * satisfies it: no companion change can justify a larger list, the fix is to split the doc.
+ */
+function allowlistGrows(): Rule['fires'] {
+  return (changes) => {
+    const lists = changes.filter((c) => (c.path === DOC_ALLOWLIST_FILE || c.from === DOC_ALLOWLIST_FILE) && c.status !== 'A');
+    const was = new Map<string, { words?: number; topic?: number }>();
+    const moved = new Set<string>();
+    for (const l of lists.flatMap((c) => c.removed)) {
+      const m = ALLOWLIST_ENTRY.exec(l);
+      const t = l.trim();
+      if (m) was.set(m[1], { words: m[2] === undefined ? undefined : Number(m[2]), topic: m[3] === undefined ? undefined : Number(m[3]) });
+      else if (t && !isCommentLine(t)) moved.add(t);
+    }
+    const grows = (l: string): boolean => {
+      const t = l.trim();
+      if (!t || isCommentLine(t)) return false;
+      const m = ALLOWLIST_ENTRY.exec(l);
+      if (!m) return !moved.has(t);
+      const old = was.get(m[1]);
+      if (!old) return true;
+      const pins: [string | undefined, number | undefined][] = [[m[2], old.words], [m[3], old.topic]];
+      return pins.some(([pin, before]) => pin !== undefined && (before === undefined || Number(pin) > before));
+    };
+    return lists.some((c) => c.added.some(grows)) ? { files: [DOC_ALLOWLIST_FILE] } : null;
+  };
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
 /** A version list entry: lib/core/versions/ and lib/api/versions.ts start each one on its own line like this. */
 const STEP_LINE = /^ {2}\{ id: '/;
@@ -211,6 +249,13 @@ export const RULES: readonly Rule[] = [
     fires: net(['lib/api/tracker.ts'], 'code'),
     satisfied: changed(['docs/TRACKERS.md']),
     fix: () => 'describe the contract change in docs/TRACKERS.md (lib/api/tracker.ts is a stable API for custom adapters)',
+  },
+  {
+    id: 'doc-size-allowlist',
+    fires: allowlistGrows(),
+    satisfied: () => false,
+    fix: () =>
+      'the doc-size allowlist only shrinks: split the over-cap paragraph or topic instead of adding an entry or raising a pin, and keep one entry per line (test/invariants/doc-size.test.ts)',
   },
 ];
 
