@@ -13,8 +13,5 @@ export interface DocAllowance {
 
 export const DOC_ALLOWED: Record<string, DocAllowance> = {
   'docs/architecture/daemon-runtime.md': { words: 5857, topic: 7157, reason: '#693: runtime topic, becomes a folder with an index' },
-  'docs/architecture/daemon-security.md': { words: 9657, topic: 12131, reason: '#692: security topic, becomes a folder with an index' },
-  'docs/architecture/dashboard-security.md': { words: 5655, topic: 6099, reason: '#692: security topic, becomes a folder with an index' },
   'docs/architecture/foreman.md': { words: 9512, topic: 12088, reason: '#693: runtime topic, becomes a folder with an index' },
-  'docs/architecture/untrusted-input.md': { words: 3787, topic: 8199, reason: '#692: security topic, becomes a folder with an index' },
 };

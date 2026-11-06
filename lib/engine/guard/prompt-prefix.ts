@@ -4,7 +4,7 @@
 // is fixed (never a brief, job file, checklist or PR text), each source must be a regular file reached
 // through real directories and outside every write root, and the file is content-addressed under
 // `.forge/runtime/`, which no role child may write. Any refusal means no prefix: the run starts as before.
-// docs/architecture/untrusted-input.md, docs/architecture/daemon-security.md "Role runs".
+// docs/architecture/untrusted-input.md, docs/architecture/daemon-security/runners.md "Role runs".
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

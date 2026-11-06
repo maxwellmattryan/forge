@@ -1,7 +1,7 @@
 // How an owner's message reaches its chat session: the pool's sendChat checks the pool, then startChat
 // spawns the chat's session through startWork (lib/office/slots.ts, the one spawn site) and writes the
 // message with Session.writeChat. This is the only path owner text takes to any session's stdin, and it
-// refuses every scope that is not a chat. docs/architecture/daemon-security.md › Chats.
+// refuses every scope that is not a chat. docs/architecture/daemon-security/chats.md.
 import { isChatScope } from '#core/job/requests.ts';
 import { startWork } from '../slots.ts';
 import type { Session } from '../session/contract.ts';

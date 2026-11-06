@@ -1,7 +1,7 @@
 // `forge chat brief`: what a chat session reads before its first reply, at most 32 KiB of Markdown. It opens
 // with a column-0 data line; the board (one line per open job) and the active and paused mandates follow,
 // every title, park reason and mandate text fenced as data, cut with a `(cut: N more)` line once a section
-// would pass its share. Read-only. docs/architecture/daemon-security.md › Chats.
+// would pass its share. Read-only. docs/architecture/daemon-security/chats.md.
 import path from 'node:path';
 import { PLUGIN_ROOT } from '#core/paths.ts';
 import { chatIdOf, daemonScope, listRequests } from '#core/job/requests.ts';
