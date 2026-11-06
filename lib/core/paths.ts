@@ -110,7 +110,7 @@ export interface MachinePaths {
    */
   dashboardLogin: string;
   /**
-   * The redirect page `forge dash` hands the browser (lib/engine/ops/dashboard-open.ts): it holds the login link, 0600 in
+   * The redirect page `forge dash` hands the browser (lib/integrations/os-service/browser.ts): it holds the login link, 0600 in
    * the 0700 runtime dir, so the key never sits in an opener's argv. Replaced on the next open, removed by --stop.
    */
   dashboardOpen: string;

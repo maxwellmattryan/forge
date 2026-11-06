@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline/promises';
-import { exists, forgeHome, paths, PLUGIN_ROOT } from '#core/paths.ts';
+import { exists, forgeHome, machinePaths, paths, PLUGIN_ROOT } from '#core/paths.ts';
 import { loadConfig } from '#core/config/load.ts';
 import { addProject, ensureMachineDirs, listProjects, projectByRoot } from '#engine/project/machine-index.ts';
 import { approveTrust } from '#engine/project/trust-approval.ts';
@@ -28,11 +28,11 @@ import {
   writeDashboardLogin,
   type DashboardRecord,
 } from '#engine/ops/dashboard-record.ts';
-import { clearDashboardOpen, openDashboard, shouldOpen } from '#engine/ops/dashboard-open.ts';
+import { openViaRedirect } from '#integrations/os-service/browser.ts';
 import { adoptCommandPath } from '#engine/guard/command-env.ts';
 import { spawnSleepHelper } from '#integrations/os-service/sleep.ts';
 import * as yaml from '#core/format/yaml.ts';
-import { out, outputMode } from './args.ts';
+import { out, outputMode, type OutputMode } from './args.ts';
 import { colorEnabled } from './render.ts';
 import type { RunningServer } from '../../server/types.ts';
 import type { Config, DaemonPermissionMode } from '#core/types.ts';
@@ -178,6 +178,39 @@ export function backgroundArgs(port: number, flags: Record<string, any>): string
   return ['dash', '--foreground', '--port', String(port), ...(mode ? ['--permission-mode', mode] : []), ...(flags.dev ? ['--dev'] : []), '--quiet'];
 }
 
+export type OpenDecision = { open: boolean; explicit: boolean; note?: string };
+
+/**
+ * Whether this `forge dash` run opens the login link in the browser, decided once: flag conflicts are usage errors,
+ * FORGE_BROWSER=none turns it off for the whole machine (even with --open, which then gets a note), then --no-open,
+ * then --open, and with neither only a person's terminal (human mode, a TTY stdout, no --dev) opens. Scripts, tests,
+ * agents, the --background child and the login service all fall through to no. A daemon session is refused in dash().
+ */
+export function shouldOpen(flags: Record<string, any>, opts: { env: NodeJS.ProcessEnv; mode: OutputMode; isTTY: boolean }): OpenDecision {
+  const open = Boolean(flags.open);
+  const noOpen = Boolean(flags['no-open']);
+  if (open && noOpen) throw new ForgeError('--open and --no-open contradict each other; pass one', 'usage', 'forge help dash');
+  if ((open || noOpen) && (flags.service || flags.stop)) {
+    throw new ForgeError(`--${open ? 'open' : 'no-open'} applies to a dashboard this run reports or starts for a person, so it takes no --service or --stop`, 'usage', 'forge help dash');
+  }
+  if (opts.env.FORGE_BROWSER?.trim() === 'none') {
+    return open ? { open: false, explicit: true, note: 'FORGE_BROWSER=none turned off --open; open the login link yourself' } : { open: false, explicit: false };
+  }
+  if (noOpen) return { open: false, explicit: true };
+  if (open) return { open: true, explicit: true };
+  return { open: opts.mode === 'human' && opts.isTTY === true && !flags.dev, explicit: false };
+}
+
+/**
+ * Opens `url` through the 0600 redirect file under `<FORGE_HOME>/runtime`, so the key never reaches an argv. A failure
+ * is one stderr line, never the exit code, and stays quiet when the open was implicit and the machine is headless.
+ */
+async function openLogin(home: string, url: string, explicit: boolean): Promise<void> {
+  const failed = await openViaRedirect(machinePaths(home).dashboardOpen, url, { spawn, env: process.env, platform: process.platform });
+  if (!failed || (failed.headless && !explicit)) return;
+  process.stderr.write(`could not open a browser (${failed.reason}); open the login link above, or run forge dash url\n`);
+}
+
 // Auto lets most calls run unread, so only the human's own command line may make it the run's launch mode.
 const MODE_DAEMON_REFUSAL =
   'forge dash --permission-mode sets the permission mode every session of the run starts in, which a daemon session may not do; a human runs it in their own terminal or chooses it in the dashboard';
@@ -234,7 +267,10 @@ function stopDashboards(home: string, root: string | null, current: DashboardRec
   ensureMachineDirs(home);
   writeJsonPrivate(machineDashboardFile(home), {});
   clearDashboardLogin(home);
-  clearDashboardOpen(home);
+  // The redirect page holds the key too; a missing one is fine.
+  try {
+    fs.rmSync(machinePaths(home).dashboardOpen, { force: true });
+  } catch {}
   let legacy: DashboardRecord | null = null;
   if (root) {
     const file = legacyDashboardFile(root);
@@ -286,7 +322,7 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   if (flags.stop) return stopDashboards(home, root, current, flags);
   if (opening.note) process.stderr.write(`${opening.note}\n`);
   // Only after the report or banner, with the exact link it shows; a failure is one stderr line, never the exit code.
-  const openIf = (url: string): Promise<void> => (opening.open ? openDashboard(home, url, { explicit: opening.explicit }) : Promise.resolve());
+  const openIf = (url: string): Promise<void> => (opening.open ? openLogin(home, url, opening.explicit) : Promise.resolve());
   // The dev build comes from a checkout's `npm run dev`; an installed plugin has no Vite, so its page would
   // answer 503 for good.
   if (flags.dev && !exists(path.join(PLUGIN_ROOT, 'node_modules', 'vite'))) {
