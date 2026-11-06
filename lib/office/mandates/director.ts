@@ -2,7 +2,7 @@
 // runs as CLI children (and a person may run in their own terminal). The survey and the board are
 // read-only views; start, resume and note each log one directive, and start and resume re-check every
 // limit of the mandate under the office lock first, so a misled Foreman can at worst start nothing.
-// docs/architecture/foreman.md › Director loop.
+// docs/architecture/foreman/office.md › Director loop.
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
 import { checkIssueRef, nativeRef } from '#core/job/issue-ref.ts';

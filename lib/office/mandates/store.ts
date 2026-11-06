@@ -5,7 +5,7 @@
 // `mandate` is set to narrow what the Foreman decides (jobMandateDecides), and to tell `forge sync`
 // whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
 // beside it holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary
-// (pass.ts, director.ts). docs/architecture/foreman.md.
+// (pass.ts, director.ts). docs/architecture/foreman/mandates.md › Mandates.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

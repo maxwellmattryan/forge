@@ -4,7 +4,7 @@
 // its steps (./draft.ts, ./direct.ts) and acks. It never leaves a request claimed: a failed run requeues it
 // (counted, once), a stop, a usage limit, a refused launch or the office cap gives the claim back. It shares
 // the office's daily cap with the gate runs and keeps a JSON-lines log, `_office.log`. The pool never starts an
-// `_office` session (OFFICE_NO_SESSION). docs/architecture/foreman.md › Office runs.
+// `_office` session (OFFICE_NO_SESSION). docs/architecture/foreman/office.md › Office runs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

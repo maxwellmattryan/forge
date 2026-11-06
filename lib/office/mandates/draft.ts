@@ -1,7 +1,7 @@
 // A goal mandate's milestone draft and its drafting runs' records: the draft rules (draftProblems), the
 // stored `.forge/runtime/mandates/<id>/draft.json` (readDraft, recordDraft), the drafter's staging file
 // under the office runs' drafts dir, the draft requests for a mandate, the spend ledger
-// (`ledger.jsonl`), and the status `forge mandate draft show` prints. docs/architecture/foreman.md › Intake.
+// (`ledger.jsonl`), and the status `forge mandate draft show` prints. docs/architecture/foreman/mandates.md › Intake.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -142,7 +142,7 @@ function milestoneProblems(ms: unknown): string[] {
 }
 
 /**
- * Every rule a drafter's JSON breaks (docs/architecture/foreman.md › Intake), and the draft with each
+ * Every rule a drafter's JSON breaks (docs/architecture/foreman/mandates.md › Intake), and the draft with each
  * `existing.ref` in its stored form when it breaks none. Exactly the documented keys at every level; text
  * on one line or on lines, visible, bounded; 1-30 issues with unique keys; waves 1…max with no gap;
  * dependencies only on earlier waves; repo-relative files that no two issues in one wave share.

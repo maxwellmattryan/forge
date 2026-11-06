@@ -1,7 +1,7 @@
 // Only forge dash's gate runner records a Foreman decision: through the CLI, `--actor foreman` is refused in
 // every scope (a person's terminal included) before anything is written, `forge job handoff` is gone, assist is
 // a person's read-only view, no session sees a gate request, and a gate run's `_gates` scope runs no forge
-// command (docs/architecture/foreman.md › Authority). Each scope row runs in-process; one spawned call per
+// command (docs/architecture/foreman/authority.md › Authority). Each scope row runs in-process; one spawned call per
 // command proves the route through bin/forge. Serial: the scope rows set process.env through forgeInProcess.
 import test from 'node:test';
 import assert from 'node:assert/strict';

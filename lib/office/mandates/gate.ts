@@ -2,7 +2,7 @@
 // a recorded draft queues for forge dash's gate runner, the assistant's brief (`forge mandate draft assist`),
 // and the one decision path (`decideDraft`) the CLI and the dashboard both call, with the daemon refusal,
 // the request and digest pins and a per-mandate lock. Approve files the draft (filing.ts); revise queues
-// another drafting run with the note; reject closes the mandate. docs/architecture/foreman.md › Milestone
+// another drafting run with the note; reject closes the mandate. docs/architecture/foreman/mandates.md › Milestone
 // approval and filing.
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';

@@ -2,7 +2,7 @@
 // (`.forge/runtime/mandates/<id>/survey.md`, outside every session's write roots) and returns the
 // `forge:drafter` brief. The survey carries the owner's goal and guidance and the tracker's titles
 // fenced as data, under a column-0 data line, beside Forge's own stats and folder maps.
-// docs/architecture/foreman.md › Intake.
+// docs/architecture/foreman/mandates.md › Intake.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';

@@ -6,7 +6,7 @@
 // mandate's release plan is the one `release` gate no job waits on: mandateReleaseRefusal is its mandate
 // policy, asked at planning, approval, run and status time, and assistMandateRelease its assistant's brief.
 // The checks here, not a prompt, hold the authority line: each runs before any write and refuses anyone
-// without the runner's ForemanAuthority. docs/architecture/foreman.md.
+// without the runner's ForemanAuthority. docs/architecture/foreman/authority.md.
 import path from 'node:path';
 import { isForemanActor, listJobs, readEvents } from '#core/job/store.ts';
 import { listArchived } from '#core/job/archive.ts';
@@ -304,7 +304,7 @@ export function checkMandateGateDecision(
 
 /**
  * The stages a `forge job set --state running` may move a job to right after each foreman action: the
- * stage each action of the gate table (docs/architecture/foreman.md › Gate runs) resumes at. undefined: the stage stays.
+ * stage each action of the gate table (docs/architecture/foreman/gates.md › Gate runs) resumes at. undefined: the stage stays.
  * A chat's set after a recorded decision takes the same table (chatSetRefusal, lib/office/chat/authority.ts).
  */
 export const SET_AFTER: Record<string, readonly (string | undefined)[]> = {

@@ -5,7 +5,7 @@
 // job's resume and acks. Under foreman.escalations: foreman, an escalate or a refused decision at a job's gate
 // gets one senior pass (./senior.ts) that decides it or shelves the job. It never leaves a request claimed: a
 // failed run requeues it (counted, once), a usage limit or a stop gives the claim back. It shares the office's
-// daily cap and keeps a JSON-lines gate log. docs/architecture/foreman.md › Gate runs.
+// daily cap and keeps a JSON-lines gate log. docs/architecture/foreman/gates.md › Gate runs.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -284,7 +284,7 @@ export function createGateRunner(root: string, deps: { ctx: SessionContext; o: S
     return seniorDecide(r, t, c, res.verdict, res.reason, a.repos);
   }
 
-  /** The senior's verdict, by the Behaviour table in docs/architecture/foreman.md › Senior pass. */
+  /** The senior's verdict, by the Behaviour table in docs/architecture/foreman/gates.md › Senior pass. */
   async function seniorDecide(r: ForgeRequest, t: Target, c: Config, verdict: SeniorVerdict, reason: string, repos: string[] | undefined): Promise<[GateRunOutcome, string]> {
     if (verdict === 'shelve') return shelve(r, t, c, `senior pass: ${reason}`);
     const move = gateMove(t.gate, verdict);
