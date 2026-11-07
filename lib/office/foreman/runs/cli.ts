@@ -2,7 +2,7 @@
 // by word so no id, ref or reason reads as an option, the child itself (`process.execPath bin/forge …` in the
 // repo, with stdout kept: runOfficeCli), how its exit and JSON are read (officeCliResult), and the env every
 // child of the run gets (officeChildEnv): the daemon marker, scope `_office` and the pool's trust digest, so
-// the CLI's office refusals apply. docs/architecture/foreman.md › Office runs.
+// the CLI's office refusals apply. docs/architecture/foreman/office.md › Office runs.
 import path from 'node:path';
 import { MANDATE_ID_SOURCE, OFFICE_SCOPE } from '#api/constants.ts';
 import { TRUST_ENV } from '#core/config/load.ts';

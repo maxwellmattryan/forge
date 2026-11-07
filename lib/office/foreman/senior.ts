@@ -2,7 +2,7 @@
 // Foreman's shelve. The gate runner (./run.ts) asks seniorStart once its assistant escalated or the CLI refused its
 // decision; the checks run in a fixed order and only the last one starts a senior pass, whose decision goes through
 // the same policy checks (./decide.ts). Whatever it can't settle is shelved for a person, never accepted. Each write
-// here refuses anyone without the gate runner's ForemanAuthority. docs/architecture/foreman.md › Senior pass.
+// here refuses anyone without the gate runner's ForemanAuthority. docs/architecture/foreman/gates.md › Senior pass.
 import { ForgeError } from '#core/errors.ts';
 import { cleanShelveReason } from '#core/job/schema.ts';
 import { loadJob, logHumanEvent, readEvents } from '#core/job/store.ts';

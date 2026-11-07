@@ -2,7 +2,7 @@
 // requests with `forge job apply`, then running `forge job advance` and one `forge job agent run` per spawn as child
 // processes until a gate or `done`, with no orchestrator session (./turn.ts). It wraps an inner createSession, which takes
 // only the turn of a procedure step the driver handed off (RC1's recall eval) exactly as a job session does, and every
-// call under `daemon.driver: session`. docs/architecture/daemon-runtime.md "Code driver" describes the loop.
+// call under `daemon.driver: session`. docs/architecture/daemon-runtime/code-driver.md "Code driver" describes the loop.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { defaults } from '#core/config/keys/defaults.ts';

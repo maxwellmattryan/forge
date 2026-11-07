@@ -3,7 +3,7 @@
 // `--permission-mode dontAsk` with Bash denied, its own tools and write roots, scope `_office` and
 // `--max-budget-usd` set to what is left of the office's daily cap. Its costed result is metered once to
 // `_office`, and after it ends the confine digest is compared with the pool's baseline: a protected path that
-// changed stops the pool and the child ends `stopped`. docs/architecture/foreman.md › Office runs.
+// changed stops the pool and the child ends `stopped`. docs/architecture/foreman/office.md › Office runs.
 import crypto from 'node:crypto';
 import { OFFICE_SCOPE } from '#api/constants.ts';
 import { TRUST_ENV } from '#core/config/load.ts';

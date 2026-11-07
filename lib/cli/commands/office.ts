@@ -14,7 +14,7 @@ import { startFromRef } from './tracker.ts';
 import { str, usageError } from './args.ts';
 import type { CliContext, Dispatched, HelpGroup } from '../types.ts';
 
-const DOCS: [string, string] = ['Foreman › Director loop', 'docs/architecture/foreman.md'];
+const DOCS: [string, string] = ['Foreman › Director loop', 'docs/architecture/foreman/office.md#director-loop'];
 const SCOPE_EXIT = 'run in a daemon session other than the office, or with a missing or invalid scope';
 const REASON: [string, string] = ['--reason R', 'why, one line of at most 200 characters (required)'];
 

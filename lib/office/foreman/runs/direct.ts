@@ -2,7 +2,7 @@
 // with work in flight (all at once), then the plan (./plan.ts): mandates code decides, and at most one
 // forge:director call for the rest. Only once every model child has ended does it run `forge office start`,
 // `note` and `resume`, mandate by mandate in survey order: starts, then holds and notes, then resumes. Every
-// start is re-checked by the CLI under the office lock. docs/architecture/foreman.md › Office runs.
+// start is re-checked by the CLI under the office lock. docs/architecture/foreman/office.md › Office runs.
 import { resolveEffort, resolveModel, validEffort, validModel } from '#core/config/models.ts';
 import { OFFICE_AGENTS } from './child.ts';
 import { GiveBack, RunFailed, type StepDeps, type StepEnd } from './steps.ts';

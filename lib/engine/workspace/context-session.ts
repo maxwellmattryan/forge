@@ -1,7 +1,7 @@
 // Context sessions: one headless child per round and key reads the round's shared inputs once, so each review lens and
 // rework build of that round forks it with them already in context. Which spawns use one, the key, the inputs, the
 // records and the fork's usage baseline; the child itself is launched by the caller (`forge job agent run`).
-// docs/architecture/daemon-runtime.md "Context sessions".
+// docs/architecture/daemon-runtime/role-runs.md "Context sessions".
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

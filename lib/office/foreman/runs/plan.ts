@@ -1,6 +1,6 @@
 // A direct office run's pure planning: the survey read defensively, the surveyors' SURVEY: lines, which
 // mandates code decides and which the one director call is asked about, the director's brief, and the
-// strict parser over its DIRECT: line. Nothing here spawns, reads a file or writes. docs/architecture/foreman.md
+// strict parser over its DIRECT: line. Nothing here spawns, reads a file or writes. docs/architecture/foreman/office.md
 // › Office runs.
 import { MANDATE_ID_SOURCE, MANDATE_ORDERS } from '#api/constants.ts';
 import { validJobId } from '#core/job/requests.ts';

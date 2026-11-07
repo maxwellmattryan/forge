@@ -11,7 +11,7 @@ Claude Code's command line, protocol, files and prices: the session argv and env
 - `pricing.json` holds the model prices: take them from Anthropic's current pricing, never from memory, and bump `asOf`. `pricing()` and `/api/about` read it through `PLUGIN_ROOT`.
 - Transcript paths come from job state only, which an agent or a checkout can write, so each id is checked before it becomes a path segment.
 - `friction.ts` turns a located transcript into counts and a fenced-ready log; nothing from it but counts and keys leaves for `transcripts.json` (docs/IMPROVEMENT.md "Agent transcripts").
-- Design: [Daemon security](../../../docs/architecture/daemon-security.md), [Daemon runtime](../../../docs/architecture/daemon-runtime.md).
+- Design: [Daemon security](../../../docs/architecture/daemon-security.md), [Daemon runtime › Sessions](../../../docs/architecture/daemon-runtime/sessions.md), [Daemon runtime › Role runs](../../../docs/architecture/daemon-runtime/role-runs.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |

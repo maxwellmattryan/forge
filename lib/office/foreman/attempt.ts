@@ -5,7 +5,7 @@
 // every forge command. Each costed turn is metered to `_gates`, a turn past daemon.turnTimeoutMinutes is
 // killed, and after the child exits the confine digest is compared with the pool's baseline, as after a
 // session's turn. It never reads claude's stream lines beyond the events lib/integrations/claude/ reports.
-// docs/architecture/foreman.md › Gate runs.
+// docs/architecture/foreman/gates.md › Gate runs.
 import crypto from 'node:crypto';
 import { TRUST_ENV } from '#core/config/load.ts';
 import { PLUGIN_ROOT } from '#core/paths.ts';

@@ -11,7 +11,7 @@
 // merged after it was planned; while it waits, no pause or stall applies.
 // When a mandate has director work it queues one `direct` request, which forge dash runs as an office run. Every
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
-// pass read, so an owner's edit, pause or close wins. docs/architecture/foreman.md › Director loop.
+// pass read, so an owner's edit, pause or close wins. docs/architecture/foreman/office.md › Director loop.
 import { ForgeError } from '#core/errors.ts';
 import { listRequests, enqueue } from '#core/job/requests.ts';
 import { isForemanActor, logEvent } from '#core/job/store.ts';
