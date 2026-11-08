@@ -617,6 +617,19 @@ test('chip tones meet 4.5:1 on bg, panel and chrome', BUILT, () => {
   for (const [theme, color] of Object.entries(themeColors())) assert.ok(contrast(color('on-spark'), color('spark')) >= 4.5, `${theme} the spark chip`);
 });
 
+test('a grained plate never scrolls itself', () => {
+  // The plate's grain is an inset: 0 layer: on a plate that scrolls, it covers the first screenful and scrolls away.
+  // A child scrolls instead (Select's listbox, MenuButton's body). A .flat plate draws no grain.
+  const scrolls = /\boverflow-(?:[xy]-)?(?:auto|scroll)\b/;
+  const bad = componentFiles().flatMap((f) =>
+    tags(f, readSrc(f.slice(4)))
+      .map((t) => t.attrs.find((a) => a.name === 'class')?.value ?? '')
+      .filter((c) => /\bplate\b/.test(c) && !/\bflat\b/.test(c) && scrolls.test(c))
+      .map((c) => `${f}: ${c.slice(0, 80)}`),
+  );
+  assert.deepEqual(bad, []);
+});
+
 // ---------- 5. accessible state and names ----------
 
 test('segments and nav expose their selected state', () => {

@@ -6,8 +6,8 @@
   import Empty from '../components/ui/feedback/Empty.svelte';
   import Icon from '../components/ui/Icon.svelte';
   import JobCard from '../components/jobs/JobCard.svelte';
-  import JobsTable from '../components/jobs/JobsTable.svelte';
-  import PipelineGraph from '../components/jobs/PipelineGraph.svelte';
+  import JobsTable from '../components/jobs/layouts/JobsTable.svelte';
+  import PipelineGraph from '../components/jobs/layouts/PipelineGraph.svelte';
   import PageHeader from '../components/shell/PageHeader.svelte';
   import type { ApiState } from '../lib/core/types.ts';
   import { PIPELINE_LAYOUTS, boardColumns, filterJobs, pipelineCounts, pipelineLayout, type BoardGroupId, type PipelineLayout } from '../lib/jobs/board.ts';

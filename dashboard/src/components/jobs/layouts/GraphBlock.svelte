@@ -4,13 +4,13 @@
      column and row. A node opens its job's drawer, or its issue panel when no live job holds it. Every title, ref and
      state line renders as text. -->
 <script lang="ts">
-  import Icon from '../ui/Icon.svelte';
-  import type { Block, GNode } from '../../lib/project/pipeline-graph.ts';
-  import type { StageStep } from '../../lib/jobs/board.ts';
-  import type { Tone } from '../../lib/jobs/state.ts';
-  import { openDrawer, openIssue } from '../../lib/core/app.svelte.ts';
-  import { ticker } from '../../lib/core/clock.svelte.ts';
-  import { t } from '../../lib/text/locale.ts';
+  import Icon from '../../ui/Icon.svelte';
+  import type { Block, GNode } from '../../../lib/project/pipeline-graph.ts';
+  import type { StageStep } from '../../../lib/jobs/board.ts';
+  import type { Tone } from '../../../lib/jobs/state.ts';
+  import { openDrawer, openIssue } from '../../../lib/core/app.svelte.ts';
+  import { ticker } from '../../../lib/core/clock.svelte.ts';
+  import { t } from '../../../lib/text/locale.ts';
 
   /** `hot`: each heating edge's end time (ms since the epoch). */
   let { block, hot }: { block: Block; hot: Record<string, number> } = $props();

@@ -13,7 +13,7 @@ The dashboard's Svelte components, in folders by feature area, with the primitiv
 |---|---|
 | `drawer/` | The drawer: its shell, the job panel and the issue panel, and the job panel's header controls, Agents tab and Thread. |
 | `gates/` | What waits on a person and the answers they give: the Needs-you cards, a gate's note and request buttons with the issue-link and repo-proposal answers, the drawer's action dock and the repo budget hold. |
-| `jobs/` | A job on the Pipeline: its board card and table row, the chips, stepper and bar they show, the effort dropdown, and the graph layout's plates and node blocks. |
+| `jobs/` | A job on the Pipeline: its board card, the chips, stepper and bar it shows, the effort dropdown, and `layouts/`, the graph and table layouts. |
 | `logs/` | Session and environment logs as the station shows them: a session's log and its items, an environment's log and the pilot lamp. |
 | `metrics/` | Usage and cost: a job's budget chip, cell and panel, Analytics' period meter, the Overview's stacked bars and the Evals compare table. |
 | `office/` | The Office and Foreman pages: the Office panel, the mandate badge, card, editor and report card, and the chats. |

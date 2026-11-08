@@ -7,18 +7,18 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import GraphBlock from './GraphBlock.svelte';
-  import Chip from '../ui/Chip.svelte';
-  import Empty from '../ui/feedback/Empty.svelte';
-  import Loading from '../ui/feedback/Loading.svelte';
-  import Skeleton from '../ui/feedback/Skeleton.svelte';
-  import { S, loadMandates } from '../../lib/core/app.svelte.ts';
-  import { currentProject } from '../../lib/core/project.ts';
-  import type { MandatePlanResponse } from '../../lib/core/types.ts';
-  import { fetchMandatePlan, STATE_TONE } from '../../lib/office/foreman.ts';
-  import { HEAT_COOL_MS, graphMarks, heatedEdges, newlyMerged, openMandates, pipelineGraph, type GraphMark } from '../../lib/project/pipeline-graph.ts';
-  import { PLAN_SIZE, PLAN_SIZE_COMPACT } from '../../lib/project/plan-layout.ts';
-  import { settled } from '../../lib/ui/motion.ts';
-  import { t } from '../../lib/text/locale.ts';
+  import Chip from '../../ui/Chip.svelte';
+  import Empty from '../../ui/feedback/Empty.svelte';
+  import Loading from '../../ui/feedback/Loading.svelte';
+  import Skeleton from '../../ui/feedback/Skeleton.svelte';
+  import { S, loadMandates } from '../../../lib/core/app.svelte.ts';
+  import { currentProject } from '../../../lib/core/project.ts';
+  import type { MandatePlanResponse } from '../../../lib/core/types.ts';
+  import { fetchMandatePlan, STATE_TONE } from '../../../lib/office/foreman.ts';
+  import { HEAT_COOL_MS, graphMarks, heatedEdges, newlyMerged, openMandates, pipelineGraph, type GraphMark } from '../../../lib/project/pipeline-graph.ts';
+  import { PLAN_SIZE, PLAN_SIZE_COMPACT } from '../../../lib/project/plan-layout.ts';
+  import { settled } from '../../../lib/ui/motion.ts';
+  import { t } from '../../../lib/text/locale.ts';
 
   const PLAN_POLL_MS = 15_000;
   const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
