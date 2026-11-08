@@ -1,7 +1,7 @@
 <!-- The command bar (Cmd/Ctrl-K): a modal ARIA combobox that starts a job from free text, sends a /forge-style command or
      opens a project (`project <name>`; with no project selected that is all it does).
      A centred sheet at md and up, a full-width sheet at the top below. It starts from the text typed into the status bar's
-     input, with the caret at the end. src/lib/shell/command.ts holds the grammar and mapping. -->
+     input, with the caret at the end. Its height eases between contents (a measured inner wrapper). src/lib/shell/command.ts holds the grammar and mapping. -->
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
   import Chip from '../ui/Chip.svelte';
@@ -29,6 +29,9 @@
   let error = $state<string | null>(null);
   let dialog = $state<HTMLDivElement>();
   let input = $state<HTMLInputElement>();
+  let body = $state<HTMLDivElement>();
+  let height = $state<number | null>(null);
+  let settled = $state(false);
   let pressedOnBackdrop = false;
 
   const ctx = $derived<CommandCtx>({
@@ -210,7 +213,19 @@
       input?.focus();
       input?.setSelectionRange(text.length, text.length);
     });
+    // The dialog's height follows its contents' so it eases between sizes. The first size lands with no transition.
+    let raf = 0;
+    const ro = body
+      ? new ResizeObserver(() => {
+          if (!body) return;
+          height = body.offsetHeight;
+          if (!settled && !raf) raf = requestAnimationFrame(() => (settled = true));
+        })
+      : null;
+    if (body) ro?.observe(body);
     return () => {
+      ro?.disconnect();
+      cancelAnimationFrame(raf);
       unlock();
     };
   });
@@ -218,7 +233,8 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions (the backdrop; Escape closes the dialog from the keyboard) -->
 <div class="fixed inset-0 z-45 flex items-start justify-center scrim md:p-6 md:pt-[12vh]" in:fade|global out:fade|global={EXIT} onmousedown={backdropDown} onclick={backdrop}>
-  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" in:pop|global class="plate solid flex flex-col w-full min-w-0 max-h-[85vh] shadow-(--shadow-overlay) md:max-w-[672px]" onkeydown={trap}>
+  <div bind:this={dialog} role="dialog" aria-modal="true" aria-label={$t('command.title')} tabindex="-1" in:pop|global style:height={height === null ? undefined : `${height}px`} class="plate solid w-full min-w-0 shadow-(--shadow-overlay) md:max-w-[672px] {settled ? 'transition-[height] duration-(--motion-base) ease-(--ease-enter)' : ''}" onkeydown={trap}>
+    <div bind:this={body} class="flex flex-col max-h-[85vh]">
     <!-- One recessed field holding the glyph, the scope chip and a seamless input. flex-wrap with a 10rem input basis: on a
          phone the scope chip and its remove button take the first line, so the input keeps room to type. -->
     <div class="input cmd-field flex-wrap gap-x-2">
@@ -282,14 +298,15 @@
     <!-- The visible reason is announced here, so a screen reader hears "Loading issues…", not just "No suggestions". -->
     <div class="sr-only" aria-live="polite">{options.length ? $t('command.count', { count: options.length }) : (emptyText ?? $t('command.empty'))}</div>
     {#if isFree}
-      <div class="flex flex-col gap-1 border-t border-line px-4 py-3">
+      <div class="flex flex-col gap-1 border-t border-line px-4 py-3" in:fade>
         <label for="command-title" class="label">{$t('command.titleLabel')}</label>
         <input id="command-title" type="text" bind:value={title} maxlength="120" autocomplete="off" placeholder={$t('command.titlePlaceholder')} class="w-full" onkeydown={titleKey} />
       </div>
     {/if}
-    {#if error}<div role="alert" class="border-t border-line bg-panel px-4 py-2 text-sm text-bad">{error}</div>{/if}
+    {#if error}<div role="alert" class="border-t border-line bg-panel px-4 py-2 text-sm text-bad" in:fade>{error}</div>{/if}
     <div class="flex items-center justify-end gap-2 border-t border-line px-4 py-2.5">
       <button class="btn primary" disabled={pending || !canRun} onclick={submit}>{pending ? $t('command.working') : isFree ? $t('command.start') : canRun ? $t('command.send') : $t('command.run')}</button>
+    </div>
     </div>
   </div>
 </div>

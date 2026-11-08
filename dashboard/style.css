@@ -446,12 +446,13 @@
   ::selection { background: var(--spark); color: var(--on-spark); }
   /* Slim scrollbars: a 2px rail and a squared thumb that heats to ember while held or hovered. WebKit/Blink get the
      pseudo-elements (setting the standard properties there would disable them); Firefox gets the standard pair. The
-     thumb's transparent border clips its paint to the rail's 2px, so it rides inside the line, while the whole 6px
-     gutter stays grabbable. */
+     rail rides the outer 2px of the 6px gutter, so a bar hugs its container's right (or bottom) edge; the thumb's
+     transparent border on the inner side clips its paint to that rail, while the whole gutter stays grabbable. */
   ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 2px, var(--line-soft) 2px, var(--line-soft) 4px, transparent 4px); }
-  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 2px, var(--line-soft) 2px, var(--line-soft) 4px, transparent 4px); }
-  ::-webkit-scrollbar-thumb { background-color: var(--line); background-clip: padding-box; border: 2px solid transparent; border-radius: 1px; }
+  ::-webkit-scrollbar-track { background: linear-gradient(to right, transparent 4px, var(--line-soft) 4px); }
+  ::-webkit-scrollbar-track:horizontal { background: linear-gradient(to bottom, transparent 4px, var(--line-soft) 4px); }
+  ::-webkit-scrollbar-thumb { background-color: var(--line); background-clip: padding-box; border: 0 solid transparent; border-left-width: 4px; border-radius: 1px; }
+  ::-webkit-scrollbar-thumb:horizontal { border-left-width: 0; border-top-width: 4px; }
   ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--ember) 55%, var(--line)); }
   ::-webkit-scrollbar-thumb:active { background-color: var(--ember); }
   ::-webkit-scrollbar-corner { background: transparent; }
@@ -549,6 +550,11 @@
   position: relative;
   isolation: isolate;
   overflow: clip;
+  /* A plate never scrolls itself: its grain layer below is inset: 0, so it would cover the first screenful only and
+     scroll away with the content. A child scrolls instead, and that child's track stops short of the plate's corners
+     on its edge (the small round top-right / bottom-left, the bevelled bottom-right) rather than running into the cut. */
+  & > ::-webkit-scrollbar-track:vertical { margin-block: var(--radius-1) var(--radius-cut); }
+  & > ::-webkit-scrollbar-track:horizontal { margin-inline: var(--radius-1) var(--radius-cut); }
   /* The grain is a clipped layer of its own, behind the content: a background-image painted on the plate itself
      escapes the cut corner in some engines, so it never goes on the plate. */
   &::after {
