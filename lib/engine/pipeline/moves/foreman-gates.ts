@@ -1,7 +1,7 @@
 // The Foreman's gate policy: which gate class a job waits on, which classes the Foreman decides,
 // what foreman.reserved and the security, total-round, retro and human-only holds keep with a human, and the
 // `gate` requests a park queues. The session side (the checks on a decision, hand-offs, who owns a
-// gate for the dashboard) is lib/office/foreman/policy.ts. docs/architecture/foreman.md.
+// gate for the dashboard) is lib/office/foreman/policy.ts. docs/architecture/foreman/gates.md › Routing.
 import fs from 'node:fs';
 import path from 'node:path';
 import { jobDir, readEvents } from '#core/job/store.ts';

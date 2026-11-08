@@ -3,7 +3,7 @@
 // scope, gets the one fixed `/forge requests` turn; a chat's session gets the owner's message instead (writeChat). A session
 // never runs agents or writes job state itself: the claude child does, through the same claims and CLI as a human's session.
 // It never reads claude's output either: it reacts to the ClaudeEvents lib/integrations/claude/ reports.
-// docs/architecture/daemon-runtime.md and daemon-security.md describe the rules this file keeps.
+// docs/architecture/daemon-runtime/sessions.md and docs/architecture/daemon-security.md describe the rules this file keeps.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { TRUST_ENV } from '#core/config/load.ts';

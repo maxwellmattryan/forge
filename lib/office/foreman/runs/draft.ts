@@ -1,7 +1,7 @@
 // A draft office run: `forge mandate draft prepare` as a CLI child, one forge:drafter model child on prepare's
 // brief, model and effort whose only write root is the drafts dir, then `forge mandate draft record` with the
 // drafter's session id as its agent id. The drafter's reply is never read, and neither is the survey, the
-// staging file or the draft. docs/architecture/foreman.md › Office runs.
+// staging file or the draft. docs/architecture/foreman/office.md › Office runs.
 import { validEffort, validModel } from '#core/config/models.ts';
 import { draftsDir } from '../../mandates/draft.ts';
 import { OFFICE_AGENTS } from './child.ts';

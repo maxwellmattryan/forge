@@ -2,7 +2,7 @@
 // worktree (lib/integrations/claude/role.ts), with Forge recording the agent's start, attach and end itself
 // and its usage taken from the child's own result line. A spawn step gave a `resume` continues that session; any other
 // review lens or rework build forks its round's context session (lib/engine/workspace/context-session.ts), or runs cold.
-// docs/architecture/daemon-runtime.md "Role runs".
+// docs/architecture/daemon-runtime/role-runs.md "Role runs".
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

@@ -3,7 +3,7 @@
 // items the tracker lists for it, the candidates and the window the Foreman may start from, why it is
 // blocked, its quality floor, and its stalls. It reads only the CLI's records: listJobs and readEvents (the CLI copy), the
 // archive and the spend ledger, never a job folder's session-writable job.json or events.jsonl.
-// docs/architecture/foreman.md › Director loop.
+// docs/architecture/foreman/office.md › Director loop.
 import { checkIssueRef, sameIssue } from '#core/job/issue-ref.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listRequests } from '#core/job/requests.ts';

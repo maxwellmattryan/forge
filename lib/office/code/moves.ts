@@ -1,6 +1,6 @@
 // The code driver's moves: what it does after each `forge job advance` and each `forge job agent run` child ends, as
 // pure functions of the child's exit and output and the turn's counters. lib/office/code/job-driver.ts acts on them;
-// docs/architecture/daemon-runtime.md "Code driver" has the table in prose.
+// docs/architecture/daemon-runtime/code-driver.md "Code driver" has the table in prose.
 import { safeText } from '#core/text.ts';
 
 /** How one forge child ended (startForge in ./children.ts). */

@@ -1,6 +1,6 @@
 // createPool's gate runner in-process over fakeClaude children: each pending gate request becomes one gate
 // run (a `_gates` forge:assistant child, never a session), capped by foreman.assistants.parallel, decided in
-// code and acked; a start requeues what an earlier dash's runs left claimed (docs/architecture/foreman.md ›
+// code and acked; a start requeues what an earlier dash's runs left claimed (docs/architecture/foreman/gates.md ›
 // Gate runs). Nothing real is spawned.
 import test from 'node:test';
 import assert from 'node:assert/strict';

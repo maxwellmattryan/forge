@@ -2,7 +2,7 @@
 // the idle stop (daemon.idleStopMinutes), which stops a child nothing keeps; and its freshness: the inbox
 // and the office start a new conversation at every spawn, and a job session whose turn's context passed
 // daemon.freshAfterTokens stops at a safe boundary and starts its next spawn fresh. Each stops the child
-// through the session's own kill, so its exit lets go of what it held (docs/architecture/daemon-runtime.md).
+// through the session's own kill, so its exit lets go of what it held (docs/architecture/daemon-runtime/sessions.md › Rotation).
 import { UUID } from '#core/job/session-files.ts';
 import { INBOX_SCOPE, OFFICE_SCOPE, sharedScope, validJobId } from '#core/job/requests.ts';
 import type { ClaudeEvent } from '#integrations/claude/types.ts';

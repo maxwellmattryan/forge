@@ -2,7 +2,7 @@
 // secret scan and the tracker both see, and the filing record (`.forge/runtime/mandates/<id>/filing.json`),
 // written before the first tracker call and after each, so a stopped filing resumes without filing
 // anything twice. Ends by turning the goal mandate into a scoped mandate over the filed milestone.
-// docs/architecture/foreman.md › Milestone approval and filing.
+// docs/architecture/foreman/mandates.md › Milestone approval and filing.
 import path from 'node:path';
 import { ForgeError } from '#core/errors.ts';
 import { nativeRef } from '#core/job/issue-ref.ts';

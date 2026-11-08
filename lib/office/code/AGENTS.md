@@ -7,7 +7,7 @@ Work the pool does in code instead of a model session: the code driver, and the 
 - `moves.ts` is pure: every decision the driver makes after a child ends is a row of its table, so a new case is a new row there and in `moves.test.ts`, never a branch in the driver.
 - A role run's permission prompts reach the dashboard only through `relay.ts`, which checks every IPC field by type and length, answers only the runner that asked, and denies unasked what a session's prompt policy would (`lib/office/session/permissions/control.ts`). Never generalise control.ts for it: that one answers only its own current child.
 - A park reason or a lost summary built from a child's output goes to argv only in the joined `--reason=`/`--summary=` form, prefixed `code driver: `, one line of at most 200 characters (`parkReason`).
-- Design: [Daemon](../../../docs/architecture/daemon.md), [Daemon runtime](../../../docs/architecture/daemon-runtime.md), [Daemon security](../../../docs/architecture/daemon-security.md).
+- Design: [Daemon](../../../docs/architecture/daemon.md), [Daemon runtime › Code driver](../../../docs/architecture/daemon-runtime/code-driver.md), [Daemon security](../../../docs/architecture/daemon-security.md).
 
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
