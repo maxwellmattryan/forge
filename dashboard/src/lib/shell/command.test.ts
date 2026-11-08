@@ -1,13 +1,18 @@
 // The command bar's `project` word: parsing, completion, what running it does, and the bar with no project selected.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canRunCommand, commandRequest, emptyReason, parseCommand, suggest, type CommandCtx, type Suggestion } from './command.ts';
+import { canRunCommand, commandRequest, emptyReason, parseCommand, shortcutAction, suggest, type CommandCtx, type Suggestion } from './command.ts';
 import type { SwitcherEntry } from './switcher.ts';
 
 const entry = (name: string, waiting = 0, state: SwitcherEntry['state'] = 'ok'): SwitcherEntry => ({ name, path: `/src/${name}`, state, openable: state === 'ok', waiting, active: 0, daemon: null });
 const projects = [entry('api'), entry('apps', 2), entry('gone', 0, 'missing'), entry('web', 1), entry('wiki'), entry('shut', 3, 'unavailable')];
 const ctx = (project: string | null): CommandCtx => ({ jobs: [], backlog: [], tracker: 'none', projects, project });
 const rows = (s: Suggestion[]): string[] => s.map((o) => (o.kind === 'project' ? `project:${o.entry.name}` : o.kind === 'verb' ? `verb:${o.verb}` : o.kind));
+
+test('shortcutAction: closed opens, open refocuses', () => {
+  assert.equal(shortcutAction({ paletteOpen: false }), 'open-palette');
+  assert.equal(shortcutAction({ paletteOpen: true }), 'focus-palette');
+});
 
 test('project command', () => {
   const on = ctx('web');
