@@ -1,7 +1,8 @@
 // What the repo holds outside any job: /api/project, /api/roster, /api/backlog with the tracker item, /api/backlog/item
 // (one item's text and facts for the issue panel), /api/github/preview,
-// the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Office page), and a
-// goal mandate's milestone draft (/api/state's drafts, GET and POST /api/mandates/:id/draft).
+// the mandates with their directives (GET and POST /api/mandates and /api/mandates/:id/*, the Office page), a
+// mandate's plan of issues and dependencies (GET /api/mandates/:id/plan), and a goal mandate's milestone draft
+// (/api/state's drafts, GET and POST /api/mandates/:id/draft).
 import type { ComponentKind, DependencyType, DirectiveAction, Effort, EffortSource, GateClass, MandateOnUnfinishable, MandateOrder, MandateScoring, MandateStatus, MandateUntil, WaitingOn } from './enums.ts';
 import type { EventActor, GateOwner } from './job.ts';
 
@@ -380,6 +381,42 @@ export interface MandateDetailResponse extends MandateRow {
   body: string;
   goal: string | null;
   directives: Directive[];
+}
+
+/** A plan node's state: its job's (done is merged, cancelled counts as none), else from its upstream nodes. */
+export type MandatePlanState = 'merged' | 'running' | 'waiting' | 'ready' | 'planned';
+
+/** One issue of a mandate plan. `title` is tracker or job text: render it as text. */
+export interface MandatePlanNode {
+  ref: string;
+  title: string;
+  wave: number | null;
+  job: string | null;
+  state: MandatePlanState;
+}
+
+/** `from` must finish before `to`: from the `to` issue's `Depends on:` line, or a job's dependsOn. */
+export interface MandatePlanEdge {
+  from: string;
+  to: string;
+  source: 'body' | 'job';
+}
+
+/** Why part of the plan is missing. `detail` is Forge's text with refs, job ids and numbers only; `edges` lists a cycle's dropped edges. */
+export interface MandatePlanProblem {
+  kind: 'scope' | 'malformed' | 'outside' | 'unknown' | 'cycle';
+  ref: string | null;
+  detail: string;
+  edges: MandatePlanEdge[];
+}
+
+/** GET /api/mandates/:id/plan and `forge mandate plan`: mandatePlan in lib/office/mandates/progress.ts, no tracker call. */
+export interface MandatePlanResponse {
+  mandate: string;
+  readAt: string | null;
+  nodes: MandatePlanNode[];
+  edges: MandatePlanEdge[];
+  problems: MandatePlanProblem[];
 }
 
 /** The terms a mandate write may carry; the contract judges their values, as for `forge mandate new|edit`. */

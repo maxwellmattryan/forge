@@ -223,13 +223,14 @@ function activeLocalJob(ctx: TrackerCtx, ref: string): LoadedJob | null {
 }
 
 /**
- * `gh issue list` with `extra` flags, as items: project status and priority merged in when a project is
- * in use (its failure thrown only when `strict`), then needsInfo and claimedBy marked. list and scope share it.
+ * `gh issue list` with `extra` flags and the `fields` the caller asks for, as items: project status and
+ * priority merged in when a project is in use (its failure thrown only when `strict`), then needsInfo and
+ * claimedBy marked. list and scope share it.
  */
-function listIssues(ctx: TrackerCtx, extra: string[], limit: number, strict: boolean): TrackerItem[] {
+function listIssues(ctx: TrackerCtx, fields: string, extra: string[], limit: number, strict: boolean): TrackerItem[] {
   const slug = repoSlug(ctx.root, ctx.config);
   const ready = gcfg(ctx).ready;
-  const args = ['issue', 'list', '-R', slug, '--state', 'open', '--json', 'number,title,url,labels,assignees', '--limit', String(limit), ...extra];
+  const args = ['issue', 'list', '-R', slug, '--state', 'open', '--json', fields, '--limit', String(limit), ...extra];
   const items: TrackerItem[] = ghJson(ctx.root, args).map(toItem);
   const useProject = projectCoords(ctx) && (ready.projectStatus || ['project', 'both'].includes(gcfg(ctx).statusSync));
   if (useProject) {
@@ -269,7 +270,7 @@ export default {
       if (ready.assignee) extra.push('--assignee', ready.assignee);
       if (ready.milestone) extra.push('--milestone', ready.milestone);
     }
-    let items = listIssues(ctx, extra, opts.limit ?? 100, Boolean(ready.projectStatus && opts.ready));
+    let items = listIssues(ctx, 'number,title,url,labels,assignees', extra, opts.limit ?? 100, Boolean(ready.projectStatus && opts.ready));
     if (opts.ready) {
       const exclude = new Set(ready.excludeLabels ?? []);
       items = items.filter((it) => !it.claimedBy && !it.needsInfo && !(it.labels ?? []).some((l: string) => exclude.has(l)));
@@ -283,7 +284,8 @@ export default {
     if (q.milestone !== null) extra.push('--milestone', scopeValue('milestone', q.milestone));
     for (const l of q.labels) extra.push('--label', scopeValue('label', l));
     const limit = Number.isSafeInteger(q.limit) && q.limit > 0 ? q.limit : 100;
-    return listIssues(ctx, extra, limit, false);
+    // The body too: the mandate plan reads each issue's `Depends on:` line (lib/engine/trackers/depends.ts).
+    return listIssues(ctx, 'number,title,url,labels,assignees,body', extra, limit, false);
   },
   search(ctx, query, opts) {
     const slug = repoSlug(ctx.root, ctx.config);

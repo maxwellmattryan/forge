@@ -18,7 +18,7 @@ import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironm
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobCi, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject, postSession } from './routes/machine.ts';
-import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
+import { getMandate, getMandateDraft, getMandatePlan, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
@@ -130,6 +130,7 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'POST', path: /^\/mandates\/([^/]+)\/(edit|pause|resume|close)$/, handler: postMandateAction },
   { method: 'POST', path: '/shelf', handler: postShelf },
   { method: 'GET', path: /^\/mandates\/([^/]+)\/draft$/, guards: ['read'], handler: getMandateDraft },
+  { method: 'GET', path: /^\/mandates\/([^/]+)\/plan$/, guards: ['read'], handler: getMandatePlan },
   // Filing runs in the handler: the tracker methods are synchronous by contract.
   { method: 'POST', path: /^\/mandates\/([^/]+)\/draft$/, handler: postMandateDraft },
   { method: 'POST', path: '/focus', handler: postFocus },
