@@ -134,6 +134,7 @@ export function validateConfig(c: unknown, root: string): string[] {
   oneOf('pr.updateStrategy', c.pr.updateStrategy, ['merge', 'rebase']);
   oneOf('pr.integrationReview', c.pr.integrationReview, ['always', 'code-only']);
   oneOf('merge.method', c.merge.method, ['squash', 'merge', 'rebase']);
+  problems.push(...titlesProblems(c.titles));
   problems.push(...requiredChecksProblems(c));
   oneOf('infra.mode', c.infra.mode, ['human', 'plan-only', 'agent']);
   oneOf('worktrees.cleanup', c.worktrees.cleanup, ['on-merge', 'manual']);
@@ -509,4 +510,29 @@ export function reviewerChecklist(root: string, name: string, explicit?: string)
   candidates.push(path.join(paths(root).reviewers, `${name}.md`));
   candidates.push(path.join(PLUGIN_ROOT, 'reviewers', `${name}.md`));
   return candidates.find(exists) ?? null;
+}
+
+/** The longest titles.pattern and titles.guide accepted: a pattern runs on every title, a guide goes into two briefs. */
+const MAX_TITLE_PATTERN = 200;
+const MAX_TITLE_GUIDE = 1000;
+
+/** titles.*: the enums, a pattern that compiles and is short, a short guide, and an examples count from 0 to 20. */
+export function titlesProblems(t: any): string[] {
+  if (!t || typeof t !== 'object' || Array.isArray(t)) return [`titles must be a map (got ${JSON.stringify(t)?.slice(0, 80)})`];
+  const out: string[] = [];
+  if (!['conventional', 'plain'].includes(t.style)) out.push(`titles.style must be one of conventional, plain (got ${JSON.stringify(t.style)?.slice(0, 80)})`);
+  if (!['pr', 'schema', 'request'].includes(t.job)) out.push(`titles.job must be one of pr, schema, request (got ${JSON.stringify(t.job)?.slice(0, 80)})`);
+  if (!(Number.isInteger(t.examples) && t.examples >= 0 && t.examples <= 20)) out.push(`titles.examples must be an integer from 0 to 20 (got ${JSON.stringify(t.examples)?.slice(0, 80)})`);
+  if (t.pattern !== null) {
+    if (typeof t.pattern !== 'string' || !t.pattern.trim() || t.pattern.length > MAX_TITLE_PATTERN) out.push(`titles.pattern must be null or a regular expression of at most ${MAX_TITLE_PATTERN} characters`);
+    else {
+      try {
+        new RegExp(t.pattern, 'u');
+      } catch (e) {
+        out.push(`titles.pattern is not a valid regular expression: ${String((e as Error).message).slice(0, 120)}`);
+      }
+    }
+  }
+  if (t.guide !== null && (typeof t.guide !== 'string' || !t.guide.trim() || t.guide.length > MAX_TITLE_GUIDE)) out.push(`titles.guide must be null or text of at most ${MAX_TITLE_GUIDE} characters`);
+  return out;
 }

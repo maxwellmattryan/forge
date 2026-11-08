@@ -4,7 +4,8 @@
 // agent mode. Human mode, for a person at a terminal, renders the same results as text; main()
 // resolves the mode once per process (docs/CLI.md "Output mode").
 // Command groups live in lib/cli/commands/; this file only routes.
-import { daemonTrust, loadConfig } from '#core/config/load.ts';
+import { detectTitles, titleReport } from '#engine/ops/titles/history.ts';
+import { daemonTrust, defaults, loadConfig } from '#core/config/load.ts';
 import { refuseBrokenScope, refuseDaemonMerge, refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { registerNotify } from '#office/notify.ts';
 import { mandateRefusal } from '#office/foreman/policy.ts';
@@ -144,7 +145,11 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
 
   switch (cmd) {
     case 'init': {
-      if (sub === 'detect') return ok(detect(root));
+      if (sub === 'detect') {
+        const d = detect(root);
+        // The PR history's title convention, for init to propose titles.*: read-only and uncached.
+        return ok({ ...d, titles: detectTitles(root, ghGitHub, d.repo, defaults()) });
+      }
       if (sub === 'write') {
         const answers = flags.answers ? readJson(String(flags.answers)) : {};
         return ok(initWrite(root, answers, Boolean(flags.force)));
@@ -234,6 +239,8 @@ export async function dispatch(argv: string[], ctx: CliContext): Promise<Dispatc
       // misread merge target must be refused, never guessed.
       if (sub === 'merge') mergeTarget(flags);
       if (sub === 'ready') mergeTarget(flags, 'ready');
+      // Takes no job id: the repo's merged PR titles and the convention they suggest.
+      if (sub === 'titles') return ok(titleReport(root, config, ghGitHub, { refresh: flags.refresh === true }));
       const id = req(rest[0], 'job id');
       if (sub === 'find') return ok(findPr(root, config, ghGitHub, id));
       if (sub === 'open') return ok(openPr(root, config, ghGitHub, id, { title: flags.title, draft: flags.draft === undefined ? undefined : Boolean(flags.draft), force: Boolean(flags.force) }));

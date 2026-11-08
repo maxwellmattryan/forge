@@ -33,6 +33,7 @@ Only when your brief has a `Split check: yes` line: decide first whether the req
   ```
 
 ## Write `spec.md`
+With a `Title schema:` line in your brief, the `# <title>` heading follows it (a conventional schema: `type(scope): subject`, the type from what the change will do), because Forge renames the job to it; a heading that fails the schema leaves the job's name as it was. Without the line, the title is free text.
 ```
 # <title>
 

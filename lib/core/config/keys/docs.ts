@@ -210,6 +210,13 @@ export const KEY_DOCS: Readonly<Record<string, KeyDoc>> = {
     doc: "the checks the root PR's merge needs, each a name or {name, app | workflow | creator} bound to its source; empty: the base branch's protection names them (see \"Merge\")",
   },
 
+  titles: { doc: 'the title schema the approver\'s PR titles and job names follow (see "Titles")' },
+  'titles.style': { doc: 'conventional | plain: conventional is `type(scope)!: subject`, at most 72 characters' },
+  'titles.pattern': { doc: "a regex a title must match instead of the style's check (a ticket-key prefix, say); null: the style's" },
+  'titles.guide': { doc: 'free text for the spec writer and approver: allowed scopes, wording; null: none' },
+  'titles.examples': { doc: "0-20: recent merged PR titles the approver's brief shows as examples (fenced as data); 0: none" },
+  'titles.job': { doc: "pr | schema | request: rename the job to its PR's title, name it from the spec under the schema, or keep the request's words" },
+
   aiAttribution: { doc: 'forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)' },
 
   release: { doc: 'how this (root) repo releases (see Release strategy)' },

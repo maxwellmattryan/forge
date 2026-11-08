@@ -1,6 +1,6 @@
 # Forge configuration. Every key is documented in docs/CONFIG.md of the Forge plugin.
 # Re-run `/forge init` to change answers interactively, or edit this file directly.
-schemaVersion: 34
+schemaVersion: 52
 project:
   name: Forge
   description: "Claude Code plugin that runs a software factory: jobs in worktrees, agent roster, PR/tracker sync, dashboard, evals and retros. The repo is also its own plugin marketplace."
@@ -77,7 +77,6 @@ runtime:
   effort: medium
   efforts:
     spec-writer: high
-    assistant: high
     retro: high
     judge: high
   effortByComplexity:
@@ -92,7 +91,6 @@ runtime:
   models:
     orchestrator: inherit
     planner: opus
-    assistant: opus
     spec-writer: opus
     designer: sonnet
     builder: opus
@@ -311,6 +309,9 @@ foreman:
   reserved:
     - gate:release
   ship: merge
+  assistants:
+    model: opus
+    effort: high
 repos: []
 downstream:
   enabled: true

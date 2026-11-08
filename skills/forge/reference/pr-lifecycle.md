@@ -45,6 +45,8 @@ Step verifies, then reviews according to `review.onPrFeedback`:
 
 Then it opens the PR again (push + reuse), parks the job on `pr-review` and releases the claim. Report what was addressed, one line per thread.
 
+The PR title is the approver's `Title:` line in `pr.md` when it passes the title schema, else the job title (a `pr-title` event says which, with the problem); it is set once, at create, and never edited after. Under `titles.job: pr` the job is renamed to it, and earlier to the spec's heading when the spec writer ends (`retitled`, or `retitle-refused` with no change). Relay a refused title in the PR report; never retitle a PR or a job by hand unless the human asks (`forge job retitle`, docs/CONFIG.md "Titles").
+
 `unlinked: true` in a `forge pr open` result is reported (step's `pr-review` tell carries it), never acted on: linking an issue is the human's call.
 
 `requiredChecksWarning` in a `forge pr open` result is relayed the same way, once, word for word: the base has no required checks Forge can hold a merge to, and the text ends in the command that turns protection on. Never run that command or edit `merge.requiredChecks` yourself: branch protection and the merge gate are the maintainer's call.

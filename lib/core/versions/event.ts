@@ -98,6 +98,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // `durationMs` to `verify`, the `agent-cancelled` event ({ role, round, wasRunning }), and `cancelled` as an
   // `agent-end` status. An older Forge reads a cached `command` as a run of 0 ms and the new event as a generic one.
   { id: 'partial-verify', up: (e) => e },
+  // v28 adds the title schema's events: `retitled` ({ from, to, source }), `retitle-refused` ({ source, problem })
+  // and `pr-title` ({ source, problem? }). An older Forge reads each as a generic event.
+  { id: 'title-events', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);

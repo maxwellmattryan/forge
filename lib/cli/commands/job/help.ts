@@ -130,6 +130,14 @@ export const JOB: HelpGroup = {
       exits: [[1, 'no such job, a finished job, plan.md or spec.md already written, an agent running, no linked issue, an issue outside this repo and its member repos\' trackers, or no such tracker item (gh failing reads as none)']],
     },
     {
+      command: 'job retitle',
+      args: '<id> [--from spec|pr]',
+      summary:
+        "rename the job from spec.md's # heading (spec, the default) or pr.md's Title: line (pr) when titles.job allows that source and the title passes the title schema (docs/CONFIG.md \"Titles\"): a retitled event, or retitle-refused with the problem and no change; the id, slug and branch stay. A spec writer's end runs it from the spec, and forge pr open from pr.md before the PR exists",
+      flags: [['--from spec|pr', 'where the title comes from (default spec)']],
+      exits: [[1, 'no such job, or --from is neither spec nor pr']],
+    },
+    {
       command: 'job repo',
       args: 'add <id> <name> [--verify-only] | remove <id> <name> | propose <id> <name> --reason R | downstream <id> | interim <id> (<name> | --root) canary|git-ref|local|sequential|inherit',
       summary: "add a member repo (a config repos entry whose clone passes doctor's check) to a job, which then gets its own worktree, verify evidence and PR on the job's branch; remove drops one that has no PR and no worktree left; interim sets one job repo's interim strategy as a dependency (what a consumer's PR points at while it is unmerged: docs/CONFIG.md \"Interim strategies\"), overriding release.interim, and inherit clears it (add, remove and interim are human-only). propose records an agent's proposal of a repos entry with its reason in repo-proposals.md; the job then waits until a human, or the foreman when allowed, runs forge job human <id> approve-repos|reject-repos (approving a verify-only member promotes it to an edited one). downstream adds the changed repos' linked consumers as verify-only repos, so verify runs their tests against the job's changes, and prints what it added and skipped with each reason (docs/CONFIG.md \"Downstream verification\"); it takes no repo name, and the job's own session may run it",

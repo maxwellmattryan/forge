@@ -23,7 +23,7 @@ import { EFFORTS } from '#core/job/schema.ts';
 import { withoutRunHistory } from '#engine/metrics/runs.ts';
 import { isSessionUsageEvent } from '#engine/metrics/meter.ts';
 import { enqueue, isMandateIdArg, listRequests, validJobId } from '#core/job/requests.ts';
-import { deriveTitle, normalizeTitle } from '#engine/ops/title.ts';
+import { deriveTitle, normalizeTitle } from '#engine/ops/titles/derive.ts';
 import { isMap } from '#core/shape.ts';
 import { ForgeError } from '#core/errors.ts';
 import { startBackground } from '#engine/workspace/dev-server.ts';

@@ -1,4 +1,4 @@
-// `forge job set|effort|note|refresh-request|budget`: a job's stage, state, fields, effort, notes, request and budget limits.
+// `forge job set|effort|note|refresh-request|retitle|budget`: a job's stage, state, fields, effort, notes, request, title and budget limits.
 import { budgetCmd } from '#engine/metrics/budget.ts';
 import { inInboxOrOffice } from '#office/session/permissions/owner.ts';
 import { checkOfficeSetFor } from '#office/foreman/policy.ts';
@@ -11,6 +11,7 @@ import { loadJob, logEvent, logHumanEvent, setJobEffort } from '#core/job/store.
 import { checkFieldKey, checkJobFields, reopensShelved } from '#core/job/fields.ts';
 import { EFFORTS } from '#core/job/schema.ts';
 import { refreshRequest } from '#engine/trackers/request-refresh.ts';
+import { retitleJob } from '#engine/ops/titles/rename.ts';
 import { ForgeError } from '#core/errors.ts';
 import { coerce } from '#core/text.ts';
 import type { Config } from '#core/types.ts';
@@ -98,6 +99,13 @@ export async function set(root: string, config: Config, rest: string[], flags: R
 export function refreshRequestCmd(root: string, config: Config, rest: string[], flags: Record<string, any>) {
   const id = rest[0];
   return refreshRequest(root, config, requireJob(root, id).id, 'cli');
+}
+
+/** `forge job retitle <id> [--from spec|pr]`: rename the job from its spec heading or pr.md's Title: line, under the title schema. */
+export function retitle(root: string, config: Config, rest: string[], flags: Record<string, any>) {
+  if (rest.length !== 1) throw usageError(JOB, 'retitle');
+  const from = flags.from === undefined ? 'spec' : oneOf(str(flags.from, '--from'), ['spec', 'pr'] as const, 'from');
+  return retitleJob(root, config, requireJob(root, rest[0]).id, from);
 }
 
 export function note(root: string, config: Config, rest: string[], flags: Record<string, any>) {

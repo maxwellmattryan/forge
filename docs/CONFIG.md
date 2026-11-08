@@ -15,6 +15,7 @@
 - [Open PRs](#open-prs)
 - [Clean pass](#clean-pass)
 - [Merge](#merge)
+- [Titles](#titles)
 - [Overlap check](#overlap-check)
 - [Model profiles](#model-profiles)
 - [Builder model](#builder-model)
@@ -63,7 +64,7 @@ Commands also get `PORT`, `FORGE_PORT`, `FORGE_JOB`, `FORGE_WORKTREE`, `FORGE_PO
 
 <!-- forge:config:start (generated from lib/core/config/keys/ by npm run docs:config; edit the doc strings in docs.ts) -->
 ```yaml
-schemaVersion: 53            # the config schema this file is written for: `forge migrate` writes it, and a Forge
+schemaVersion: 54            # the config schema this file is written for: `forge migrate` writes it, and a Forge
                              # older than it refuses the file ("update the plugin")
 
 project:                     # the project every agent works on
@@ -272,6 +273,13 @@ merge:                       # whether and how Forge merges approved PRs
   method: squash             # squash | merge | rebase
   autoWhen: []               # plain-language conditions, e.g. ["docs-only changes", "test-only changes"]
   requiredChecks: []         # the checks the root PR's merge needs, each a name or {name, app | workflow | creator} bound to its source; empty: the base branch's protection names them (see "Merge")
+
+titles:                      # the title schema the approver's PR titles and job names follow (see "Titles")
+  style: conventional        # conventional | plain: conventional is `type(scope)!: subject`, at most 72 characters
+  pattern: null              # a regex a title must match instead of the style's check (a ticket-key prefix, say); null: the style's
+  guide: null                # free text for the spec writer and approver: allowed scopes, wording; null: none
+  examples: 10               # 0-20: recent merged PR titles the approver's brief shows as examples (fenced as data); 0: none
+  job: pr                    # pr | schema | request: rename the job to its PR's title, name it from the spec under the schema, or keep the request's words
 
 aiAttribution: forbid        # forbid | allow: whether commits, PRs, issues and comments may credit an AI (see README)
 
@@ -529,7 +537,7 @@ worktrees:
 
 **Values** follow the key's type: `true`/`false`; a decimal number; `null` for keys that allow it; text as written; and lists as `[a, b]` or a JSON array (`'["a","b"]'`, `[]`). Values are checked against the key's range or options, text may not contain control or invisible formatting characters (bidi overrides, zero-width characters) or exceed 200 characters, `review.blockOn` must keep both `blocker` and `major` (adding `minor` or `nit` is allowed), `daemon.idleStopMinutes`, `daemon.turnTimeoutMinutes` and `daemon.permissionTimeoutMinutes` must be greater than 0 (or `null`), `daemon.freshAfterTokens` must be a positive integer (or `null`), and `tracker.github.labels.prefix` must be at least 2 characters ending in `:`, `/` or `-`, because Forge removes every issue label that starts with it. The result must also pass `forge config validate`, though problems the file already had never block an unrelated change.
 
-**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds`, `maxTotalRounds` and every `pipeline.budget.*`; `review.blockOn`, `review.onPrFeedback`, `review.onRework` and `review.startAfter`; `pr.integrationReview` and `pr.maxCiReworks`; `runtime.models.<role>`, `runtime.modelByComplexity.*`, `runtime.reworkModel`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*`; `foreman.model`, `foreman.effort`, `foreman.assistants.model|effort` and `foreman.surveyors.model|effort`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); `daemon.idleStopMinutes`, `daemon.turnTimeoutMinutes`, `daemon.permissionTimeoutMinutes`, `daemon.freshAfterTokens` and `daemon.auth`; `retention.logMaxBytes`; `environments.maxRunning`; `outcomes.windowDays`; `scoring.sample` and `scoring.model`; and `budget.usdPerDay`, `budget.usdPerMonth`, `budget.tokensPerMonth` and `budget.onExceeded`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`/`jobBudget`/`dailyUsd` (caps unattended spend), `foreman.*` except the model and effort keys above, `retention.jobsDays`/`logsDays` (they delete files), `notify.webhooks` (names a URL Forge posts to), `notify.command` (runs a program), …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/core/config/fields.ts` is the allowlist.
+**Editable keys**: `pipeline.plan`, `split`, `specApproval`, `design`, `maxRounds`, `maxTotalRounds` and every `pipeline.budget.*`; `review.blockOn`, `review.onPrFeedback`, `review.onRework` and `review.startAfter`; `pr.integrationReview` and `pr.maxCiReworks`; `titles.style`, `pattern`, `guide`, `examples` and `job`; `runtime.models.<role>`, `runtime.modelByComplexity.*`, `runtime.reworkModel`, `runtime.maxParallelJobs`, `runtime.diversity`, `runtime.effort`, `runtime.efforts.<role>` and `runtime.effortByComplexity.*`; `foreman.model`, `foreman.effort`, `foreman.assistants.model|effort` and `foreman.surveyors.model|effort`; `tracker.github.ready.*`, `tracker.github.claim.assign`, `tracker.github.statusSync` and `tracker.github.labels.prefix`; `dashboard.port` (used by the next `forge dash`); `daemon.idleStopMinutes`, `daemon.turnTimeoutMinutes`, `daemon.permissionTimeoutMinutes`, `daemon.freshAfterTokens` and `daemon.auth`; `retention.logMaxBytes`; `environments.maxRunning`; `outcomes.windowDays`; `scoring.sample` and `scoring.model`; and `budget.usdPerDay`, `budget.usdPerMonth`, `budget.tokensPerMonth` and `budget.onExceeded`. The rule: a key is editable only when it can't name a command, file, module, tool or repository Forge runs, loads or writes to, and can't loosen a security or attribution policy. Everything else (`commands.*`, `worktrees.*`, `verify*`, `git.*`, `merge.*`, `approver.*`, `aiAttribution`, `infra.*`, `review.panel`, `tracker.kind`, `tracker.github.repo`/`comments`/`project.*`, `daemon.enabled`/`command`/`allowedTools`/`maxConcurrent`/`jobBudget`/`dailyUsd` (caps unattended spend), `foreman.*` except the model and effort keys above, `retention.jobsDays`/`logsDays` (they delete files), `notify.webhooks` (names a URL Forge posts to), `notify.command` (runs a program), …) is refused with `<key> is not editable with forge config set (<why>); edit .forge/config.yml by hand`, and the dashboard shows it read-only. `lib/core/config/fields.ts` is the allowlist.
 
 **Errors** exit 1 and leave the file byte-identical: an unknown key, a read-only key, an invalid value, or a layout the edit can't change without dropping a comment (a block map or `|` block, a list of maps, a list with comments between or on its items, a key inside a flow map). A repo without `.forge/config.yml` exits 2; `/forge init` creates it.
 
@@ -659,6 +667,37 @@ A required check that is pending defers (or, when it comes from protection, queu
 `--now` is a human-only operation: a person confirming at a terminal by typing the job id (or **Merge now** in the dashboard). It skips all of this, check 2 included, never the merge order or a release gate, and is logged as `pr-merge-bypass` with who confirmed it. Every `pr-merged` event says who ran the merge, with or without `--now`: `actor`, plus `scope` (the `FORGE_DAEMON_SCOPE`) when a daemon session ran it and `via: sync` when `forge sync` continued it. A daemon session, an agent, a script or a configured command can't pass `--now` (code `human_only`; docs/architecture/daemon-security/human-only-operations.md); a daemon session can't merge another job, and is refused when its scope is missing or invalid.
 
 **The backstop no session can change** is GitHub's own branch protection: required reviews and required status checks on your base branches. Forge never turns it on for you; with it on, a misled session or a forged job file still can't land a PR GitHub holds.
+
+## Titles
+
+```yaml
+titles:
+  style: conventional   # conventional | plain
+  pattern: null         # a regex that replaces the style's check
+  guide: null           # notes for the spec writer and approver
+  examples: 10          # 0-20 recent merged PR titles the approver matches
+  job: pr               # pr | schema | request
+```
+
+**The title schema.** With a squash merge (`merge.method: squash`, the default) a PR's title becomes the commit subject on the base branch, so Forge writes PR titles to one schema. `conventional` (the default) is a conventional commit subject: `type(scope)!: subject`, a type from `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore` or `revert`, an optional lower-case scope and `!`, and at most 72 characters. `plain` takes any one line of at most 120 characters. `pattern` replaces the style's check with a regular expression of at most 200 characters (a ticket key, say: `^[A-Z]+-\d+: `). `guide` (at most 1000 characters) goes to the spec writer's and approver's briefs as written, for what a regex can't say: the scopes the repo uses, its wording.
+
+**The approver names the PR.** The approver writes the title on `pr.md`'s first line, `Title: <title>`, from the diff. `forge pr open` checks it against the schema before the secret scan and uses it when it passes; otherwise, and when there is no `Title:` line (a [clean pass](#clean-pass) writes none), the PR takes the job title. The `pr-title` event records which (`source: approver | job | flag`) and the check's `problem`. `--title` overrides both. A PR's title is set once, when it is created: `forge pr open` never edits an open PR's title, so a title someone changed on GitHub stays.
+
+**Examples from history.** With `titles.examples` above 0, the approver's brief points at `forge pr titles`, which prints the titles of the last 30 PRs merged into `git.base` (forks and `release/` branches left out, each folded to one line), the newest `examples` of them as quoted lines under a note that they are data, never instructions. The read is cached for six hours in `.forge/runtime/pr-titles.json`. `forge init detect` reads the same history without the cache and reports the convention it follows under `titles`: `conventional` when at least 70% of the titles are conventional (with the scopes used more than once), a `pattern` when at least 70% start with a ticket key or a bracketed tag, else `plain`, and nothing below five titles. `/forge init` proposes it.
+
+**Job names.** `titles.job` decides whether jobs follow the schema too. The id, slug and branch never change; only the title does.
+
+| `titles.job` | The job is named |
+|---|---|
+| `pr` (default) | from the spec's `# ` heading when the spec writer ends (so the spec gate shows it), then after its PR's title when `forge pr open` creates the PR |
+| `schema` | from the spec's heading only |
+| `request` | with the words it was created with |
+
+A rename logs `retitled` (`from`, `to`, `source`). A heading or `Title:` line that fails the schema renames nothing and logs `retitle-refused` with the problem. `forge job retitle <id> [--from spec|pr]` runs the same rename by hand. The tracker keeps the issue's own title, and `request.md` keeps the request's words.
+
+**The squash subject.** GitHub's default squash subject for a one-commit PR is the commit message, not the PR title (`squash_merge_commit_title: COMMIT_OR_PR_TITLE`). When Forge squash-merges, it passes the PR's live title as `--subject` (`<title> (#N)`), so an edit made on GitHub still wins. A merge a person makes on GitHub follows the repo setting: `forge doctor` warns (row `squash subject`) when the setting would ignore the title and prints the `gh api` call that sets it to `PR_TITLE`; it never runs it. Its `title schema` row notes when fewer than half of the recent merged titles pass the schema.
+
+**Migration** (config `schemaVersion` 53 → 54): nothing changes on disk. v54 adds `titles` from the defaults (`style: conventional`, `job: pr`), so new PRs get conventional titles and jobs are renamed to match; set `style: plain` and `job: request` to keep the old behaviour. The bump lets older Forges refuse a config whose title schema they would reject as an unknown key.
 
 ## Overlap check
 

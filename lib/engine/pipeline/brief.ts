@@ -1,5 +1,6 @@
 // Agent briefs for `forge job step`: paths and config-derived lines only, never file contents, so
 // text an agent wrote (after reading tracker or PR text) is never re-injected into another prompt.
+import { titleExamplesLine, titleSchemaLine } from '../ops/titles/check.ts';
 import path from 'node:path';
 import { backingLine } from '../environment/backing.ts';
 import { autoMerge, lensNeedsApp, resolveEffort, verifySteps } from '#core/config/load.ts';
@@ -302,6 +303,7 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           ...(ctx.foldIn ? ['Fold in the Spec deltas from design.md.'] : []),
           // Only the two modes: job.splitMode is settable with --field.
           ...(ctx.splitCheck ? [`Split check: yes · split mode ${ctx.splitMode === 'auto' ? 'auto' : 'ask'}`] : []),
+          ...(c.titles.job === 'request' ? [] : [titleSchemaLine(c)]),
           ...components,
           ...repos,
         ],
@@ -396,6 +398,8 @@ export function roleBrief(input: StepInput, role: string, ctx: RoleContext = {})
           releaseGateLine(c, j, input.events),
           recallLine(input),
           ...(reworkPanel ? [reworkPanel] : []),
+          titleSchemaLine(c),
+          ...titleExamplesLine(c),
           infra,
           `Scope: ${p('scope')}`,
         ],

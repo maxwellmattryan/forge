@@ -202,7 +202,8 @@ export interface GitHub {
   /** Adds and removes labels on PR `number`; an unknown label fails (gh says `not found`). Names are validated config. */
   editLabels(cwd: string, slug: string, number: number, change: { add: readonly string[]; remove: readonly string[] }): void;
   createLabel(cwd: string, slug: string, name: string, description: string): void;
-  merge(cwd: string, slug: string, number: number, opts: { method: string; auto: boolean; matchHead: string | null }): MergeOutcome;
+  /** `subject`: the squash commit's subject (`--subject`), one line; absent: GitHub's repo setting decides. */
+  merge(cwd: string, slug: string, number: number, opts: { method: string; auto: boolean; matchHead: string | null; subject?: string }): MergeOutcome;
   /** `base`'s required checks and review count in `slug`. Never throws: a read that fails is in the answer. */
   branchRules(cwd: string, slug: string, base: string): BranchRules;
   /** Commit `sha`'s check runs and statuses in `slug`, in one GraphQL read. */
@@ -219,4 +220,10 @@ export interface GitHub {
   branchHistory(cwd: string, slug: string, branch: string, since: string): BranchHistory;
   /** Commit `oid`'s diff as raw text (untrusted). Throws `external` past MAX_DIFF_BYTES, and on a bad oid or slug before any call. */
   commitDiff(cwd: string, slug: string, oid: string): string;
+  /** The titles of up to `limit` (1–100) PRs merged into `base`, newest first, forks and release branches left out; untrusted, one line each. Throws `external` on a bad slug, base or limit before any call. */
+  mergedTitles(cwd: string, slug: string, base: string, limit: number): string[];
+  /** PR `number`'s live title, one line (untrusted), or null when it can't be read. Never throws. */
+  prTitle(cwd: string, slug: string, number: number): string | null;
+  /** The repo's squash-merge subject setting (`squash_merge_commit_title`), or null when it can't be read. Never throws. */
+  squashTitleSetting(cwd: string, slug: string): 'PR_TITLE' | 'COMMIT_OR_PR_TITLE' | null;
 }

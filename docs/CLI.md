@@ -1405,6 +1405,16 @@ See [Retention](architecture/retention.md).
 
 See [Job repos](architecture/job-repos.md).
 
+**`forge job retitle <id> [--from spec|pr]`**: rename the job from spec.md's # heading (spec, the default) or pr.md's Title: line (pr) when titles.job allows that source and the title passes the title schema (docs/CONFIG.md "Titles"): a retitled event, or retitle-refused with the problem and no change; the id, slug and branch stay. A spec writer's end runs it from the spec, and forge pr open from pr.md before the PR exists
+
+| Flag | Meaning |
+|---|---|
+| `--from spec\|pr` | where the title comes from (default spec) |
+
+| Exit | When |
+|---|---|
+| 1 | no such job, or --from is neither spec nor pr |
+
 **`forge job round <id>`**: start the next review round, unless the budget is spent
 
 | Exit | When |
@@ -1935,6 +1945,12 @@ A job's pull request.
 |---|---|
 | 1 | no such job |
 | 5 | gh or git failed |
+
+**`forge pr titles [--refresh]`**: the titles of the last 30 PRs merged into git.base (forks and release/ branches left out; cached 6 hours), the titles.examples newest as quoted data for the approver, the convention they suggest (style, pattern, common scopes, the share that follows it; null below 5 titles) and how many pass the configured title schema; read-only
+
+| Flag | Meaning |
+|---|---|
+| `--refresh` | read GitHub now instead of the cache |
 
 ### `forge project`
 
