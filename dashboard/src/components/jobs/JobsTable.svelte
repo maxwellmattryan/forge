@@ -78,7 +78,8 @@
   <tr class="clickable" onclick={() => openDrawer(j.id)}>
     <td class="mono muted text-[11px] whitespace-nowrap" title={m.refTitle}>{m.ref}</td>
     <!-- stopPropagation: the row's own click would load the drawer a second time. -->
-    <td class="min-w-48"><button class="h card block text-left hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button>{#if !grouped}<MandateBadge mandate={j.mandate} extra="mt-1" />{/if}</td>
+    <!-- No minimum width on a phone, and a long unbroken title wraps anywhere, so State still fits beside Job and Title. -->
+    <td class="@min-[40rem]:min-w-48"><button class="h card block text-left wrap-anywhere hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button>{#if !grouped}<MandateBadge mandate={j.mandate} extra="mt-1" />{/if}</td>
     <td class={PHONE_HIDDEN}><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}</span></div></td>
     <td><StateChip job={j} /></td>
     {#if cols.has('needs')}<td class="{PHONE_HIDDEN} mono text-[11px]" title={needs.length ? needs.map(depChipTitle).join('\n') : undefined}>{needs.length ? needs.map((l) => l.ref ?? l.id).join(' ') : '—'}</td>{/if}

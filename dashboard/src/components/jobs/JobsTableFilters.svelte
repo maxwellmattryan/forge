@@ -36,10 +36,11 @@
 </script>
 
 <div class="plain flex flex-wrap items-center gap-2 border-b border-line p-2">
-  <label class="input sm flex w-full max-w-64 items-center gap-2 focus-within:border-gleam">
-    <Icon name="search" class="sm shrink-0 text-muted" />
-    <input class="min-w-0 flex-1 bg-transparent outline-none" type="search" placeholder={$t('table.filter.search')} aria-label={$t('table.filter.search')} bind:value={text} />
-  </label>
+  <!-- The icon sits over the field; the inline padding clears it, since the unlayered native-input rule in style.css outranks utilities. -->
+  <div class="relative w-full max-w-64">
+    <Icon name="search" class="sm pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+    <input class="input sm w-full" style="padding-left: 30px" type="search" placeholder={$t('table.filter.search')} aria-label={$t('table.filter.search')} bind:value={text} />
+  </div>
   {#each chips as c, i (`${c.field}:${c.value}`)}
     {@const name = `${fieldLabel[c.field]} ${valueLabel(c)}`}
     <span class="chip normal-case tracking-normal pr-0.5">{fieldLabel[c.field]} <b class="text-fg">{valueLabel(c)}</b><CloseButton size="sm" label={$t('table.filter.remove', { chip: name })} onclick={() => (chips = chips.filter((_, k) => k !== i))} /></span>
