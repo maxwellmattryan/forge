@@ -13,7 +13,7 @@
     <Skeleton w="12rem" h="2rem" />
   </div>
 </div>
-<div class="plate overflow-x-auto p-3 mb-3">
+<div class="plate mb-3"><div class="overflow-x-auto p-3">
   <div class="flex flex-col gap-4">
     {#each bands as n, i (i)}
       <div class="flex flex-wrap gap-4 p-4 border border-dashed border-line">
@@ -26,7 +26,7 @@
       </div>
     {/each}
   </div>
-</div>
+</div></div>
 <div class="plate flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2 mb-6 text-xs text-muted">
   <span class="flex items-center gap-2"><Skeleton w="28px" h="0.5rem" />{$t('project.legend.build')}</span>
   <span class="flex items-center gap-2"><Skeleton w="28px" h="0.5rem" />{$t('project.legend.runtime')}</span>

@@ -128,7 +128,7 @@
     {/if}
   </div>
   {#if g.problems > 0}<p class="plate px-3 py-2 mb-3 text-sm text-warn">{$t('project.problems', { count: g.problems })}</p>{/if}
-  <div class="plate overflow-x-auto p-3 mb-3">
+  <div class="plate mb-3"><div class="overflow-x-auto p-3">
     <svg
       width={layout.width}
       height={layout.height}
@@ -158,7 +158,7 @@
         </g>
       {/each}
     </svg>
-  </div>
+  </div></div>
   <div class="plate flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2 mb-6 text-xs text-muted" role="group" aria-label={$t('project.legend.title')}>
     <span class="flex items-center gap-2"><svg width="28" height="8" aria-hidden="true"><path d="M1 4H27" class="graph-edge" /></svg>{$t('project.legend.build')}</span>
     <span class="flex items-center gap-2"><svg width="28" height="8" aria-hidden="true"><path d="M1 4H27" class="graph-edge graph-edge-runtime" /></svg>{$t('project.legend.runtime')}</span>
