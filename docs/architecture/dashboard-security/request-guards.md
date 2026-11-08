@@ -27,7 +27,7 @@ POSTs need the login, a matching Origin and a JSON content type, so other sites 
 - start, stop or restart a job's dev server or backing services: `/api/jobs/:id/environment`
 - open a job's worktree in an editor: `/api/jobs/:id/editor`
 - register a project: the machine's `/api/projects`
-- the mandate writes `/api/mandates` and `/api/mandates/:id/edit|pause|resume|close`
+- the mandate writes `/api/mandates` and `/api/mandates/:id/edit|pause|resume|close|cancel|delete`
 - the chat routes `/api/chats`, `/api/chats/:id/rename`, `/api/chats/:id/archive` and `/api/chats/:id/messages`
 
 ## Body limits and comparison
