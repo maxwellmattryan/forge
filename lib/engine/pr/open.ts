@@ -30,7 +30,8 @@ import { FULL_SHA, heldConsumers, releaseGates, repoLabel, resolveInterim } from
 import type { Deferral } from '../release/interim.ts';
 import { interimStatus } from '../release/interim-apply.ts';
 import { findPr } from './adopt.ts';
-import { GATE_END, GATE_START, gateSection, prText, spliceSection } from './body.ts';
+import { GATE_END, GATE_START, gateSection, prText, prTitle, spliceSection } from './body.ts';
+import { retitleJob } from '../ops/titles/rename.ts';
 import { loadStepInput } from '../pipeline/step/input.ts';
 import { computeFacts } from '../pipeline/step/facts.ts';
 import { mergeGate } from '../pipeline/step/stages/pr.ts';
@@ -76,6 +77,9 @@ export function openPr(
   // where nothing has left the machine yet.
   const text = prText(root, config, job, opts.title);
   refuseSecrets(root, config, [textUnit('(pr title)', text.title), textUnit('(pr body)', text.body)], { what: 'the PR title or body', id, gate: 'pr' });
+  // titles.job: pr names the job after its PR. Only before the PR exists: an open PR's title is never
+  // edited, so renaming the job later would part the two.
+  if (!job.pr?.number && !opts.title) retitleJob(root, config, id, 'pr');
   // The commits are scanned here too, verified or not: this is the real exit, a HEAD verified by a
   // Forge without the scanner was never scanned, and --force skips verify altogether.
   const mode = secretMode(config);
@@ -166,6 +170,8 @@ export function openPr(
   if (number === null) throw new ForgeError(`gh pr create printed no PR url for ${slug}`);
   setJob(root, id, { owned: { pr: { number, url, state: 'OPEN', isDraft, openedAt: now(), lastSyncedAt: now(), pushedSha } } });
   logEvent(root, id, 'pr-opened', { number, url });
+  const titled = prTitle(root, config, job, opts.title);
+  logEvent(root, id, 'pr-title', { source: titled.source, ...(titled.problem ? { problem: titled.problem } : {}) });
   logDeferred();
   queueNotify(root, ['pr-opened'], { job: job.id, reason: 'pr-opened' });
   linkSiblingsQuietly(root, config, github, id);

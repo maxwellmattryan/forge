@@ -22,7 +22,9 @@ import type { HostInfo } from '#core/os/platform.ts';
 import type { Config, DoctorCheck, DoctorReport } from '#core/types.ts';
 import { gh } from '#integrations/github/gh.ts';
 import { readBranchRules } from '#integrations/github/protection.ts';
-import { repoSlug } from '#integrations/github/pull-requests.ts';
+import { ghGitHub, repoSlug } from '#integrations/github/pull-requests.ts';
+import { recentTitles } from './titles/history.ts';
+import { checkTitle } from './titles/check.ts';
 import type { BranchRules } from '#integrations/github/types.ts';
 import { requiredChecksAdvice } from '../pr/required.ts';
 import { git } from '#integrations/git/runner.ts';
@@ -245,6 +247,32 @@ export function requiredChecksCheck(config: Config, base: string, rules: BranchR
   return { name: 'merge required checks', ok: true, ...(warn ? { warn: true } : {}), detail };
 }
 
+/**
+ * The `squash subject` row: a warning when the repo squashes a one-commit PR with its commit message
+ * (GitHub's default, COMMIT_OR_PR_TITLE), so a person's merge in GitHub ignores the PR title the title
+ * schema shaped. Forge's own squash merges pass the title (--subject) either way. Null when the row
+ * doesn't apply: another merge method, a plain style without a pattern, or a setting nobody could read.
+ */
+export function squashTitleCheck(config: Config, slug: string, setting: 'PR_TITLE' | 'COMMIT_OR_PR_TITLE' | null): DoctorCheck | null {
+  if (config.merge.method !== 'squash' || (config.titles.style === 'plain' && !config.titles.pattern) || setting === null) return null;
+  if (setting === 'PR_TITLE') return { name: 'squash subject', ok: true, detail: 'a squash merge takes the PR title' };
+  return {
+    name: 'squash subject',
+    ok: true,
+    warn: true,
+    detail: `a squash merge in GitHub takes a one-commit PR's commit message, not its PR title; to keep the history in the title schema, run: gh api -X PATCH repos/${slug} -f squash_merge_commit_title=PR_TITLE -f squash_merge_commit_message=PR_BODY`,
+  };
+}
+
+/** The `title schema` row: a note when most recent merged PRs don't pass titles.* (at least five read). Null otherwise. */
+export function titleDriftCheck(config: Config, titles: readonly string[]): DoctorCheck | null {
+  if (titles.length < 5) return null;
+  const passing = titles.filter((t) => checkTitle(config, t).ok).length;
+  const rule = config.titles.pattern ? 'titles.pattern' : `titles.style: ${config.titles.style}`;
+  if (passing * 2 >= titles.length) return { name: 'title schema', ok: true, detail: `${passing} of the last ${titles.length} merged PR titles pass ${rule}` };
+  return { name: 'title schema', ok: true, warn: true, detail: `only ${passing} of the last ${titles.length} merged PR titles pass ${rule}: set titles.* to the repo's convention (forge pr titles proposes one), or keep it to change the convention from here on` };
+}
+
 export async function doctor(root: string, config: Config, initialized: boolean, host: HostInfo = hostInfo(), opts: DoctorOptions = {}): Promise<DoctorReport> {
   const checks: DoctorCheck[] = [];
   const add = (name: string, ok: boolean, detail = '') => checks.push({ name, ok, detail });
@@ -319,6 +347,13 @@ export async function doctor(root: string, config: Config, initialized: boolean,
         // No repository to read protection from: the row is left out.
       }
       if (slug !== null) checks.push(requiredChecksCheck(config, config.git.base, config.merge.requiredChecks.length ? null : readBranchRules(gh, root, slug, config.git.base)));
+      if (slug !== null) {
+        const squash = squashTitleCheck(config, slug, ghGitHub.squashTitleSetting(root, slug));
+        if (squash) checks.push(squash);
+        // Cached for six hours (forge pr titles), so a doctor run reads GitHub at most that often.
+        const drift = initialized ? titleDriftCheck(config, recentTitles(root, config, ghGitHub).titles) : null;
+        if (drift) checks.push(drift);
+      }
     }
   }
   const remote = git(root, ['remote', 'get-url', config.git.remote], { allowFail: true });

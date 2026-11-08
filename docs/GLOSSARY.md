@@ -204,6 +204,7 @@ The new words build on these, which exist today.
 | Term | Meaning | Config key |
 |---|---|---|
 | **job** | One unit of work that Forge takes from request to PR, in its own worktree. | - |
+| **title schema** | The rule PR titles and job names follow: conventional commit subjects by default, plain, or the repo's own pattern. The approver writes the PR title on `pr.md`'s `Title:` line, Forge checks it before the PR opens, and a job is renamed to it (or to its spec's heading) as `titles.job` says; its id and branch never change (docs/CONFIG.md "Titles"). | `titles` |
 | **move** | A change to a job's stage, state or `waitingOn` made through `lib/engine/pipeline/moves/apply.ts`, which then stops or tears down its environment, queues the Foreman's gate request and mirrors it to its tracker; notifications follow every transition. | - |
 | **shelve** | A person setting a job aside with `forge job shelve`, or the Foreman doing so when a senior pass can't settle a gate: it waits on `shelved`, spends nothing, keeps its PR, isn't counted as waiting on you, and only a person takes it off the shelf (`forge job unshelve`, or the dashboard's Shelved list in Needs you). Unlike a park, nothing resumes it on its own. | - |
 | **output mode** | How a `forge` call prints: `human` (rendered text for a person at a terminal) or `agent` (compact JSON, the CLI's contract), chosen by `--json`, `--mode`, `FORGE_MODE`, then whether stdout is a terminal (docs/CLI.md "Output mode"). | - |

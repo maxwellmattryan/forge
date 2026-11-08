@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import { ForgeError } from '#core/errors.ts';
 import { parseBranchHistory } from '#integrations/github/activity.ts';
-import { parseClosing, parseFeedback, parseOpenPrRecord, parsePr, parsePrBody, parseRun } from '#integrations/github/pull-requests.ts';
+import { parseClosing, parseFeedback, parseMergedTitles, parseOpenPrRecord, parsePr, parsePrBody, parseRun } from '#integrations/github/pull-requests.ts';
 import { parseHeadChecks } from '#integrations/github/protection.ts';
 import type { BranchRules, GitHub } from '#integrations/github/types.ts';
 
@@ -59,6 +59,8 @@ export interface MemoryGitHub extends GitHub {
   setCommitDiff(oid: string, text: string, slug?: string): void;
   /** Every later call of `op` fails with `error` (null clears it): reads and edits throw, merge and rerunFailed return it, branchRules answers unavailable. */
   fail(op: keyof GitHub, error: string | null): void;
+  /** What squashTitleSetting answers (else null: unreadable). */
+  setSquashTitle(value: 'PR_TITLE' | 'COMMIT_OR_PR_TITLE' | null): void;
   /** The raw record stored for PR `number`. */
   record(number: number, slug?: string): Record<string, unknown> | undefined;
   calls: GitHubCall[];
@@ -74,6 +76,7 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
   const diffs = new Map<string, string>();
   const histories = new Map<string, unknown[]>();
   const commitDiffs = new Map<string, string>();
+  let squashTitle: 'PR_TITLE' | 'COMMIT_OR_PR_TITLE' | null = null;
   const failing = new Map<keyof GitHub, string>();
   /** The labels each repo has: a PR label must exist in its repo (createLabel adds one). */
   const repoLabels = new Map<string, Set<string>>();
@@ -106,6 +109,9 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
     },
     setClosing(issue, nodes, slug = home) {
       closing.set(key(slug, issue), nodes);
+    },
+    setSquashTitle(value) {
+      squashTitle = value;
     },
     setBranchRules(base, r, slug = home) {
       rules.set(`${slug}\0${base}`, r);
@@ -259,5 +265,24 @@ export function memoryGitHub({ slug: home = 'o/r' }: { slug?: string } = {}): Me
         if (text === undefined) throw new ForgeError(`gh api: no commit ${oid} in ${slug}`, 'external');
         return text;
       }),
+    // Merged PRs into `base`, the last stored first, through the real parser.
+    mergedTitles: (_cwd, slug, base, limit) =>
+      read('mergedTitles', { slug, base, limit }, () =>
+        parseMergedTitles(
+          [...prs.entries()]
+            .filter(([k, r]) => k.startsWith(`${slug}#`) && r.state === 'MERGED' && r.baseRefName === base)
+            .map(([, r]) => r)
+            .reverse(),
+        ).slice(0, limit),
+      ),
+    prTitle: (_cwd, slug, number) => {
+      calls.push({ op: 'prTitle', slug, number });
+      const t = prs.get(key(slug, number))?.title;
+      return typeof t === 'string' && t ? t : null;
+    },
+    squashTitleSetting: (_cwd, slug) => {
+      calls.push({ op: 'squashTitleSetting', slug });
+      return squashTitle;
+    },
   };
 }

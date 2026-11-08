@@ -5,7 +5,7 @@ import { ForgeError } from '#core/errors.ts';
 import { isSafeUrl } from '#core/job/issue-ref.ts';
 import { hasBinary } from '#core/os/process.ts';
 import type { RunResult } from '#core/os/process.ts';
-import { SAFE_REF, isSha, safeText } from '#core/text.ts';
+import { SAFE_REF, isSha, oneLineTitle, safeText } from '#core/text.ts';
 import type { Config, PrChecks } from '#core/types.ts';
 import { BRANCH_HISTORY_QUERY, MAX_DIFF_BYTES, OPEN_PR_FIELDS, parseBranchHistory, parseOpenPr, safeDate } from './activity.ts';
 import { SLUG_RE, gh, graphqlArgs, parseJsonOutput } from './gh.ts';
@@ -308,6 +308,8 @@ export function createGhGitHub(run: GhRun = gh): GitHub {
       const args = ['pr', 'merge', String(number), '-R', slug, `--${opts.method}`];
       if (opts.auto) args.push('--auto');
       if (opts.matchHead) args.push('--match-head-commit', opts.matchHead);
+      // `=`-joined, so a title can never be read as an option.
+      if (opts.subject) args.push(`--subject=${oneLineTitle(opts.subject).slice(0, MAX_SUBJECT)}`);
       const r = run(cwd, args, { allowFail: true });
       return r.ok ? { ok: true } : { ok: false, error: (r.stderr || r.stdout).trim() };
     },
@@ -342,6 +344,23 @@ export function createGhGitHub(run: GhRun = gh): GitHub {
       const [owner, name] = slug.split('/');
       return parseBranchHistory(dig(json(cwd, graphqlArgs(BRANCH_HISTORY_QUERY, { owner, name, ref: `refs/heads/${branch}`, since })), 'data'));
     },
+    mergedTitles(cwd, slug, base, limit) {
+      if (!SLUG_RE.test(slug) || !SAFE_REF.test(base) || !(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100)) throw refused('gh pr list', slug, base);
+      const out = json(cwd, ['pr', 'list', '-R', slug, '--state', 'merged', '--base', base, '--limit', String(limit), '--json', 'title,isCrossRepository,headRefName']);
+      return parseMergedTitles(out);
+    },
+    prTitle(cwd, slug, number) {
+      if (!SLUG_RE.test(slug) || safePrNumber(number) === null) return null;
+      const r = run(cwd, ['pr', 'view', String(number), '-R', slug, '--json', 'title', '--jq', '.title'], { allowFail: true });
+      const title = r.ok ? oneLineTitle(r.stdout).slice(0, MAX_SUBJECT) : '';
+      return title || null;
+    },
+    squashTitleSetting(cwd, slug) {
+      if (!SLUG_RE.test(slug)) return null;
+      const r = run(cwd, ['api', `repos/${slug}`, '--jq', '.squash_merge_commit_title'], { allowFail: true });
+      const v = r.ok ? r.stdout.trim() : '';
+      return v === 'PR_TITLE' || v === 'COMMIT_OR_PR_TITLE' ? v : null;
+    },
     commitDiff(cwd, slug, oid) {
       if (!SLUG_RE.test(slug) || !isSha(oid)) throw refused('gh api', slug, oid);
       return capped(call(cwd, ['api', '-H', 'Accept: application/vnd.github.diff', `repos/${slug}/commits/${oid}`]).stdout, 'gh api');
@@ -360,3 +379,20 @@ function capped(text: string, what: string): string {
 
 /** The production adapter. Only lib/cli/ passes it in; lib/engine/pr/ receives it as a parameter. */
 export const ghGitHub: GitHub = createGhGitHub();
+
+/** The longest squash subject Forge passes, and the longest merged title it reads back. */
+const MAX_SUBJECT = 200;
+
+/**
+ * `gh pr list --json title,isCrossRepository,headRefName` as titles: forks and `release/` branches
+ * dropped (a fork's title is anyone's text, a release PR's is the release script's), each title on one
+ * line, capped, empty ones gone.
+ */
+export function parseMergedTitles(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(isRecord)
+    .filter((r) => r.isCrossRepository === false && !(typeof r.headRefName === 'string' && r.headRefName.startsWith('release/')))
+    .map((r) => oneLineTitle(r.title).slice(0, MAX_SUBJECT))
+    .filter(Boolean);
+}

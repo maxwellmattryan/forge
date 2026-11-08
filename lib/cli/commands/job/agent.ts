@@ -3,6 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { enforceBudget } from '#engine/metrics/budget.ts';
+import { retitleJob } from '#engine/ops/titles/rename.ts';
 import { cancelLensRun } from '#engine/verify/cancel-lens.ts';
 import { refuseInboxDrive } from '#office/session/permissions/owner.ts';
 import { AGENT_LEASE_MS, agentOutputMissing, attachAgent, checkFence, importCursor, jobDir, loadJob, recordAgent, renewLease, resolveAgentOutput, type Fence } from '#core/job/store.ts';
@@ -186,6 +187,9 @@ export function endAgent(
     config,
     fence,
   );
+  // The spec's heading names the job under the title schema (titles.job), so the spec gate shows the new name.
+  // Never fails the end: a heading that fails the schema logs retitle-refused and renames nothing.
+  if ((role === 'spec-writer' || role === 'retro') && outputMissing === null && job.agents[role]?.status === 'done') retitleJob(root, config, job.id, 'spec');
   // The driver's agents are its activity: an end keeps the lease for the usual span.
   renewLease(root, jobId, {});
   const a = job.agents[role];

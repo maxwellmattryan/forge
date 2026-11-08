@@ -208,6 +208,8 @@ export function defaults(): Config {
       // Empty: the base branch's protection names the required checks (docs/CONFIG.md "Merge").
       requiredChecks: [],
     },
+    // Conventional commits by default: a squash merge makes the PR title the commit subject (docs/CONFIG.md "Titles").
+    titles: { style: 'conventional', pattern: null, guide: null, examples: 10, job: 'pr' },
     aiAttribution: 'forbid',
     release: { interim: 'local', versioning: null, mechanism: null, command: null, script: null, registry: null, cadence: null, publish: null },
     resources: [],

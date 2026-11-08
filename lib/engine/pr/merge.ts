@@ -243,7 +243,9 @@ function mergeOne(root: string, config: Config, github: GitHub, id: string, t: M
   // Logged before the call so a human override is on record even if the merge then fails.
   if (now) logEvent(root, id, 'pr-merge-bypass', { ...tag, number, checks, ...by });
   // matchHead pins the commit whose checks were just read, so a push after the sync cannot ride along.
-  const res = github.merge(root, slug, number, { method: config.merge.method, auto: action === 'auto', matchHead: t.headOid });
+  // A squash takes the live PR title as its subject (an edit on GitHub wins), whatever squash_merge_commit_title says.
+  const live = config.merge.method === 'squash' ? github.prTitle(root, slug, number) : null;
+  const res = github.merge(root, slug, number, { method: config.merge.method, auto: action === 'auto', matchHead: t.headOid, ...(live ? { subject: `${live} (#${number})` } : {}) });
   // `=== false`, not `!`: the tests' loose type check narrows the union only on the literal.
   if (res.ok === false) {
     const error = res.error;
