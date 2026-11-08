@@ -1,7 +1,8 @@
 // `npm run scenario -- <name> | --list`: seeds a named dashboard scenario (test/fixtures/scenarios/<name>.json)
 // into a fresh scratch FORGE_ROOT through the CLI alone, prints its path and waits; a signal removes it.
 // `npm run dev -- --scenario` and `npm run test:render` seed through seedScenario. A scenario with a
-// `backlog` gets the local tracker and that `.forge/backlog.md`. docs/TESTING.md
+// `backlog` gets the local tracker and that `.forge/backlog.md`; its `mandates` (`forge mandate new` only) run
+// before any job. docs/TESTING.md
 // › "Dashboard scenarios and the render check" has the format.
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,9 +33,14 @@ const STEP_TIMEOUT_MS = 60_000;
 // `forge job step` returns (a dev server that outlives cleanup, a PR), and `job from-ref` and
 // `job link` exist to reach a tracker, so a group name alone is not enough. `overlap` asks gh for the
 // repo, which a scratch repo with no remote (and no GH_REPO, which scenarioEnv drops) can't name, so
-// it records GitHub as unread without a network call.
-const STEP_COMMANDS = new Set(['job', 'worktree', 'verify', 'requests', 'overlap']);
+// it records GitHub as unread without a network call. Of `mandate`, only the status moves below run:
+// `cancel` queues cancel requests, `draft approve` files to a tracker and `edit` takes `--body-file`.
+const STEP_COMMANDS = new Set(['job', 'worktree', 'verify', 'requests', 'overlap', 'mandate']);
 const STEP_JOB_COMMANDS = new Set(['show', 'get', 'list', 'set', 'effort', 'claim', 'release', 'note', 'human', 'agent', 'round', 'budget', 'shelve', 'verdicts', 'gate', 'decision', 'score']);
+const STEP_MANDATE_COMMANDS = new Set(['pause', 'resume', 'close', 'delete']);
+// A top-level `mandates` entry is the argv after `forge mandate`, and only `new`: a goal queues a drafting
+// run and a body file reads any local file into state the dashboard shows.
+const MANDATE_FLAGS_REFUSED = ['--goal', '--goal-file', '--body-file'];
 // The seeder passes these to `forge job new` itself.
 const NEW_FLAGS_REFUSED = ['--title', '--slug', '--session', '--body-file'];
 // What a scenario's config may set. tracker, daemon, foreman, worktrees, notify, repos and the rest
@@ -74,6 +80,8 @@ export interface Scenario {
   config: Record<string, unknown>;
   /** `.forge/backlog.md`, written after every step with `{id:<key>}` filled in; null keeps the tracker `none`. */
   backlog: string | null;
+  /** Each the argv after `forge mandate` (always `new …`), run after `init` and before any job. */
+  mandates: string[][];
   jobs: ScenarioJob[];
   expect: ResolvedExpect;
 }
@@ -151,12 +159,30 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
   }
   if (!isObject(raw)) fail('a scenario is a JSON object');
   const s = raw as Record<string, unknown>;
-  onlyKeys(s, ['description', 'config', 'backlog', 'jobs', 'expect'], '', fail);
+  onlyKeys(s, ['description', 'config', 'backlog', 'mandates', 'jobs', 'expect'], '', fail);
   if (typeof s.description !== 'string' || !s.description.trim()) fail('description must be a non-empty string');
 
   const config = s.config ?? {};
   if (!isObject(config)) fail('config must be an object');
   for (const k of Object.keys(config)) if (!CONFIG_KEYS.has(k)) fail(`config key "${k}" is not allowed`);
+
+  const rawMandates = s.mandates ?? [];
+  if (!Array.isArray(rawMandates)) fail('mandates must be a list');
+  const mandates = (rawMandates as unknown[]).map((argv, n): string[] => {
+    const where = `mandate ${n + 1}`;
+    if (!isStringList(argv) || !argv.length) fail(`${where}: a mandate is the string list after forge mandate`);
+    const list = argv as string[];
+    // An exact word, as for a step's subcommand.
+    if (list[0] !== 'new') fail(`${where}: forge mandate ${list[0]} is not allowed (only mandate new)`);
+    for (const a of list) {
+      const bad = MANDATE_FLAGS_REFUSED.find((r) => a === r || a.startsWith(`${r}=`));
+      if (bad) fail(`${where}: must not pass ${bad}`);
+      if (a === '--json' || a.startsWith('--json=')) fail(`${where}: must not pass --json; the seeder appends it`);
+      // Mandates exist before any job, so there is no id to fill.
+      if (a.includes('{id')) fail(`${where}: placeholders are not allowed here`);
+    }
+    return list;
+  });
 
   const rawJobs = s.jobs ?? [];
   if (!Array.isArray(rawJobs)) fail('jobs must be a list');
@@ -219,6 +245,7 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
       if (!STEP_COMMANDS.has(step.argv[0])) fail(`${where}: forge ${step.argv[0]} is not allowed (only ${[...STEP_COMMANDS].join(', ')})`);
       // An exact word: a flag in argv[1] never matches, so it can't shift the subcommand the CLI reads.
       if (step.argv[0] === 'job' && !STEP_JOB_COMMANDS.has(step.argv[1] ?? '')) fail(`${where}: forge job${step.argv[1] === undefined ? '' : ` ${step.argv[1]}`} is not allowed (only job ${[...STEP_JOB_COMMANDS].join(', ')})`);
+      if (step.argv[0] === 'mandate' && !STEP_MANDATE_COMMANDS.has(step.argv[1] ?? '')) fail(`${where}: forge mandate${step.argv[1] === undefined ? '' : ` ${step.argv[1]}`} is not allowed (only mandate ${[...STEP_MANDATE_COMMANDS].join(', ')})`);
       if (step.argv.includes('--json')) fail(`${where}: must not pass --json; the seeder appends it`);
       for (const a of step.argv) checkPlaceholders(a, where, keys, true);
       return step;
@@ -268,7 +295,7 @@ export function loadScenario(name: string, dir: string = SCENARIO_DIR): Scenario
     }
   }
 
-  return { name, description: s.description as string, config: config as Record<string, unknown>, backlog, jobs, expect: { views, drawer, issue } };
+  return { name, description: s.description as string, config: config as Record<string, unknown>, backlog, mandates, jobs, expect: { views, drawer, issue } };
 }
 
 /**
@@ -379,6 +406,9 @@ export async function seedScenario(name: string, opts: { dir?: string; env?: Nod
     // Verify reads the base branch's committed config.
     git('add', '-A');
     git('commit', '-q', '-m', 'Forge config');
+
+    // Before any job, so a job's --mandate names one that exists.
+    for (const [n, argv] of scenario.mandates.entries()) await forge(`mandate ${n + 1}`, ['mandate', ...argv]);
 
     const ids: Record<string, string> = {};
     const fill = (arg: string, own: string | null): string => arg.replace(/\{id(?::([^}]*))?\}/g, (_, k: string | undefined) => ids[k ?? own!]);
