@@ -153,9 +153,9 @@ export function createEntries(machine: MachineCtx): Entries & { start(): void } 
     }
     try {
       const { config } = loadConfig(root);
-      // A dev dashboard often serves fresh clones of repos that commit daemon.enabled: true, so it
-      // never boots a paid session by itself; Start still works.
-      if (!opts.dev && config.daemon?.enabled === true && !daemonProblems(config, root).length) {
+      // A dev dashboard boots too: a fresh clone that commits daemon.enabled: true has no approval
+      // record, so the check below keeps it off until Start.
+      if (config.daemon?.enabled === true && !daemonProblems(config, root).length) {
         // Only while the files Forge trusts are the ones a human approved for this project. Booting
         // snapshots them as approved, so a restart, or `forge dash` in another repo, must not do that
         // for bytes nobody looked at (a session's change that stopped this daemon, a pull).

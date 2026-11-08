@@ -54,7 +54,7 @@ export const HELP: HelpGroup[] = [
           ['--port N', "the first port to try (default: this repo's dashboard.port, 7400)"],
           ['--foreground', 'run in the foreground even when one is running'],
           ['--permission-mode MODE', 'the permission mode every job and inbox session of every project starts in until it stops: default (ask), auto or dontAsk (refuse); a running dashboard with another mode is reported, never changed; refused in a daemon session'],
-          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
+          ['--dev', "serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, booting each project's pool as forge dash does (only while its trusted files match a human's approval), though it approves nothing itself; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it)"],
           ['--quiet', 'in the foreground in human mode, print only the banner (no activity log)'],
           [
             '--open',
@@ -135,21 +135,18 @@ async function settleDaemonAuth(root: string, config: Config): Promise<{ note?: 
   return { note: `daemon.auth: ${auth} written to .forge/config.yml` };
 }
 
-/**
- * Why the daemon a `forge dash` would boot won't start here, or null. Only when it would boot: a
- * dev dashboard or a repo without the daemon has nothing to refuse.
- */
-export function daemonPlatformNote(config: Config, flags: Record<string, any>, platform: NodeJS.Platform = process.platform): string | null {
-  if (flags.dev || !config.daemon.enabled) return null;
+/** Why the daemon a `forge dash` would boot won't start here, or null. A repo without the daemon has nothing to refuse. */
+export function daemonPlatformNote(config: Config, platform: NodeJS.Platform = process.platform): string | null {
+  if (!config.daemon.enabled) return null;
   return daemonPlatformProblem(platform);
 }
 
 /** What `forge dash` says before it serves: the billing note, or the platform refusal that skips the billing question. */
 export async function dashNotes(root: string, config: Config, flags: Record<string, any>, platform: NodeJS.Platform = process.platform): Promise<{ note?: string; daemonRefused?: string }> {
   // The pool refuses to start on native Windows; the dashboard still serves, and says why up front.
-  const refused = daemonPlatformNote(config, flags, platform);
+  const refused = daemonPlatformNote(config, platform);
   if (refused) return { daemonRefused: refused };
-  // A dev dashboard never boots the daemon, so it has no billing question to ask or config to write.
+  // A dev dashboard asks no billing question and writes no config: its sessions keep the default, the Claude login.
   return flags.dev ? {} : settleDaemonAuth(root, config);
 }
 
@@ -333,7 +330,7 @@ export async function dash(root: string | null, config: Config | null, flags: Re
   if (current && mode !== null && !flags.foreground && !flags.dev && mode !== current.permissionMode) throw new ForgeError(modeMismatch(current, mode), 'failed', 'forge dash --stop');
   // A human's `forge dash` in this repo approves the files Forge trusts as they are now when it starts the dashboard or
   // registers the repo: its pool boots with them, and a later restart boots it only while they stay the same. A dev
-  // dashboard boots nothing, so it approves nothing.
+  // dashboard approves nothing: it serves scratch clones, so only Start (or a plain forge dash) approves for it.
   const approve = (): void => {
     if (project && !flags.dev) approveTrust(home, fs.realpathSync(project));
   };

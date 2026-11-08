@@ -604,6 +604,23 @@ test('a restart boots a project only while the files a human approved are unchan
   }
 });
 
+test('a dev dashboard boots approved projects and holds the rest for Start', async () => {
+  const a = daemonRepo();
+  const b = daemonRepo();
+  // b stands for a fresh clone that commits daemon.enabled: true: nobody approved its files.
+  const s = await serveProjects([{ dir: a.dir, name: 'a' }, { dir: b.dir, name: 'b', approved: false }], { dev: true, daemon: kit().opts });
+  try {
+    const approved = (await getJson(s, s.api('a', '/state'))).daemons;
+    assert.deepEqual([approved.wanted, approved.needsApproval], [true, false], 'an approved project boots under --dev too');
+    const fresh = (await getJson(s, s.api('b', '/state'))).daemons;
+    assert.deepEqual([fresh.wanted, fresh.needsApproval], [false, true], 'an unapproved one waits for Start');
+  } finally {
+    await s.cleanup();
+    a.cleanup();
+    b.cleanup();
+  }
+});
+
 test("Start approves the files its pool runs under, never a running session's edit", async () => {
   const a = daemonRepo();
   inboxWork(a.dir);
