@@ -32,7 +32,7 @@ const OTHER_PROJECT = 'other-project';
 /** A registered project whose directory is gone: the Overview and the switcher show it as missing. */
 const GONE_PROJECT = 'gone-project';
 
-export type RenderCheckId = ViewId | 'login' | 'relogin' | 'overview' | 'machine' | 'switch' | 'add' | 'shortcut' | 'drawer' | 'issue';
+export type RenderCheckId = ViewId | 'login' | 'relogin' | 'overview' | 'machine' | 'switch' | 'add' | 'shortcut' | 'drawer' | 'table' | 'issue';
 
 export interface RenderProblem {
   scenario: string;
@@ -119,7 +119,8 @@ async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: st
 }
 
 /**
- * Checks each scenario's views and drawer at `#/p/<project>/<view>`, each issue panel its `expect.issue` names (opened
+ * Checks each scenario's views and drawer at `#/p/<project>/<view>`, the Table layout's Title sort (ascending, then
+ * descending, kept across a reload), each issue panel its `expect.issue` names (opened
  * from its Issues row, closed by Escape), then the machine's pages (the Overview and the
  * Machine page, which must list all three projects), a switch to the companion through the sidebar switcher and its Add
  * project entry, which must open the Add project dialog in place without becoming the selection, refuse a relative
@@ -254,6 +255,42 @@ export async function renderCheck(opts: { scenarios?: string[]; scenarioDir?: st
             await waitForTexts(page.locator('#drawer'), [drawer.title, ...drawer.text], timeout, p);
           });
           record(name, 'drawer', problems, Date.now() - started);
+        }
+        // The Table layout: the Title header sorts ascending, then descending, and the choice survives a reload.
+        if (Object.keys(seeded.jobs).length) {
+          await timed(name, 'table', () =>
+            checkPage(context, at('pipeline'), async (page, p) => {
+              const titleName = { name: catalogText('table.title'), exact: true };
+              const titleButton = page.locator('#view table thead').getByRole('button', titleName);
+              const sorted = async (dir: 'ascending' | 'descending', when: string): Promise<void> => {
+                try {
+                  await page.locator(`#view table thead th[aria-sort="${dir}"]`).filter({ has: page.getByRole('button', titleName) }).waitFor({ timeout });
+                } catch {
+                  p.push(`the Title header was not aria-sort="${dir}" ${when}`);
+                }
+              };
+              try {
+                await page.locator('#view').getByRole('button', { name: catalogText('pipeline.layout.table'), exact: true }).click({ timeout });
+              } catch {
+                p.push('could not switch to the Table layout');
+                return;
+              }
+              // The board's texts include card-only lines (`90k tok`), so the table waits for its rows and the drawer's job.
+              if (drawer) await waitForTexts(page.locator('#view table'), [drawer.title], timeout, p, true);
+              try {
+                await page.locator('#view table tbody tr').first().waitFor({ timeout });
+                await titleButton.click({ timeout });
+                await sorted('ascending', 'after one click');
+                await titleButton.click({ timeout });
+                await sorted('descending', 'after a second click');
+                await page.reload({ waitUntil: 'load', timeout: LOAD_TIMEOUT_MS });
+                await titleButton.waitFor({ timeout });
+                await sorted('descending', 'after a reload');
+              } catch (e) {
+                p.push(`table sort failed: ${firstLine(e)}`);
+              }
+            }),
+          );
         }
         // Each expected issue panel: opened by its Issues row's title, its texts in the drawer, and Escape closes it.
         for (const issue of seeded.expect.issue) {

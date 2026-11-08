@@ -16,6 +16,25 @@
     "protectedDrawer": "Protected · {reasons}"
   },
   "table": {
+    "title": "Title",
+    "needs": "Needs",
+    "filter": {
+      "search": "Filter jobs",
+      "add": "Filter",
+      "mandate": "Mandate is",
+      "state": "State is",
+      "stage": "Stage is",
+      "remove": "Remove filter: {chip}",
+      "noMandate": "No mandate",
+      "open": "open",
+      "none": "No jobs match these filters.",
+      "clear": "Clear filters"
+    },
+    "group": {
+      "toggle": "Group by mandate",
+      "mandate": "Mandate",
+      "count": "{jobs} jobs · {merged} merged"
+    },
     "stage": "Stage",
     "state": "State",
     "round": "Round",

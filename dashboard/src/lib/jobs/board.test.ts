@@ -101,19 +101,20 @@ test('filterTable ANDs fields, ORs values and searches ref, id and title', () =>
 test('filterChoices offers present values not already chosen', () => {
   const rows: JobLike[] = [
     { id: 'a', mandate: 'm-b', state: 'failed', stage: 'review' },
-    { id: 'b', state: 'zany', stage: 'plan' },
+    // A hand-edited state word the dashboard has no name for.
+    { id: 'b', state: 'zany' as JobLike['state'], stage: 'plan' },
     { id: 'c', mandate: 'm-a', state: 'running', stage: 'review' },
     { id: 'd', mandate: 'm-b', state: 'done', stage: 'done' },
-    { id: 'e', mandate: 'none', state: 'apple', stage: 'backlog' },
+    { id: 'e', mandate: 'none', state: 'queued', stage: 'backlog' },
   ];
   const all = filterChoices(rows, []).map((c) => `${c.field}:${c.value}`);
   assert.deepEqual(all, [
     'mandate:m-b', 'mandate:m-a', 'mandate:',
-    'state:open', 'state:running', 'state:failed', 'state:done', 'state:apple', 'state:zany',
+    'state:open', 'state:running', 'state:failed', 'state:done', 'state:queued', 'state:zany',
     'stage:backlog', 'stage:plan', 'stage:review', 'stage:done',
   ]);
   const left = filterChoices(rows, [{ field: 'mandate', value: 'm-a' }, { field: 'state', value: 'open' }, { field: 'stage', value: 'done' }]).map((c) => `${c.field}:${c.value}`);
-  assert.deepEqual(left, ['mandate:m-b', 'mandate:', 'state:running', 'state:failed', 'state:done', 'state:apple', 'state:zany', 'stage:backlog', 'stage:plan', 'stage:review'], 'chosen values are left out');
+  assert.deepEqual(left, ['mandate:m-b', 'mandate:', 'state:running', 'state:failed', 'state:done', 'state:queued', 'state:zany', 'stage:backlog', 'stage:plan', 'stage:review'], 'chosen values are left out');
   assert.deepEqual(filterChoices([{ id: 'z', mandate: 'm-a', state: 'done', stage: 'done' }], []).map((c) => c.value), ['m-a', 'done', 'done'], 'no open and no No mandate when none is present');
 });
 
