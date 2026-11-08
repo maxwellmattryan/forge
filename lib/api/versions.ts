@@ -149,6 +149,9 @@ export const API_CHANGES = [
   // VerifyRun.partial (true, optional) and VerifyRun.durationMs (number, optional): `forge verify --fast`'s partial run
   // and the call's wall time; `cancelled` is a new AgentRow.status and runs[].status (a lens run a late verify failure voided).
   { id: 'partial-verify' },
+  // GET /api/mandates/:id/plan (MandatePlanResponse, MandatePlanNode, MandatePlanEdge, MandatePlanProblem,
+  // MandatePlanState): a mandate's scope issues and their dependencies, from the Office pass's stored scope read.
+  { id: 'mandate-plan' },
   // POST /api/mandates/:id/cancel (PostMandateCancelBody, PostMandateCancelResponse: the close plus a cancel request per
   // unfinished job) and /api/mandates/:id/delete (PostMandateDeleteBody, the id echoed as confirm; PostMandateDeleteResponse).
   { id: 'mandate-cancel-delete' },

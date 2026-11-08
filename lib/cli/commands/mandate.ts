@@ -1,4 +1,4 @@
-// `forge mandate new|edit|pause|resume|close|cancel|delete|list|show`, `forge mandate draft
+// `forge mandate new|edit|pause|resume|close|cancel|delete|list|show|plan`, `forge mandate draft
 // start|prepare|record|show|approve|revise|reject|assist` and `forge mandate release assist|approve`: the
 // owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate, and an
 // `until: released` mandate's release at the `release` gate class (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write
@@ -21,7 +21,7 @@ import { assistMandateRelease, mandateReleaseRefusal } from '#office/foreman/pol
 import { approveMandateRelease, mandateReleaseState } from '#engine/release/mandate.ts';
 import { readDirectives } from '#office/mandates/directives.ts';
 import { readSummary } from '#office/mandates/pass.ts';
-import { jobFigures } from '#office/mandates/progress.ts';
+import { jobFigures, mandatePlan } from '#office/mandates/progress.ts';
 import { AGENT_ID } from '#integrations/claude/transcripts.ts';
 import { FOREMAN_ACTOR, currentActor } from '#integrations/github/actor.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
@@ -143,6 +143,14 @@ const MANDATE: HelpGroup = {
       args: '<id>',
       summary:
         "one mandate: its summary, the contract as it applies now (effective) and what the config capped, its chain and active link, its jobs, the owner's guidance and goal fenced as data, a goal mandate's draft {status, request, gate} (gate: none, pending, filing or filed; else null), its file, its progress {jobs: {reached, inFlight, handled, unfinishable}, spend: {usd, budget}, started: {jobs, budget}, lastActivity} (no tracker call), its closing summary once the Office pass closed it (else null), its latest 10 directives, release: for an effective until: released, its release {status (unplanned, done, replaced, failed, stale, started, approved or pending), plan, tag, done, total, next, owner, detail} (else null), and mergeQueue {hold, groups, mergeNow, unchecked}: its open PRs ranked within each overlap group (dependencies, then ready ones, then the most input+output tokens), each entry {job, pr, tokens, ready, ahead, reasons}; hold: Forge merges in this order (else it is a suggestion for a person)",
+      exits: [[1, "no such mandate (not_found), or it can't be read"]],
+      docs: DOCS,
+    },
+    {
+      command: 'mandate plan',
+      args: '<id>',
+      summary:
+        "the mandate plan, the same JSON as GET /api/mandates/:id/plan, with no tracker call ({mandate, readAt, nodes: [{ref, title, wave, job, state}], edges: [{from, to, source}], problems: [{kind, ref, detail, edges}]}): every scope issue from the Office pass's stored scope read (readAt: when it was read; null with a scope problem), then each issue only a mandate job carries; edges from each issue body's Depends on: line (source body) and each job's dependsOn (source job), a cycle's edges dropped and listed in its cycle problem; state is merged (its job is done), running (its job is in flight), waiting (an upstream issue is not merged), ready (every upstream merged, or a root) or planned (on no edge); problem kinds: scope, malformed, outside, unknown, cycle",
       exits: [[1, "no such mandate (not_found), or it can't be read"]],
       docs: DOCS,
     },
@@ -551,6 +559,12 @@ export async function mandateCmd(ctx: CliContext, sub: string | undefined, rest:
   if (sub === 'list') {
     if (rest.length) throw usageError(MANDATE, sub);
     return { data: listCmd(ctx.root), exitCode: 0 };
+  }
+  if (sub === 'plan') {
+    if (rest.length !== 1) throw usageError(MANDATE, sub);
+    const { root, config } = ctx;
+    const m = mandateTarget(listMandates(root), rest[0]!);
+    return { data: mandatePlan(root, config, m, { jobs: listJobs(root), archived: listArchived(root), at: Date.now() }), exitCode: 0 };
   }
   if (sub === undefined || (!WRITES.has(sub) && sub !== 'show')) throw usageError(MANDATE);
   // `new` without an id gets one picked (newMandateId); every other write and `show` name one.

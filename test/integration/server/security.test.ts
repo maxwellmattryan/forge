@@ -238,7 +238,7 @@ test('every guarded route refuses before its handler runs', async () => {
       // The machine's own POST: no project prefix.
       '/api/projects',
     ];
-    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/mandates', '/chats'].map((p) => `${P}${p}`);
+    const reads = ['/state', '/stats', '/evals', '/evals/compare', '/requests', '/roster', '/project', '/backlog?refresh=1', '/config', '/mandates/g1/draft', '/mandates/g1/plan', '/mandates', '/chats'].map((p) => `${P}${p}`);
     const streams = ['/events?session=_inbox', '/daemons/log?session=_inbox', '/jobs/j-1', '/jobs/j-1/file?path=x.md', '/jobs/j-1/raw?path=x.html'].map((p) => `${P}${p}`);
     // These spawn git or gh, read transcripts and logs, or carry the owner's words; the two streams were ?token= routes.
     const work = [

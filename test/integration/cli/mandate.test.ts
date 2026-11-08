@@ -259,6 +259,40 @@ test('jobs join a mandate at creation and keep it', async () => {
   }
 });
 
+test('forge mandate plan', async () => {
+  const r = scratch();
+  try {
+    await ok(r.dir, ['mandate', 'new', 'm1', '--title', 'M1', '--milestones', 'M1']);
+    const job = await ok(r.dir, ['job', 'new', '--title', 'Carried', '--mandate', 'm1']);
+    const { config } = loadConfig(r.dir);
+    updateJob(r.dir, job.id, (j) => {
+      j.issues = [{ tracker: config.tracker.kind, ref: '42', url: null }];
+    });
+    const shown = await forgeAsync(r.dir, ['mandate', 'plan', 'm1']);
+    assert.equal(shown.status, 0, shown.stderr);
+    const plan = JSON.parse(shown.stdout);
+    // No Office pass has run: a scope problem, and the job's issue still shows.
+    assert.deepEqual(plan, {
+      mandate: 'm1',
+      readAt: null,
+      nodes: [{ ref: '42', title: 'Carried', wave: null, job: job.id, state: 'running' }],
+      edges: [],
+      problems: [{ kind: 'scope', ref: null, detail: "the Office pass has not read this mandate's scope yet", edges: [] }],
+    });
+    // Allowed in a job's daemon session: it only reads.
+    assert.deepEqual(await ok(r.dir, ['mandate', 'plan', 'm1'], { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: job.id }), plan);
+
+    const nope = await forgeInProcess(r.dir, ['mandate', 'plan', 'nope']);
+    assert.deepEqual([nope.status, nope.error?.code], [1, 'not_found'], JSON.stringify(nope.error));
+    for (const args of [[], ['m1', 'm2']]) {
+      const refused = await forgeInProcess(r.dir, ['mandate', 'plan', ...args]);
+      assert.deepEqual([refused.status, refused.error?.code], [2, 'usage'], JSON.stringify(refused.error));
+    }
+  } finally {
+    r.cleanup();
+  }
+});
+
 test('forge stats --mandate prints the report card', async () => {
   const r = scratch();
   try {

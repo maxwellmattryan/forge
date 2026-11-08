@@ -9,6 +9,7 @@
 // plans it (only when unplanned, or when its own plan went stale before any step ran, and never over
 // another plan), never runs it, and closes the mandate once the release run finished and no mandate job
 // merged after it was planned; while it waits, no pause or stall applies.
+// Each mandate's error-free tracker scope read is stored in `<id>/scope.json` for the mandate plan.
 // When a mandate has director work it queues one `direct` request, which forge dash runs as an office run. Every
 // status write is guarded: it lands only while the mandate still has the status and updatedAt the
 // pass read, so an owner's edit, pause or close wins. docs/architecture/foreman/office.md › Director loop.
@@ -33,7 +34,7 @@ import { queueNotify } from '../notify.ts';
 import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
-import { bounceHold, cadenceStalled, gateEntries, jobFigures, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeItems } from './progress.ts';
+import { bounceHold, cadenceStalled, gateEntries, jobFigures, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeFromTracker, scopeItems, storeScope } from './progress.ts';
 import { listMandates, mandateDir, readMandate, summaryFile, withMandatesLock, withOfficeLock, writeMandate } from './store.ts';
 import type { Config, JobEvent, Tracker } from '#core/types.ts';
 import type { DirectiveAction } from './directives.ts';
@@ -289,6 +290,15 @@ async function pass(root: string, config: Config, opts: PassOptions): Promise<Pa
     if (!scope) {
       scope = scopeItems(root, config, m, tracker, trackerError);
       scopes.set(m.id, scope);
+      // The mandate plan reads this; a failed read leaves the previous one. A link planted in one mandate's
+      // dir must not stop the pass for every mandate: that plan then reports its stale or missing scope.
+      if (scope.error === null && scopeFromTracker(m)) {
+        try {
+          storeScope(root, m, scope, iso);
+        } catch {
+          // dropped, as above
+        }
+      }
     }
     return mandateProgress(root, config, m, all, { ...ctx, scope });
   };
