@@ -5,7 +5,10 @@
      Below the projects, ruled off, Add project opens the Add project dialog where the person is (an action: it never
      becomes the selection, and focus returns to this trigger when the dialog closes). The list is enabled once the
      machine's projects have loaded, even with none registered. While another project has jobs waiting on you, the
-     trigger shows an ember dot (described by hidden text with the count) and the list marks those projects' rows. Cmd+O
+     trigger shows an ember dot (described by hidden text with the count). Every project row is the same two lines: a pilot
+     lamp (working while its sessions or a Foreman office run are live, you while jobs wait on you, else idle), the name
+     and the pool's live/cap, then a status line that is never empty (switcherActivity); the field trigger leads with the
+     selected project's lamp. Cmd+O
      on a Mac, Ctrl+O elsewhere, calls the exported toggle() through Nav: the field and phone lists open or close, the
      rail does what its click does; each trigger names the shortcut in its title (the rail in its tooltip) and
      aria-keyshortcuts. -->
@@ -16,7 +19,8 @@
   import { openAddProject } from '../../lib/shell/add-project.svelte.ts';
   import { openPalette } from '../../lib/shell/palette.svelte.ts';
   import { railTipOn } from '../../lib/shell/rail-tip.svelte.ts';
-  import { othersWaiting, switcherChoice, switcherEntries, switcherKeyShortcuts, switcherOptions, switcherShortcutLabel, type SwitcherEntry } from '../../lib/shell/switcher.ts';
+  import { othersWaiting, switcherActivity, switcherChoice, switcherEntries, switcherKeyShortcuts, switcherOptions, switcherShortcutLabel, type SwitcherEntry, type SwitcherStatusPart } from '../../lib/shell/switcher.ts';
+  import type { SelectOption } from '../../lib/ui/select.ts';
   import { t } from '../../lib/text/locale.ts';
 
   let { variant, labelledby }: { variant: 'field' | 'rail' | 'phone'; labelledby?: string } = $props();
@@ -27,6 +31,18 @@
     e.state === 'missing' ? $t('switcher.missing') : e.state === 'unavailable' ? $t('switcher.unavailable') : e.waiting ? $t('switcher.waiting', { count: e.waiting }) : undefined;
   const options = $derived(switcherOptions(entries, { add: $t('switcher.add'), hint }, project));
   const others = $derived(othersWaiting(entries, project));
+  const byName = $derived(new Map(entries.map((e) => [e.name, e])));
+  const current = $derived(project ? byName.get(project) : undefined);
+  // Whole literals, so Tailwind's scan and the lamp utility's states both see them.
+  const LAMP = { working: 'lamp working', you: 'lamp you', idle: 'lamp idle', off: 'lamp idle opacity-50' } as const;
+  const part = (p: SwitcherStatusPart): string =>
+    p.key === 'working' ? $t('switcher.status.working', { count: p.count })
+    : p.key === 'waiting' ? $t('switcher.status.waiting', { count: p.count })
+    : p.key === 'open' ? $t('switcher.status.open', { count: p.count })
+    : p.key === 'foreman' ? $t('switcher.status.foreman')
+    : p.key === 'idle' ? $t('switcher.status.idle')
+    : p.key === 'missing' ? $t('switcher.status.missing')
+    : $t('switcher.status.unavailable');
   // The phone strip and the sidebar can both be in the DOM, so the description's id is per variant.
   const descId = $derived(variant === 'phone' ? 'project-switcher-mobile-waiting' : 'project-switcher-waiting');
   const waitingText = $derived(others > 0 ? $t('switcher.othersWaiting', { count: others }) : undefined);
@@ -55,8 +71,29 @@
 {#if variant === 'rail'}
   <button bind:this={railButton} id="project-switcher" aria-label={$t('switcher.rail')} aria-describedby={waitingText ? descId : undefined} aria-haspopup="dialog" aria-keyshortcuts={keyshortcuts} onclick={(e) => openPalette({ text: 'project ', opener: e.currentTarget })} {@attach railTipOn(tip)}><Icon name="anvil" />{#if others > 0}<span class="dot ember absolute top-1 right-1.5 size-2" aria-hidden="true"></span>{/if}</button>
 {:else if variant === 'field'}
-  <Select bind:this={select} id="project-switcher" value={project ?? ''} {options} onchange={choose} {labelledby} describedby={waitingText ? descId : undefined} {title} {keyshortcuts} badge={others > 0} badgeTone="ember" placeholder={$t('switcher.placeholder')} disabled={!S.machine} class="w-full" />
+  <Select bind:this={select} id="project-switcher" value={project ?? ''} {options} onchange={choose} {labelledby} describedby={waitingText ? descId : undefined} {title} {keyshortcuts} badge={others > 0} badgeTone="ember" placeholder={$t('switcher.placeholder')} disabled={!S.machine} entry={row} roomy lead={current ? lead : undefined} class="w-full" />
 {:else}
-  <Select bind:this={select} id="project-switcher-mobile" variant="button" icon="anvil" value={project ?? ''} {options} onchange={choose} label={$t('switcher.label')} describedby={waitingText ? descId : undefined} {title} {keyshortcuts} badge={others > 0} badgeTone="ember" placeholder={$t('switcher.placeholder')} disabled={!S.machine} class="shrink-0 max-w-[12rem]" />
+  <Select bind:this={select} id="project-switcher-mobile" variant="button" icon="anvil" value={project ?? ''} {options} onchange={choose} label={$t('switcher.label')} describedby={waitingText ? descId : undefined} {title} {keyshortcuts} badge={others > 0} badgeTone="ember" placeholder={$t('switcher.placeholder')} disabled={!S.machine} entry={row} roomy class="shrink-0 max-w-[12rem]" />
 {/if}
 {#if waitingText}<span id={descId} class="sr-only">{waitingText}</span>{/if}
+
+{#snippet lead()}
+  {#if current}<span class={LAMP[switcherActivity(current).lamp]} aria-hidden="true"></span>{/if}
+{/snippet}
+
+{#snippet row(o: SelectOption)}
+  {@const e = byName.get(o.value)}
+  {#if e}
+    {@const a = switcherActivity(e)}
+    <span class={LAMP[a.lamp]} aria-hidden="true"></span>
+    <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span class="flex min-w-0 items-baseline gap-2">
+        <span class="font-mono truncate min-w-0 flex-1 {e.name === project ? 'text-gleam' : 'text-fg'}">{e.name}</span>
+        {#if a.sessions}<span class="font-mono text-xs num shrink-0 {a.sessions.live > 0 ? 'text-fg' : 'text-muted'}" title={$t('switcher.sessions', { live: a.sessions.live, cap: a.sessions.cap })}>{a.sessions.live}/{a.sessions.cap}</span>{/if}
+      </span>
+      <span class="truncate text-xs text-muted">{#each a.status as p, k (k)}{#if k > 0}<span aria-hidden="true">{' · '}</span>{/if}<span class={p.key === 'waiting' ? 'text-ember' : p.key === 'working' || p.key === 'foreman' ? 'text-fg' : ''}>{part(p)}</span>{/each}</span>
+    </span>
+  {:else}
+    <span class="truncate">{o.label}</span>
+  {/if}
+{/snippet}

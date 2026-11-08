@@ -18,8 +18,8 @@ export interface SwitcherEntry {
   /** Jobs waiting on anything but `external`; 0 while not loaded. */
   waiting: number;
   active: number;
-  /** The project's pool, while loaded. */
-  daemon: { live: number; maxConcurrent: number } | null;
+  /** The project's pool, while loaded: `live` job sessions running, `officeBusy` while a Foreman office run is live. */
+  daemon: { live: number; maxConcurrent: number; officeBusy: boolean } | null;
 }
 
 /** One registered project's entry. */
@@ -33,7 +33,7 @@ export function entryOf(p: MachineProjectSummary): SwitcherEntry {
     openable: state === 'ok',
     waiting: p.jobs?.waiting ?? 0,
     active: p.jobs?.active ?? 0,
-    daemon: p.daemon ? { live: p.daemon.live, maxConcurrent: p.daemon.maxConcurrent } : null,
+    daemon: p.daemon ? { live: p.daemon.live, maxConcurrent: p.daemon.maxConcurrent, officeBusy: p.daemon.office === 'busy' } : null,
   };
 }
 
@@ -64,6 +64,43 @@ export function switcherOptions(entries: SwitcherEntry[], labels: { add: string;
     badge: e.openable && e.waiting > 0 && e.name !== current,
   }));
   return [...projects, { value: ADD_PROJECT, label: labels.add, icon: 'command', action: true, separator: projects.length > 0 }];
+}
+
+/** One part of a switcher row's status line, in the order the row shows them; the component words each one. */
+export type SwitcherStatusPart =
+  | { key: 'working'; count: number }
+  | { key: 'foreman' }
+  | { key: 'waiting'; count: number }
+  | { key: 'open'; count: number }
+  | { key: 'idle' }
+  | { key: 'missing' }
+  | { key: 'unavailable' };
+
+/**
+ * How a switcher row shows a project's activity. `lamp`: working while agents run in it (job sessions or a Foreman
+ * office run), else you while jobs wait on you, else idle; off when it can't be opened. `sessions`: the pool's live/cap
+ * for the row's meter, null while not loaded. `status`: its status line, never empty, so every row is the same height.
+ */
+export interface SwitcherActivity {
+  lamp: 'working' | 'you' | 'idle' | 'off';
+  sessions: { live: number; cap: number } | null;
+  status: SwitcherStatusPart[];
+}
+
+export function switcherActivity(e: SwitcherEntry): SwitcherActivity {
+  if (e.state !== 'ok') return { lamp: 'off', sessions: null, status: [{ key: e.state }] };
+  const live = e.daemon?.live ?? 0;
+  const office = e.daemon?.officeBusy ?? false;
+  const status: SwitcherStatusPart[] = [];
+  if (live > 0) status.push({ key: 'working', count: live });
+  if (office) status.push({ key: 'foreman' });
+  if (e.waiting > 0) status.push({ key: 'waiting', count: e.waiting });
+  if (status.length === 0) status.push(e.active > 0 ? { key: 'open', count: e.active } : { key: 'idle' });
+  return {
+    lamp: live > 0 || office ? 'working' : e.waiting > 0 ? 'you' : 'idle',
+    sessions: e.daemon ? { live, cap: e.daemon.maxConcurrent } : null,
+    status,
+  };
 }
 
 /**

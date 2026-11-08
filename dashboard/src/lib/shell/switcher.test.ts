@@ -1,7 +1,7 @@
 // The registered projects as the switcher, the Overview and the command bar list them: sorted, with their state.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADD_PROJECT, othersWaiting, selectionOpenable, switcherChoice, switcherEntries, switcherKey, switcherKeyShortcuts, switcherOptions, switcherShortcutLabel, type SwitcherEntry } from './switcher.ts';
+import { ADD_PROJECT, othersWaiting, switcherActivity, selectionOpenable, switcherChoice, switcherEntries, switcherKey, switcherKeyShortcuts, switcherOptions, switcherShortcutLabel, type SwitcherEntry } from './switcher.ts';
 import { PROJECT_NAME_SOURCE, type MachineProjectSummary, type ProjectsResponse } from '../core/types.ts';
 import type { Route } from './routes.ts';
 
@@ -35,7 +35,7 @@ test('switcherEntries', () => {
     'sorted by name',
   );
   const by = Object.fromEntries(entries.map((e) => [e.name, e]));
-  assert.deepEqual(by.api, { name: 'api', path: '/src/api', state: 'ok', openable: true, waiting: 1, active: 2, daemon: { live: 1, maxConcurrent: 3 } });
+  assert.deepEqual(by.api, { name: 'api', path: '/src/api', state: 'ok', openable: true, waiting: 1, active: 2, daemon: { live: 1, maxConcurrent: 3, officeBusy: false } });
   assert.deepEqual([by.web.state, by.web.openable, by.web.waiting], ['ok', true, 0]);
   assert.deepEqual([by.gone.state, by.gone.openable, by.gone.waiting, by.gone.daemon], ['missing', false, 0, null], 'missing is never openable');
   assert.deepEqual([by.fresh.state, by.fresh.openable], ['unavailable', false], 'not loaded is unavailable');
@@ -89,6 +89,18 @@ test('othersWaiting', () => {
   // A non-openable entry is ignored even if it reports waiting jobs.
   const closed: SwitcherEntry = { name: 'broken', path: '/src/broken', state: 'unavailable', openable: false, waiting: 7, active: 0, daemon: null };
   assert.equal(othersWaiting([...onlyCurrent, closed], 'api'), 0, 'non-openable entries never count');
+});
+
+test('switcherActivity', () => {
+  const one = (over: Partial<MachineProjectSummary>): SwitcherEntry => switcherEntries(response([project('api', over)]))[0];
+  const daemon = (live: number, office: 'off' | 'idle' | 'busy' = 'off') => ({ enabled: true, wanted: true, foreman: true, office, live, maxConcurrent: 3 });
+  assert.deepEqual(switcherActivity(one({})), { lamp: 'working', sessions: { live: 1, cap: 3 }, status: [{ key: 'working', count: 1 }, { key: 'waiting', count: 1 }] }, 'agents run and a job waits: the lamp works');
+  assert.deepEqual(switcherActivity(one({ daemon: daemon(0, 'busy'), jobs: { active: 0, waiting: 0 } })), { lamp: 'working', sessions: { live: 0, cap: 3 }, status: [{ key: 'foreman' }] }, 'a live office run is an agent working');
+  assert.deepEqual(switcherActivity(one({ daemon: daemon(0) })).lamp, 'you', 'nothing runs, a job waits on you');
+  assert.deepEqual(switcherActivity(one({ daemon: daemon(0), jobs: { active: 4, waiting: 0 } })), { lamp: 'idle', sessions: { live: 0, cap: 3 }, status: [{ key: 'open', count: 4 }] });
+  assert.deepEqual(switcherActivity(one({ daemon: daemon(0), jobs: { active: 0, waiting: 0 } })).status, [{ key: 'idle' }]);
+  assert.deepEqual(switcherActivity(one({ status: 'missing', loaded: false, jobs: null, daemon: null })), { lamp: 'off', sessions: null, status: [{ key: 'missing' }] });
+  assert.deepEqual(switcherActivity(one({ loaded: false, jobs: null, daemon: null })), { lamp: 'off', sessions: null, status: [{ key: 'unavailable' }] });
 });
 
 test('switcherChoice', () => {
