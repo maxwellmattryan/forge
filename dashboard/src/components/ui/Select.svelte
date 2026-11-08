@@ -7,8 +7,8 @@
      ember dot after the label), or the caller's `entry` snippet (`roomy` gives those rows more air and centres them on
      the check column); `separator` rules an entry off and consecutive entries of one `group` sit under its name; an
      `action` entry calls onchange but never becomes the value, and its icon takes the check column it never needs (with
-     an `entry` snippet too), so its label lines up with the others'. The field trigger's `lead` snippet renders before
-     its text. Focus never leaves the
+     an `entry` snippet too), so its label lines up with the others'. `check={false}` drops the check column for a list
+     whose `entry` snippet marks the chosen entry itself; an action's icon then leads its row. Focus never leaves the
      button and aria-activedescendant names the active option, so the settings focus trap and the drawer's focus handling
      see one control. src/lib/ui/select.ts decides what each key does, src/lib/ui/overlay/menu.ts placeMenu where the list opens, and
      dismissal follows MenuButton: Escape closes only the list, a press outside, focus leaving, a resize, a scroll that
@@ -35,7 +35,7 @@
     disabled = false,
     entry,
     roomy = false,
-    lead,
+    check = true,
     variant = 'field',
     icon,
     text,
@@ -60,8 +60,8 @@
     entry?: Snippet<[SelectOption, number]>;
     /** Taller entry rows, centred on the check column: for an `entry` snippet with more than one line. */
     roomy?: boolean;
-    /** The field trigger's content before its text (a status light, say). */
-    lead?: Snippet;
+    /** The check column on the chosen entry; false when the `entry` snippet marks it itself. */
+    check?: boolean;
     variant?: 'field' | 'button';
     /** The button variant's leading icon. */
     icon?: IconName;
@@ -269,7 +269,7 @@
   onkeydown={key}
   onkeyup={keyUp}
   onfocusout={focusOut}
->{#if variant === 'button' && icon}<Icon name={icon} />{/if}{#if variant !== 'button' && lead}{@render lead()}{/if}<span class="{sel || text !== undefined ? 'truncate' : 'truncate text-muted'} {variant !== 'button' && lead ? 'min-w-0 flex-1' : ''}" lang={text === undefined ? sel?.lang : undefined}>{text ?? sel?.label ?? placeholder ?? $t('select.choose')}</span>{#if variant !== 'button' && badge}<span class="{badgeTone === 'ember' ? 'dot ember' : 'dot spark'} ml-auto size-2 shrink-0" aria-hidden="true"></span>{/if}<Icon name="chevron-down" class="shrink-0" />{#if variant === 'button' && badge}<span class="{badgeTone === 'ember' ? 'dot ember' : 'dot spark'} absolute -top-1 -right-1 size-2" aria-hidden="true"></span>{/if}</button>
+>{#if variant === 'button' && icon}<Icon name={icon} />{/if}<span class="{sel || text !== undefined ? 'truncate' : 'truncate text-muted'}" lang={text === undefined ? sel?.lang : undefined}>{text ?? sel?.label ?? placeholder ?? $t('select.choose')}</span>{#if variant !== 'button' && badge}<span class="{badgeTone === 'ember' ? 'dot ember' : 'dot spark'} ml-auto size-2 shrink-0" aria-hidden="true"></span>{/if}<Icon name="chevron-down" class="shrink-0" />{#if variant === 'button' && badge}<span class="{badgeTone === 'ember' ? 'dot ember' : 'dot spark'} absolute -top-1 -right-1 size-2" aria-hidden="true"></span>{/if}</button>
 <ul
   bind:this={list}
   id={listId}
@@ -308,6 +308,6 @@
     onmousemove={() => hover(i)}
     onclick={() => pick(i)}
   >
-    {#if i === selected}<Icon name="check" class="shrink-0" />{:else if o.action && o.icon}<Icon name={o.icon} class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon && !o.action}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="flex min-w-0 items-center gap-1.5"><span class="truncate">{o.label}</span>{#if o.badge}<span class="dot ember size-2 shrink-0" aria-hidden="true"></span>{/if}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
+    {#if !check}{#if o.action && o.icon}<Icon name={o.icon} class="shrink-0" />{/if}{:else if i === selected}<Icon name="check" class="shrink-0" />{:else if o.action && o.icon}<Icon name={o.icon} class="shrink-0" />{:else}<span class="ic shrink-0" aria-hidden="true"></span>{/if}{#if entry}{@render entry(o, i)}{:else}{#if o.icon && !o.action}<Icon name={o.icon} class="shrink-0" />{/if}<span class="flex min-w-0 flex-col"><span class="flex min-w-0 items-center gap-1.5"><span class="truncate">{o.label}</span>{#if o.badge}<span class="dot ember size-2 shrink-0" aria-hidden="true"></span>{/if}</span>{#if o.hint}<span class="text-xs text-muted whitespace-normal">{o.hint}</span>{/if}</span>{/if}
   </li>
 {/snippet}
