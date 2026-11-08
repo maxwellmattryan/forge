@@ -22,6 +22,8 @@ export const ICONS = {
   check: [{ el: 'path', d: 'M5 12.5l4.5 4.5L19 7' }],
   // A caret: a Select's trigger opens a list.
   'chevron-down': [{ el: 'path', d: 'M6 9l6 6 6-6' }],
+  // A ring of eight short arcs: a graph node not started yet (ready, planned or cancelled).
+  'circle-dashed': [{ el: 'path', d: 'M20.86 13.56A9 9 0 0 1 19.37 17.16M17.16 19.37A9 9 0 0 1 13.56 20.86M10.44 20.86A9 9 0 0 1 6.84 19.37M4.63 17.16A9 9 0 0 1 3.14 13.56M3.14 10.44A9 9 0 0 1 4.63 6.84M6.84 4.63A9 9 0 0 1 10.44 3.14M13.56 3.14A9 9 0 0 1 17.16 4.63M19.37 6.84A9 9 0 0 1 20.86 10.44' }],
   close: [{ el: 'path', d: 'M6 6l12 12M18 6 6 18' }],
   command: [{ el: 'path', d: 'M12 5v14M5 12h14' }],
   copy: [{ el: 'rect', x: '9', y: '9', width: '11', height: '11', rx: '1' }, { el: 'path', d: 'M5 15V4h11' }],
@@ -42,6 +44,8 @@ export const ICONS = {
   gauge: [{ el: 'path', d: 'M4.5 17a8.5 8.5 0 1 1 15 0' }, { el: 'path', d: 'M12 13.5l4-4.5' }, { el: 'circle', cx: '12', cy: '14', r: '1.2' }],
   general: [{ el: 'path', d: 'M4 7h16M4 12h16M4 17h16' }, { el: 'circle', cx: '15', cy: '7', r: '2', fill: 'ground' }, { el: 'circle', cx: '9', cy: '12', r: '2', fill: 'ground' }, { el: 'circle', cx: '13', cy: '17', r: '2', fill: 'ground' }],
   inbox: [{ el: 'path', d: 'M4 13l2-7h12l2 7v7H4z' }, { el: 'path', d: 'M4 13h5l1.5 3h3L15 13h5' }],
+  // A padlock: a graph node waiting on an issue not merged yet.
+  lock: [{ el: 'rect', x: '5', y: '10.5', width: '14', height: '10', rx: '1' }, { el: 'path', d: 'M8 10.5V7a4 4 0 0 1 8 0v3.5' }],
   // The markdown mark: a frame, an M and a down arrow.
   markdown: [{ el: 'rect', x: '2.5', y: '5.5', width: '19', height: '13', rx: '1' }, { el: 'path', d: 'M6 15V9l2.5 3L11 9v6M16.5 9v6M14 12.5l2.5 2.5 2.5-2.5' }],
   // A building's face with its windows and a door: the Office.

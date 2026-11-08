@@ -9,7 +9,7 @@ A job as the board and the drawer show it: its state, card and table, dependenci
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
-| `board.ts` | The Pipeline page's board and table: filters, counts, columns, urgency order and each card's slots. |
+| `board.ts` | The Pipeline page's layout choice (graph, board or table), and its board and table: filters, counts, columns, urgency order and each card's slots. |
 | `deps.ts` | Dependency links between jobs (`dependsOn`), derived from /api/state jobs. |
 | `drawer.ts` | The job drawer: its tabs and width with their keyboard rules, the file it shows, timeline lines and the verdict matrix, as plain functions node:test can pin. |
 | `effort.ts` | Reasoning effort as the dashboard shows it. |

@@ -632,7 +632,9 @@ test('segments and nav expose their selected state', () => {
     assert.ok(cond && pressed.value === `{${cond}}`, `aria-pressed follows the sel condition (${pressed.value} vs ${sel})`);
   }
   assert.match(pipeline, /\{@const on = S\.filter === f\}/);
-  assert.match(pipeline, /\{@const on = S\.layout === l\}/);
+  // The layout pref as it opens (an unknown saved value opens the graph), so the pressed button is the shown layout.
+  assert.match(pipeline, /const layout = \$derived\(pipelineLayout\(S\.layout\)\);/);
+  assert.match(pipeline, /\{@const on = layout === l\}/);
 
   // One link loop per section (General: the global pages and the Office and Foreman; the project's other views), shared by the sidebar, the rail and the phone strip.
   const nav = readSrc('components/shell/Nav.svelte');

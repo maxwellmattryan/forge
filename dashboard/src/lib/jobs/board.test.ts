@@ -1,13 +1,25 @@
-// tableColumns: which optional Pipeline table columns show for a list of jobs.
+// pipelineLayout: the layout a saved pref opens; tableColumns: which optional Pipeline table columns show for a list of jobs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPTIONAL_COLUMNS, tableColumns } from './board.ts';
+import { OPTIONAL_COLUMNS, PIPELINE_LAYOUTS, pipelineLayout, tableColumns } from './board.ts';
 import type { OptionalColumn } from './board.ts';
 import type { JobLike } from './state.ts';
 
 type Row = JobLike & { budgeted?: boolean };
 const hasBudget = (j: Row): boolean => j.budgeted === true;
 const cols = (jobs: Row[]): OptionalColumn[] => [...tableColumns(jobs, hasBudget)].sort();
+
+test('pipelineLayout opens the graph unless board or table was saved', () => {
+  assert.deepEqual([...PIPELINE_LAYOUTS], ['graph', 'board', 'table'], 'the switch order, the graph first');
+  const rows: [string, string][] = [
+    ['', 'graph'],
+    ['graph', 'graph'],
+    ['board', 'board'],
+    ['table', 'table'],
+    ['bogus', 'graph'],
+  ];
+  for (const [raw, want] of rows) assert.equal(pipelineLayout(raw), want, `saved ${JSON.stringify(raw)}`);
+});
 
 test('tableColumns shows a column only when a row fills it', () => {
   const blank: Row = { id: 'blank', title: 'Blank', progress: { done: 0, total: 0 }, reviewers: [], pr: null, usage: undefined };

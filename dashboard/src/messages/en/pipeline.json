@@ -49,8 +49,36 @@
       "all": "All"
     },
     "layout": {
+      "graph": "Graph",
       "board": "Board",
       "table": "Table"
+    },
+    "graph": {
+      "mandate": "Mandate",
+      "plateLabel": "Mandate {title}",
+      "merged": "{merged} of {total} merged",
+      "noMandate": "No mandate",
+      "jobs": {
+        "one": "{count} job",
+        "other": "{count} jobs"
+      },
+      "noIssues": "No issues or jobs in this mandate yet.",
+      "planError": "Couldn't load the plan: {error}",
+      "mandatesError": "Couldn't load the mandates: {error}",
+      "moreProblems": {
+        "one": "+{count} more",
+        "other": "+{count} more"
+      },
+      "state": {
+        "merged": "Merged",
+        "cancelled": "Cancelled",
+        "running": "Running",
+        "ready": "Ready",
+        "planned": "Not started",
+        "waitsOn": "Waits on {ref}",
+        "waitsOnMore": "Waits on {ref} +{count}",
+        "held": "{stage} · {state}"
+      }
     },
     "group": {
       "queued": "Queued",

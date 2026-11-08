@@ -1,13 +1,16 @@
-<!-- Pipeline: filters, the board/table toggle, and every job in one of four stage groups (plus Done when the filter
-     holds finished jobs), so the whole board fits a desktop without scrolling sideways. -->
+<!-- Pipeline: filters, the Graph/Board/Table switch (Graph by default), and the jobs in that layout. The graph draws
+     each open mandate's plan and the jobs in no mandate, dimming what the filter leaves out; the board puts every job
+     in one of four stage groups (plus Done when the filter holds finished jobs), so it fits a desktop without
+     scrolling sideways. -->
 <script lang="ts">
   import Empty from '../components/ui/feedback/Empty.svelte';
   import Icon from '../components/ui/Icon.svelte';
   import JobCard from '../components/jobs/JobCard.svelte';
   import JobsTable from '../components/jobs/JobsTable.svelte';
+  import PipelineGraph from '../components/jobs/PipelineGraph.svelte';
   import PageHeader from '../components/shell/PageHeader.svelte';
   import type { ApiState } from '../lib/core/types.ts';
-  import { boardColumns, filterJobs, pipelineCounts, type BoardGroupId } from '../lib/jobs/board.ts';
+  import { PIPELINE_LAYOUTS, boardColumns, filterJobs, pipelineCounts, pipelineLayout, type BoardGroupId, type PipelineLayout } from '../lib/jobs/board.ts';
   import { workingCount } from '../lib/sessions/live.ts';
   import { S, req, setFilter, setLayout } from '../lib/core/app.svelte.ts';
   import { t } from '../lib/text/locale.ts';
@@ -18,14 +21,14 @@
   const counts = $derived(pipelineCounts(data.jobs));
   const jobs = $derived(filterJobs(data.jobs, S.filter));
   const FILTERS = ['active', 'waiting', 'done', 'all'] as const;
-  const LAYOUTS = ['board', 'table'] as const;
+  const layout = $derived(pipelineLayout(S.layout));
   const filterLabel = $derived<Record<(typeof FILTERS)[number], string>>({
     active: $t('pipeline.filter.active'),
     waiting: $t('pipeline.filter.waiting'),
     done: $t('pipeline.filter.done'),
     all: $t('pipeline.filter.all'),
   });
-  const layoutLabel = $derived<Record<(typeof LAYOUTS)[number], string>>({ board: $t('pipeline.layout.board'), table: $t('pipeline.layout.table') });
+  const layoutLabel = $derived<Record<PipelineLayout, string>>({ graph: $t('pipeline.layout.graph'), board: $t('pipeline.layout.board'), table: $t('pipeline.layout.table') });
   const groupLabel = $derived<Record<BoardGroupId, string>>({
     queued: $t('pipeline.group.queued'),
     plan: $t('pipeline.group.plan'),
@@ -46,14 +49,16 @@
       {#each FILTERS as f (f)}{@const on = S.filter === f}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setFilter(f)}>{filterLabel[f]} <span class="num {on ? '' : 'muted'}">({counts[f]})</span></button>{/each}
     </div>
     <div class="seg slide-marker" {@attach slideMarker('.sel', 'fill')}>
-      {#each LAYOUTS as l (l)}{@const on = S.layout === l}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
+      {#each PIPELINE_LAYOUTS as l (l)}{@const on = layout === l}<button class="btn {on ? 'sel' : ''}" aria-pressed={on} onclick={() => setLayout(l)}><Icon name={l} />{layoutLabel[l]}</button>{/each}
     </div>
 <!--    <button class="btn primary flush" onclick={() => req({ type: 'next' })}>{$t('common.runNext')}</button>-->
   {/snippet}
 </PageHeader>
-{#if !jobs.length}
+{#if layout === 'graph'}
+  <PipelineGraph />
+{:else if !jobs.length}
   <Empty>{$t('pipeline.empty')} <code class="mono text-fg">{$t('pipeline.cmdFeature')}</code> {$t('pipeline.or')} <code class="mono text-fg">{$t('pipeline.cmdNext')}</code>.</Empty>
-{:else if S.layout === 'table'}
+{:else if layout === 'table'}
   <JobsTable {jobs} />
 {:else}
   <div class="grid grid-cols-1 @min-[44rem]:grid-cols-2 @min-[60rem]:grid-cols-4 gap-3">

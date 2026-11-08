@@ -9,6 +9,7 @@ import type {
   Directive,
   ForgeRequest,
   MandateDetailResponse,
+  MandatePlanResponse,
   MandateRow,
   MergeQueue,
   MergeQueueEntry,
@@ -28,6 +29,9 @@ export const fetchMandates = (): Promise<MandatesResponse> => api<MandatesRespon
 
 /** GET /api/mandates/:id: the row plus the owner's guidance and goal. */
 export const fetchMandate = (id: string): Promise<MandateDetailResponse> => api<MandateDetailResponse>(mandatePath(id));
+
+/** GET /api/mandates/:id/plan: the mandate's issues, their dependency edges and the plan's problems (the Pipeline graph). */
+export const fetchMandatePlan = (id: string): Promise<MandatePlanResponse> => api<MandatePlanResponse>(`${mandatePath(id)}/plan`);
 
 /** POST /api/mandates; throws with the server's `error`. */
 export const postMandate = (body: PostMandateBody, fetchImpl: typeof fetch = fetch): Promise<PostMandateResponse> => post<PostMandateResponse>('/api/mandates', body, fetchImpl);
