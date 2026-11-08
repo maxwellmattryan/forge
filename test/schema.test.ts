@@ -334,6 +334,7 @@ const EVENT_ROWS: Row[] = [
   { step: 'advance-ran-event', input: { ts: 't', type: 'advance-ran', ran: [{ rule: 'B1', command: 'forge worktree create', ok: true, text: null }] }, fields: { type: 'advance-ran', ts: 't', ran: [{ rule: 'B1', command: 'forge worktree create', ok: true, text: null }] }, note: 'what one advance ran reads as written' },
   { step: 'partial-verify', input: { ts: 't', type: 'command', name: 'build', ok: true, exit: 0, durationMs: 12 }, fields: { type: 'command', name: 'build', durationMs: 12 }, removed: ['cached', 'cacheMiss'], note: 'a command from before the check cache ran, and reads as written' },
   { step: 'title-events', input: { ts: 't', type: 'pr-opened', number: 3, url: 'u' }, fields: { type: 'pr-opened', number: 3 }, removed: ['source', 'problem'], note: 'an event from before the title schema reads as written' },
+  { step: 'mandate-lifecycle-events', input: { ts: 't', type: 'mandate-close', mandate: 'm1', reason: 'shipped' }, fields: { type: 'mandate-close', mandate: 'm1', reason: 'shipped' }, removed: ['jobs'], note: 'a mandate close from before cancel and delete reads as written' },
 ];
 
 const MACHINE_ROWS: Row[] = [

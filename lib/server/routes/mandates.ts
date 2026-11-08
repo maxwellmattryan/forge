@@ -2,10 +2,10 @@
 // once closed, its closing summary's card (closingCard rebuilds it, or it is null), with the latest directives, the
 // classes a mandate may be given and a new mandate's defaults; GET /api/mandates/:id adds the owner's
 // guidance and goal (the owner's own words); POST /api/mandates (which picks the id when
-// none is sent, as `forge mandate new` does) and /api/mandates/:id/edit|pause|resume|close write as a
-// person through the same mandateWrite `forge mandate` calls, so the dashboard gets the CLI's exact
-// refusals. A goal mandate's milestone draft: GET /api/mandates/:id/draft
-// renders it, and POST decides it through the same decideDraft the CLI calls, pinned to the request and
+// none is sent, as `forge mandate new` does), /api/mandates/:id/edit|pause|resume|close|cancel and
+// /delete (which takes the id again as `confirm`) write as a person through the same mandateWrite
+// `forge mandate` calls, so the dashboard gets the CLI's exact refusals. A goal mandate's milestone
+// draft: GET /api/mandates/:id/draft renders it, and POST decides it through the same decideDraft the CLI calls, pinned to the request and
 // digest the card read. Every POST's login, Origin and JSON guard runs before these handlers (start.ts).
 import type http from 'node:http';
 import { listArchived } from '#core/job/archive.ts';
@@ -26,7 +26,7 @@ import { decideDraft, draftGate, gateView } from '#office/mandates/gate.ts';
 import { readSummary } from '#office/mandates/pass.ts';
 import { jobFigures } from '#office/mandates/progress.ts';
 import { listMandates, mandateWrite, readMandate } from '#office/mandates/store.ts';
-import type { MandateOp } from '#office/mandates/store.ts';
+import type { MandateOp, MandateWriteResult } from '#office/mandates/store.ts';
 import type { Mandate, MandateInput, ReadMandate } from '#office/mandates/types.ts';
 import type {
   Config,
@@ -37,6 +37,8 @@ import type {
   MandateDraftResponse,
   MandateRow,
   MandatesResponse,
+  PostMandateCancelResponse,
+  PostMandateDeleteResponse,
   PostMandateDraftResponse,
   PostMandateResponse,
 } from '#core/types.ts';
@@ -198,22 +200,31 @@ function statusReason(b: unknown): string | null | undefined | false {
   return typeof b.reason === 'string' && b.reason.length <= REASON_BODY_MAX ? b.reason : false;
 }
 
-/** One write through mandateWrite, as a person on the dashboard; a refusal is 404 (no such mandate) or 409, and writes nothing. */
+/** mandateWrite as a person on the dashboard, or null once a refusal was answered: 404 (no such mandate) or 409, having written nothing. */
+function dashboardWrite(root: string, config: Config, res: http.ServerResponse, op: MandateOp, given: string | null, o: { input?: MandateInput; reason?: string | null; updatedAt?: string }): MandateWriteResult | null {
+  try {
+    return mandateWrite(root, config, op, given, { ...o, actor: dashboardActor(), from: 'dashboard' });
+  } catch (e) {
+    if (e instanceof ForgeError) {
+      jsonStatus(res, e.code === 'not_found' ? 404 : 409, { error: e.message });
+      return null;
+    }
+    throw e;
+  }
+}
+
+/** One write through mandateWrite, replying with the mandate's row (and a cancel's queued requests). */
 function write(ctx: ServerCtx, res: http.ServerResponse, op: MandateOp, given: string | null, o: { input?: MandateInput; reason?: string | null; updatedAt?: string }): void {
   const { root } = ctx;
   const { config } = loadConfig(root);
-  let changed: boolean;
-  let id: string;
-  try {
-    ({ changed, id } = mandateWrite(root, config, op, given, { ...o, actor: dashboardActor() }));
-  } catch (e) {
-    if (e instanceof ForgeError) return jsonStatus(res, e.code === 'not_found' ? 404 : 409, { error: e.message });
-    throw e;
-  }
+  const done = dashboardWrite(root, config, res, op, given, o);
+  if (done === null) return;
+  const { changed, id } = done;
   const all = listMandates(root);
   const m = all.find((x) => x.id === id);
   if (!isReadable(m)) return jsonStatus(res, 409, { error: `mandate ${id} can't be read` });
-  const out: PostMandateResponse = { ok: true, changed, mandate: mandateRow(root, config, m, all, rowCtx(root, config)) };
+  const row: PostMandateResponse = { ok: true, changed, mandate: mandateRow(root, config, m, all, rowCtx(root, config)) };
+  const out: PostMandateResponse | PostMandateCancelResponse = op === 'cancel' ? { ...row, cancelled: done.cancelled ?? [] } : row;
   json(res, redactDeep(out, allKnownValues(root, config)));
 }
 
@@ -249,6 +260,35 @@ export async function postMandateAction(ctx: ServerCtx, req: http.IncomingMessag
   const id = match.params[0];
   if (!isMandateId(id)) return jsonStatus(res, 404, { error: 'no such mandate' });
   write(ctx, res, op, id, o);
+}
+
+/** POST /api/mandates/:id/cancel: the close, plus a cancel request from the dashboard for each unfinished job. */
+export async function postMandateCancel(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const reason = statusReason(parsed.body);
+  if (reason === false) return jsonStatus(res, 400, { error: SHAPE.status });
+  const id = match.params[0];
+  if (!isMandateId(id)) return jsonStatus(res, 404, { error: 'no such mandate' });
+  write(ctx, res, 'cancel', id, { reason });
+}
+
+const DELETE_SHAPE = 'body must be {"confirm": <the mandate id>}';
+
+/** POST /api/mandates/:id/delete: a closed mandate's file and runtime dir, only with the id typed again as `confirm`. */
+export async function postMandateDelete(ctx: ServerCtx, req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): Promise<void> {
+  const { root } = ctx;
+  const parsed = await readJsonBody(req);
+  if ('error' in parsed) return jsonStatus(res, 400, { error: parsed.error });
+  const b = parsed.body;
+  const id = match.params[0];
+  if (!isMap(b) || Object.keys(b).length !== 1 || b.confirm !== id) return jsonStatus(res, 400, { error: DELETE_SHAPE });
+  if (!isMandateId(id)) return jsonStatus(res, 404, { error: 'no such mandate' });
+  const { config } = loadConfig(root);
+  const done = dashboardWrite(root, config, res, 'delete', id, {});
+  if (done === null) return;
+  const out: PostMandateDeleteResponse = { ok: true, deleted: done.id, jobs: done.jobs ?? [] };
+  json(res, redactDeep(out, allKnownValues(root, config)));
 }
 
 /** GET /api/mandates/:id/draft: the draft, the goal as written, the gate's status, digest and owner, and a filing record's view. */
