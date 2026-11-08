@@ -2,23 +2,29 @@
 // mandate show` read: its jobs and how each stands against its `until`, its spend and starts, the scope
 // items the tracker lists for it, the candidates and the window the Foreman may start from, why it is
 // blocked, its quality floor, and its stalls. It reads only the CLI's records: listJobs and readEvents (the CLI copy), the
-// archive and the spend ledger, never a job folder's session-writable job.json or events.jsonl.
-// docs/architecture/foreman/office.md › Director loop.
-import { checkIssueRef, sameIssue } from '#core/job/issue-ref.ts';
+// archive and the spend ledger, never a job folder's session-writable job.json or events.jsonl. It also holds the
+// stored scope read (`<id>/scope.json`, which the Office pass writes) and the mandate plan built from it, which
+// makes no tracker call. docs/architecture/foreman/office.md › Director loop, foreman/mandates.md › Mandate plan.
+import { checkIssueRef, isStoredRef, sameIssue } from '#core/job/issue-ref.ts';
 import { listArchived } from '#core/job/archive.ts';
 import { listRequests } from '#core/job/requests.ts';
 import { isActive, isForemanActor, leaseStatus, listJobs, readEvents } from '#core/job/store.ts';
+import { confinedDir, readRegular, writeJsonAtomic } from '#core/os/fs.ts';
+import { isMap } from '#core/shape.ts';
 import { oneLineTitle } from '#core/text.ts';
 import { localRepoSlug } from '#integrations/git/repo-slug.ts';
 import { checkRepoBudget, repoBudgetStatus } from '#engine/metrics/repo-budget.ts';
 import { runningScore } from '#engine/metrics/report-card.ts';
 import { spendLedger } from '#engine/metrics/spend.ts';
 import { foremanEnabled } from '#engine/pipeline/moves/foreman-gates.ts';
+import { DEPENDS_MAX, isDependsProblem, parseDependsOn, planGraph, waveOf } from '#engine/trackers/depends.ts';
 import { cadenceMinutes } from './cadence.ts';
 import { effectiveContract, mandateState } from './contract.ts';
 import { readDirectives } from './directives.ts';
-import type { ArchivedJob, Config, ForgeRequest, Job, JobEvent, LoadedJob, MandateUntil, Tracker, TrackerItem, TransitionSide } from '#core/types.ts';
+import { mandateDir, scopeFile } from './store.ts';
+import type { ArchivedJob, Config, ForgeRequest, Job, JobEvent, LoadedJob, MandatePlanResponse, MandateUntil, Tracker, TrackerItem, TransitionSide } from '#core/types.ts';
 import type { SpendJob } from '#engine/metrics/spend.ts';
+import type { DependsOn } from '#engine/trackers/depends.ts';
 import type { Directive } from './directives.ts';
 import type { Mandate, MandateState, ReadMandate } from './types.ts';
 
@@ -35,13 +41,18 @@ export interface MandateJob {
   events: JobEvent[];
 }
 
-/** A scope item in its stored form, with the milestone it was listed under (null for labels or issues). */
+/**
+ * A scope item in its stored form, with the milestone it was listed under (null for labels or issues), its
+ * `wave-<n>` label's n and its body's `Depends on:` line (both null for a listed scope).
+ */
 export interface ScopeItem {
   ref: string;
   title: string;
   milestone: string | null;
   needsInfo: boolean;
   priority: string | null;
+  wave: number | null;
+  depends: DependsOn | null;
 }
 
 /** What a progress read is given: the records it reads once per pass, and when it is. */
@@ -207,6 +218,9 @@ export function jobFigures(root: string, config: Config, m: Mandate, all: ReadMa
 
 const errorText = (e: unknown): string => oneLineTitle((e as Error)?.message ?? String(e)).slice(0, 200) || 'failed';
 
+/** Whether the mandate's scope needs a tracker call: not under listed, and with a milestone or a label. */
+export const scopeFromTracker = (m: Pick<Mandate, 'order' | 'scope'>): boolean => !(m.order === 'listed' || (!m.scope.milestones.length && !m.scope.labels.length));
+
 /**
  * The mandate's scope items: `scope.issues` as written (no tracker call) under listed; otherwise one
  * tracker `scope` call per milestone, in order, or one with no milestone for labels alone. A tracker
@@ -214,8 +228,8 @@ const errorText = (e: unknown): string => oneLineTitle((e as Error)?.message ?? 
  */
 export function scopeItems(root: string, config: Config, m: Mandate, tracker: Tracker | null, trackerError: string | null): ScopeResult {
   const { milestones, labels, issues } = m.scope;
-  if (m.order === 'listed' || (!milestones.length && !labels.length)) {
-    return { groups: issues.length ? [{ milestone: null, items: issues.map((ref) => ({ ref, title: '', milestone: null, needsInfo: false, priority: null })) }] : [], error: null };
+  if (!scopeFromTracker(m)) {
+    return { groups: issues.length ? [{ milestone: null, items: issues.map((ref) => ({ ref, title: '', milestone: null, needsInfo: false, priority: null, wave: null, depends: null })) }] : [], error: null };
   }
   if (trackerError !== null) return { groups: [], error: trackerError };
   if (!tracker || typeof tracker.scope !== 'function') return { groups: [], error: `tracker ${oneLineTitle(config.tracker?.kind ?? 'none').slice(0, 60)} can't list a mandate's scope` };
@@ -231,7 +245,16 @@ export function scopeItems(root: string, config: Config, m: Mandate, tracker: Tr
       for (const it of listed) {
         const r = checkIssueRef(it?.ref === undefined ? '' : String(it.ref), { tracker: kind, slug });
         if ('error' in r || items.some((x) => x.ref === r.ref)) continue;
-        items.push({ ref: r.ref, title: oneLineTitle(it.title ?? ''), milestone, needsInfo: it.needsInfo === true, priority: typeof it.priority === 'string' && it.priority ? it.priority : null });
+        items.push({
+          ref: r.ref,
+          title: oneLineTitle(it.title ?? ''),
+          milestone,
+          needsInfo: it.needsInfo === true,
+          priority: typeof it.priority === 'string' && it.priority ? it.priority : null,
+          wave: waveOf(it.labels),
+          // Only the refs that pass the grammar are kept: the body itself is never stored or returned.
+          depends: parseDependsOn(it.body, { tracker: kind, slug }),
+        });
       }
       groups.push({ milestone, items });
     }
@@ -239,6 +262,119 @@ export function scopeItems(root: string, config: Config, m: Mandate, tracker: Tr
     return { groups: [], error: errorText(e) };
   }
   return { groups, error: null };
+}
+
+const SCOPE_FILE_MAX = 1024 * 1024;
+const NOT_READ = "the Office pass has not read this mandate's scope yet";
+const BAD_SHAPE = 'the stored scope read has a bad shape';
+
+/**
+ * Writes the pass's error-free tracker scope read to `<id>/scope.json`, through real directories only:
+ * titles and parsed refs, never a body. A cache with `v: 1`, which any other `v` reads as not read yet.
+ */
+export function storeScope(root: string, m: Mandate, scope: ScopeResult, at: string): void {
+  const groups = scope.groups.map((g) => ({
+    milestone: g.milestone,
+    items: g.items.map((it) => ({ ref: it.ref, title: it.title, milestone: it.milestone, needsInfo: it.needsInfo, priority: it.priority, wave: it.wave, depends: it.depends })),
+  }));
+  confinedDir(root, mandateDir(root, m.id));
+  writeJsonAtomic(scopeFile(root, m.id), { v: 1, mandate: m.id, readAt: at, milestones: m.scope.milestones, labels: m.scope.labels, groups }, { root });
+}
+
+const sameList = (a: unknown, b: readonly string[]): boolean => Array.isArray(a) && a.length === b.length && a.every((x, i) => x === b[i]);
+
+/** A stored `depends`: null, one of parseDependsOn's own problems, or 1 to 20 stored refs; undefined for any other shape. */
+function storedDepends(v: unknown, kind: string): DependsOn | null | undefined {
+  if (v === null) return null;
+  if (!isMap(v) || Object.keys(v).length !== 1) return undefined;
+  if (isDependsProblem(v.problem)) return { problem: v.problem };
+  const refs = v.refs;
+  if (Array.isArray(refs) && refs.length >= 1 && refs.length <= DEPENDS_MAX && refs.every((r) => isStoredRef(r, kind))) return { refs: [...refs] };
+  return undefined;
+}
+
+/** A stored scope item listed under `milestone`, re-checked field by field; null for any other shape. */
+function storedItem(v: unknown, milestone: string | null, kind: string): ScopeItem | null {
+  if (!isMap(v)) return null;
+  const { ref, title, needsInfo, priority, wave } = v;
+  const depends = storedDepends(v.depends, kind);
+  const waveOk = wave === null || (Number.isInteger(wave) && (wave as number) >= 1 && (wave as number) <= 999);
+  const priorityOk = priority === null || (typeof priority === 'string' && priority.length > 0 && priority.length <= 200);
+  if (!isStoredRef(ref, kind) || typeof title !== 'string' || typeof needsInfo !== 'boolean' || !priorityOk || !waveOk || depends === undefined || v.milestone !== milestone) return null;
+  return { ref, title: oneLineTitle(title), milestone, needsInfo, priority: priority as string | null, wave: wave as number | null, depends };
+}
+
+/**
+ * The Office pass's stored scope read for the mandate, or one fixed problem: a file that isn't a regular
+ * one of at most 1 MiB, isn't JSON, has another `v` (not read yet), names another mandate, was read for
+ * other scope lists than the mandate's now, or has a bad shape anywhere.
+ */
+export function readStoredScope(root: string, m: Mandate, kind: string): { scope: ScopeResult; readAt: string } | { problem: string } {
+  const raw = readRegular(scopeFile(root, m.id), SCOPE_FILE_MAX);
+  if (typeof raw === 'string') return { problem: raw === 'unreadable (ENOENT)' ? NOT_READ : `the stored scope read is ${raw}` };
+  let data: unknown;
+  try {
+    data = JSON.parse(raw.toString('utf8'));
+  } catch {
+    return { problem: 'the stored scope read is not JSON' };
+  }
+  if (!isMap(data) || data.v !== 1) return { problem: NOT_READ };
+  if (data.mandate !== m.id) return { problem: 'the stored scope read is for another mandate' };
+  if (!sameList(data.milestones, m.scope.milestones) || !sameList(data.labels, m.scope.labels)) return { problem: "the mandate's scope changed since the Office pass read it" };
+  const readAt = typeof data.readAt === 'string' ? Date.parse(data.readAt) : NaN;
+  const names = m.scope.milestones.length ? m.scope.milestones : [null];
+  const stored = data.groups;
+  if (!Number.isFinite(readAt) || !Array.isArray(stored) || stored.length !== names.length) return { problem: BAD_SHAPE };
+  const groups: ScopeResult['groups'] = [];
+  for (let i = 0; i < names.length; i++) {
+    const g = stored[i];
+    if (!isMap(g) || g.milestone !== names[i] || !Array.isArray(g.items) || g.items.length > SCOPE_LIMIT) return { problem: BAD_SHAPE };
+    const items: ScopeItem[] = [];
+    for (const v of g.items) {
+      const it = storedItem(v, names[i], kind);
+      if (!it) return { problem: BAD_SHAPE };
+      items.push(it);
+    }
+    groups.push({ milestone: names[i], items });
+  }
+  return { scope: { groups, error: null }, readAt: new Date(readAt).toISOString() };
+}
+
+/**
+ * The mandate plan (GET /api/mandates/:id/plan, `forge mandate plan`): its scope issues and their
+ * dependencies, with the mandate's jobs on them. A scope that needs the tracker comes from the pass's
+ * stored read (a `scope` problem when there is no usable one); any other is computed now. It takes no
+ * tracker, so it can make no tracker call.
+ */
+export function mandatePlan(root: string, config: Config, m: Mandate, ctx: Pick<ProgressCtx, 'jobs' | 'archived' | 'at'>): MandatePlanResponse {
+  const kind = config.tracker?.kind ?? 'local';
+  const slug = kind === 'github' ? localRepoSlug(root, config) : null;
+  let items: ScopeItem[] = [];
+  let readAt: string | null = null;
+  let problem: string | null = null;
+  if (!scopeFromTracker(m)) {
+    items = scopeItems(root, config, m, null, null).groups.flatMap((g) => g.items);
+    readAt = new Date(ctx.at).toISOString();
+  } else {
+    const r = readStoredScope(root, m, kind);
+    if ('problem' in r) problem = r.problem;
+    else {
+      items = r.scope.groups.flatMap((g) => g.items);
+      readAt = r.readAt;
+    }
+  }
+  const jobs = jobsOf(root, m, effectiveContract(config, m).effective.until, ctx).map(({ job }) => ({
+    id: job.id,
+    title: typeof job.title === 'string' ? job.title : '',
+    issues: Array.isArray(job.issues) ? job.issues : [],
+    state: job.state,
+    dependsOn: Array.isArray(job.dependsOn) ? job.dependsOn : [],
+    parent: job.parent ?? null,
+    createdAt: job.createdAt ?? null,
+  }));
+  const g = planGraph({ issues: items, jobs, kind, slug });
+  const problems = problem === null ? g.problems : [{ kind: 'scope' as const, ref: null, detail: problem, edges: [] }, ...g.problems];
+  return { mandate: m.id, readAt, nodes: g.nodes, edges: g.edges, problems };
 }
 
 /** The issue number a ref ends with, for ordering; null for a ref with none. */

@@ -10,6 +10,7 @@ Tracker sync: the adapter loader with its security wrappers, mirrors, issue link
 <!-- forge:map:start (generated from each file's header comment by npm run docs:map; edit those) -->
 | File | What it holds |
 |---|---|
+| `depends.ts` | Issue dependencies: the `Depends on:` line an issue body names its dependencies with, one strict parser, and the dependency graph over a mandate's issues and the jobs on them: edges, cycle breaking and each issue's state. |
 | `link.ts` | A job's issues: searching a tracker for them and linking, unlinking, creating or waiving them. |
 | `load.ts` | The tracker loader: picks the built-in or repo-local adapter the config names and wraps it in the secret checks every tracker write goes through, and a repo-local adapter's get in the import fence. |
 | `mirror.ts` | A job's state mirrored onto its linked issues, each in its own repo's tracker, and a one-off note posted to them. |

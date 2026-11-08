@@ -51,8 +51,9 @@ export interface Tracker {
   /**
    * Optional: the open items in `milestone` (any milestone when null) that carry every label in `labels`,
    * at most `limit`, for a mandate's scope (lib/office/mandates/progress.ts). Marked like list's items
-   * (needsInfo, claimedBy, project status and priority). Throws when it can't list them; a mandate with a
-   * milestone or label scope and no `scope` method is not worked.
+   * (needsInfo, claimedBy, project status and priority). Items should carry `body` and `labels`: the
+   * mandate plan reads each body's `Depends on:` line and each `wave-<n>` label. Throws when it can't list
+   * them; a mandate with a milestone or label scope and no `scope` method is not worked.
    */
   scope?: (ctx: TrackerCtx, q: { milestone: string | null; labels: string[]; limit: number }) => TrackerItem[];
   /**

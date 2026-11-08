@@ -119,6 +119,9 @@ export const mandateDir = (root: string, id: string): string => path.join(paths(
 /** A closed mandate's closing summary, which the Office pass writes (lib/office/mandates/pass.ts). */
 export const summaryFile = (root: string, id: string): string => path.join(mandateDir(root, id), 'summary.json');
 
+/** The Office pass's latest error-free tracker scope read, which the mandate plan reads (lib/office/mandates/progress.ts). */
+export const scopeFile = (root: string, id: string): string => path.join(mandateDir(root, id), 'scope.json');
+
 /**
  * The one write path. Under the mandates lock, `plan` gets every mandate as it is now and returns the
  * record to write with its audit action, or null to write nothing (it throws to refuse). A written
