@@ -179,11 +179,8 @@
     // The Add project dialog counts as Settings here: while it is open, Cmd/Ctrl-K and the Settings shortcut do nothing.
     if (commandKey({ key: e.key, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, open: palette.open, settingsOpen: settingsOpen || addProjectDialog.open, repeat: e.repeat, composing: e.isComposing }) === 'open') {
       e.preventDefault();
-      // Open: back to its input, keeping the scope. md and up: the first press focuses the bar's input, the second opens.
-      const inline = commandState();
-      const action = shortcutAction({ paletteOpen: palette.open, inlineVisible: inline.visible, inlineFocused: inline.focused });
-      if (action === 'focus-palette') command?.focus();
-      else if (action === 'focus-inline') input?.focus();
+      // Open: back to its input, keeping the scope. Closed: open it at once.
+      if (shortcutAction({ paletteOpen: palette.open }) === 'focus-palette') command?.focus();
       else openPalette();
       return;
     }
@@ -241,11 +238,6 @@
     el.value = '';
   }
 
-  /** For Cmd/Ctrl-K: whether the sidebar input shows (md and up) and has focus. */
-  function commandState(): { visible: boolean; focused: boolean } {
-    return { visible: Boolean(input && input.getClientRects().length > 0), focused: Boolean(input && document.activeElement === input) };
-  }
-
   onMount(() => {
     // The route (or, on a global page, the remembered project) selects the project, and selecting one loads it. The
     // first machine list checks the remembered project is still there.
@@ -279,7 +271,7 @@
     <!-- A real input: typing hands its text to the palette. The kbd is hidden from assistive tech because
          aria-keyshortcuts announces it. The placeholder is its only visible label, so it takes muted (4.5:1 in both
          themes) rather than dim, and the strong edge. On the rail it is an icon button that opens the palette; with no
-         input on screen, Cmd/Ctrl-K opens the palette at once (commandState). -->
+         input on screen, Cmd/Ctrl-K opens the palette. -->
     <span class="relative mb-2.5 {compact ? 'flex justify-center' : 'block'}">
       {#if compact}
       <button id="sidebar-command" class="btn icon" aria-label={$t('command.open')} aria-haspopup="dialog" aria-keyshortcuts="Meta+K Control+K" onclick={(e) => openPalette({ opener: e.currentTarget })} {@attach railTipOn($t('command.open'))}><Icon name="command" /></button>

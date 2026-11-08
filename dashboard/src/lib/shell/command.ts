@@ -284,14 +284,10 @@ export function shellEscape(s: {
 }
 
 /**
- * What Cmd/Ctrl-K does (Settings closed): back to the palette's input while it is open; else to the status bar's inline
- * input when it shows and lacks focus; else (it has focus, or it is hidden below md) open the palette. So at md and up the
- * first press focuses the bar and a second opens the palette.
+ * What Cmd/Ctrl-K does (Settings closed): opens the palette, or returns to its input while it is open.
  */
-export function shortcutAction(s: { paletteOpen: boolean; inlineVisible: boolean; inlineFocused: boolean }): 'focus-palette' | 'focus-inline' | 'open-palette' {
-  if (s.paletteOpen) return 'focus-palette';
-  if (s.inlineVisible && !s.inlineFocused) return 'focus-inline';
-  return 'open-palette';
+export function shortcutAction(s: { paletteOpen: boolean }): 'focus-palette' | 'open-palette' {
+  return s.paletteOpen ? 'focus-palette' : 'open-palette';
 }
 
 /** Apple platforms (`navigator.platform`), whose shortcuts take Cmd rather than Ctrl. */
