@@ -17,7 +17,7 @@ The dashboard's plain-TS logic and rune state, in module folders grouped by conc
 | `logs/` | Session logs: one raw line parsed, lines grouped into turns, a session's or a chat's log streamed, a station's lamp, and who a line comes from. |
 | `metrics/` | Usage and cost: the Analytics, Evals and Overview pages, per-job and repo budgets, and agent runs' billing. |
 | `office/` | The Office and Foreman pages: mandates, report cards, milestone drafts, gate runs, the page layout and the chats. |
-| `project/` | The project around the jobs: its graph, environments and focus, and the Issues page. |
+| `project/` | The project around the jobs: its graph, a mandate's plan layout, environments and focus, and the Issues page. |
 | `sessions/` | The daemon pool's sessions: pills and the pool summary, permission prompts, the Agents page, what a job's agents are doing, and the live board. |
 | `settings/` | The settings modal and the browser's preferences. |
 | `shell/` | The frame around every page: the hash router, the sidebar's pages and rail, the project switcher and Add project dialog, the command bar and palette, and the status bar. |

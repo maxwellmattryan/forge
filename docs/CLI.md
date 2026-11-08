@@ -730,7 +730,7 @@ The machine's dashboard and every registered project's session pool.
 | Flag | Meaning |
 |---|---|
 | `--background` | start it detached and print {url, pid, started: true, project, added, permissionMode}, url the login link (bare when the start is unconfirmed) |
-| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, with no pool booting until Start; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it) |
+| `--dev` | serve npm run dev's watching build (node_modules/.cache/forge/dashboard-dev) instead of dashboard/dist for every project of FORGE_HOME, booting each project's pool as forge dash does (only while its trusted files match a human's approval), though it approves nothing itself; it builds nothing itself, so start it through npm run dev; refused from a forge without Vite (an installed plugin) and while a proven machine dashboard runs (a stale record does not block it) |
 | `--foreground` | run in the foreground even when one is running |
 | `--no-open` | never open a browser |
 | `--open` | open the login link in the default browser (FORGE_BROWSER picks another; through a 0600 redirect file under &lt;FORGE_HOME>/runtime, never the key in a command line), even outside a terminal; the default when a person runs it in a terminal in human mode, without --dev |
