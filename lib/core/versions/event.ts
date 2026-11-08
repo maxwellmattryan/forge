@@ -101,6 +101,9 @@ export const EVENT_STEPS: readonly Step[] = [
   // v28 adds the title schema's events: `retitled` ({ from, to, source }), `retitle-refused` ({ source, problem })
   // and `pr-title` ({ source, problem? }). An older Forge reads each as a generic event.
   { id: 'title-events', up: (e) => e },
+  // v29 adds the `mandate-cancel` ({ mandate, reason, jobs, actor }) and `mandate-delete` ({ mandate, jobs, actor }) repo
+  // audit events, which `forge mandate cancel|delete` log. An older Forge reads each as a generic event.
+  { id: 'mandate-lifecycle-events', up: (e) => e },
 ];
 
 export const EVENT_SCHEMA_VERSION = versionOf(EVENT_STEPS);
