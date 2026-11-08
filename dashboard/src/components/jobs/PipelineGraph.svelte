@@ -125,7 +125,7 @@
         <div class="flex flex-col gap-1 p-2 min-w-0">
           {#each graph.loose.chains as b (b.nodes[0].id)}<GraphBlock block={b} {hot} />{/each}
           {#if graph.loose.lone.length}
-            <div class="flex flex-wrap min-w-0">
+            <div class="flex flex-wrap gap-x-2 min-w-0">
               {#each graph.loose.lone as b (b.nodes[0].id)}<GraphBlock block={b} {hot} />{/each}
             </div>
           {/if}

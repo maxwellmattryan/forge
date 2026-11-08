@@ -45,7 +45,7 @@
     </svg>
     {#each block.nodes as n (n.id)}
       <button
-        class="plate clickable {n.dashed ? 'cold' : ''} {n.match ? '' : 'graph-dim'} text-left px-2 py-1.5 flex flex-col justify-center gap-0.5 min-w-0"
+        class="plate clickable {n.dashed ? 'cold' : ''} {n.match ? '' : 'graph-dim'} text-left px-2 py-1 flex flex-col justify-center gap-0.5 min-w-0"
         style="position:absolute;left:{n.x}px;top:{n.y}px;width:{n.w}px;height:{n.h}px"
         title={n.title}
         onclick={() => open(n)}
@@ -63,7 +63,8 @@
           <span class="text-[13px] leading-4 font-medium text-fg truncate min-w-0">{n.title}</span>
         </span>
         <span class="text-[11px] leading-[14px] truncate {n.mark === 'merged' ? 'text-ok' : 'text-muted'}">{line(n)}</span>
-        {#if n.steps}<span class="graph-track mt-1" aria-hidden="true">{#each n.steps as x (x.stage)}<i class={seg(x)}></i>{/each}</span>{/if}
+        <!-- 4 + 16 + 2 + 14 + 2 + 2 + 2 + 4 = 46px: fits the compact 48px node with its track. -->
+        {#if n.steps}<span class="graph-track mt-0.5" aria-hidden="true">{#each n.steps as x (x.stage)}<i class={seg(x)}></i>{/each}</span>{/if}
       </button>
     {/each}
   </div>

@@ -189,7 +189,9 @@ function block(prefix: string, seeds: Seed[], keyEdges: { from: string; to: stri
       line = { kind: 'waits', ref: seedOf.get(waits[0])!.label, more: waits.length - 1 };
     } else if (j && (m === 'running' || m === 'held')) {
       const stage = STAGE_LABEL[j.stage as Stage] ?? str(j.stage);
-      line = { kind: 'stage', stage, state: m === 'held' ? stateText(j) : null };
+      // A queued job's state only repeats its stage ("Queued · queued"), so it shows the stage alone.
+      const state = m === 'held' ? stateText(j) : '';
+      line = { kind: 'stage', stage, state: state && state.toLowerCase() !== stage.toLowerCase() ? state : null };
     } else line = { kind: m as 'merged' | 'cancelled' | 'running' | 'ready' | 'planned' }; // held always has a job
     const live = j !== null && j.state !== 'cancelled';
     return {

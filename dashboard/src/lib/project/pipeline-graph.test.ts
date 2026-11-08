@@ -207,8 +207,9 @@ test('node marks and state lines', () => {
   assert.equal(nodeById(g, `${M}|#2`).steps?.find((s) => s.status === 'current')?.stage, 'build');
 
   // A park whose upstream merged, or that has none in the block, is held, with the park's own label.
-  const g2 = graph({ jobs: [job({ id: 'p', ...park, stage: 'backlog' })] });
+  const g2 = graph({ jobs: [job({ id: 'p', ...park, stage: 'backlog' }), job({ id: 'q', stage: 'backlog', state: 'queued' })] });
   assert.deepEqual({ mark: g2.loose.lone[0].nodes[0].mark, line: g2.loose.lone[0].nodes[0].line }, { mark: 'held', line: { kind: 'stage', stage: 'Queued', state: 'Dependencies' } });
+  assert.deepEqual(g2.loose.lone[1].nodes[0].line, { kind: 'stage', stage: 'Queued', state: null }, 'a state that repeats the stage is left out');
 });
 
 test('newlyMerged', () => {
