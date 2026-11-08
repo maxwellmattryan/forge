@@ -63,6 +63,16 @@ const ROWS: Row[] = [
     refused: unreadable('deleted', 'no such mandate'),
   },
   {
+    // It delegated the gate: the job keeps its locked mandate field, so nothing is decided for it.
+    name: 'the mandate was deleted with forge mandate delete',
+    mandate: 'erased',
+    then: async (root) => {
+      await cli(root, ['mandate', 'close', 'erased']);
+      await cli(root, ['mandate', 'delete', 'erased']);
+    },
+    refused: unreadable('erased', 'no such mandate'),
+  },
+  {
     name: 'the mandate file is a symlink',
     mandate: 'linked',
     then: (root) => {
@@ -92,11 +102,11 @@ async function cli(root: string, args: string[]): Promise<void> {
   assert.equal(r.status, 0, `${args.join(' ')}: ${JSON.stringify(r.error)}`);
 }
 
-/** A repo with one mandate per row (only `wide` delegates spec-approval) and one job per row parked on it. */
+/** A repo with one mandate per row (`wide`, `shut` and `erased` delegate spec-approval) and one job per row parked on it. */
 async function arrange() {
   const r = scratch();
   for (const id of ['narrow', 'deleted', 'linked', 'paused', 'closed']) await cli(r.dir, ['mandate', 'new', id, '--title', id, '--milestones', 'M1', '--decides', 'split-approval']);
-  for (const id of ['wide', 'shut']) await cli(r.dir, ['mandate', 'new', id, '--title', id, '--milestones', 'M1', '--decides', 'spec-approval,split-approval,release']);
+  for (const id of ['wide', 'shut', 'erased']) await cli(r.dir, ['mandate', 'new', id, '--title', id, '--milestones', 'M1', '--decides', 'spec-approval,split-approval,release']);
   const jobs: string[] = [];
   for (const row of ROWS) {
     const job = parkedAt(r.dir, 'spec-approval', { title: row.name, create: { mandate: row.mandate } }).id;

@@ -194,15 +194,22 @@ test('mandate writes are refused in daemon sessions', async () => {
       ['pause', ['mandate', 'pause', 'm1']],
       ['resume', ['mandate', 'resume', 'm1']],
       ['close', ['mandate', 'close', 'm1']],
+      ['cancel', ['mandate', 'cancel', 'm1', '--reason', 'stop']],
+      ['delete', ['mandate', 'delete', 'm1']],
     ];
+    const requestsDir = path.join(r.dir, '.forge', 'runtime', 'requests');
+    const requests = () => (fs.existsSync(requestsDir) ? Object.fromEntries(fs.readdirSync(requestsDir).sort().map((f) => [f, read(path.join(requestsDir, f))])) : {});
+    const state = () => ({ mandates: snapshot(r.dir), audit: read(auditFile(r.dir)), requests: requests() });
+    // A job in m1, so a cancel that got through would queue a request.
+    await ok(r.dir, ['job', 'new', '--title', 'in m1', '--mandate', 'm1']);
     for (const scope of ['_office', '_inbox', job, '_chat-0123456789ab']) {
       const env = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: scope };
       for (const [sub, args] of writes) {
-        const before = { mandates: snapshot(r.dir), audit: read(auditFile(r.dir)) };
+        const before = state();
         const res = await forgeInProcess(r.dir, args, { env });
         assert.equal(res.status, 1, `${scope} ${sub}`);
         assert.equal(res.error?.message, `forge mandate ${sub} writes the owner's instructions to the Office, which a daemon session may not do; run it in your own terminal`, `${scope} ${sub}`);
-        assert.deepEqual({ mandates: snapshot(r.dir), audit: read(auditFile(r.dir)) }, before, `${scope} ${sub}: nothing written`);
+        assert.deepEqual(state(), before, `${scope} ${sub}: nothing written`);
       }
     }
     const office = { FORGE_DAEMON: '1', FORGE_DAEMON_SCOPE: '_office' };

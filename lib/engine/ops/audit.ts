@@ -87,6 +87,8 @@ function detail(e: JobEvent): string | null {
     case 'mandate-pause':
     case 'mandate-resume':
     case 'mandate-close':
+    case 'mandate-cancel':
+    case 'mandate-delete':
     case 'mandate-filed':
     case 'mandate-draft':
     case 'mandate-draft-approved':

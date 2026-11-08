@@ -1513,6 +1513,18 @@ See [Job repos](architecture/job-repos.md).
 
 The owner's mandates: standing instructions to the Office in .forge/runtime/mandates/.
 
+**`forge mandate cancel <id> [--reason R]`**: close a mandate as close does (reason cancelled, or cancelled: R) and queue one cancel request for each of its unfinished jobs, in job id order: every live job but a done or cancelled one, and none that already has an open cancel ({ok, changed, mandate, cancelled: [{job, request}]}; changed false when it was closed and nothing was queued)
+
+| Flag | Meaning |
+|---|---|
+| `--reason R` | why, one line |
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
 **`forge mandate close <id> [--reason R]`**: close a mandate for good, which starts the next link of its chain and, with the foreman on, queues one retro over its jobs (changed false when already closed)
 
 | Flag | Meaning |
@@ -1522,6 +1534,14 @@ The owner's mandates: standing instructions to the Office in .forge/runtime/mand
 | Exit | When |
 |---|---|
 | 1 | no such mandate (not_found), it can't be read, or a daemon session ran it |
+
+See [Mandates](CONFIG.md#mandates).
+
+**`forge mandate delete <id>`**: remove a closed mandate's file and its runtime dir, never following a link; its jobs keep their mandate field, so the Foreman decides nothing for them, and no new mandate takes the id while a job names it ({ok, deleted, jobs})
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), it can't be read, it is not closed, a mandate not closed follows it (after), or a daemon session ran it |
 
 See [Mandates](CONFIG.md#mandates).
 
@@ -1682,7 +1702,7 @@ See [Mandates](CONFIG.md#mandates).
 
 | Exit | When |
 |---|---|
-| 1 | an id given exists or is not a mandate id, a term breaks the contract (every problem named), or a daemon session ran it |
+| 1 | an id given exists, is not a mandate id or is still named by a job (a deleted mandate's), a term breaks the contract (every problem named), or a daemon session ran it |
 
 See [Mandates](CONFIG.md#mandates).
 
