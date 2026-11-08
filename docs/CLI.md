@@ -1698,6 +1698,14 @@ See [Mandates](CONFIG.md#mandates).
 
 See [Mandates](CONFIG.md#mandates).
 
+**`forge mandate plan <id>`**: the mandate plan, the same JSON as GET /api/mandates/:id/plan, with no tracker call ({mandate, readAt, nodes: [{ref, title, wave, job, state}], edges: [{from, to, source}], problems: [{kind, ref, detail, edges}]}): every scope issue from the Office pass's stored scope read (readAt: when it was read; null with a scope problem), then each issue only a mandate job carries; edges from each issue body's Depends on: line (source body) and each job's dependsOn (source job), a cycle's edges dropped and listed in its cycle problem; state is merged (its job is done), running (its job is in flight), waiting (an upstream issue is not merged), ready (every upstream merged, or a root) or planned (on no edge); problem kinds: scope, malformed, outside, unknown, cycle
+
+| Exit | When |
+|---|---|
+| 1 | no such mandate (not_found), or it can't be read |
+
+See [Mandates](CONFIG.md#mandates).
+
 **`forge mandate release approve <id> --actor foreman --note N`**: refused in every scope: only forge dash's gate runner approves an until: released mandate's pending release plan in place of forge release run's publish prompt ({ok, mandate, release: {plan, actor}}); it starts nothing: a human or CI runs forge release run, which without a terminal then passes each publish step of that exact plan while the mandate still delegates release. A person approves by answering forge release run's publish prompt in a terminal instead
 
 | Flag | Meaning |

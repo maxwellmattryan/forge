@@ -4,7 +4,8 @@
 // guidance and goal (the owner's own words); POST /api/mandates (which picks the id when
 // none is sent, as `forge mandate new` does) and /api/mandates/:id/edit|pause|resume|close write as a
 // person through the same mandateWrite `forge mandate` calls, so the dashboard gets the CLI's exact
-// refusals. A goal mandate's milestone draft: GET /api/mandates/:id/draft
+// refusals. GET /api/mandates/:id/plan gives the mandate plan from the Office pass's stored scope read, with
+// no tracker call. A goal mandate's milestone draft: GET /api/mandates/:id/draft
 // renders it, and POST decides it through the same decideDraft the CLI calls, pinned to the request and
 // digest the card read. Every POST's login, Origin and JSON guard runs before these handlers (start.ts).
 import type http from 'node:http';
@@ -24,7 +25,7 @@ import { BODY_MAX, effectiveContract, fillDefaults, grantable, isMandateId, isRe
 import { readDirectives } from '#office/mandates/directives.ts';
 import { decideDraft, draftGate, gateView } from '#office/mandates/gate.ts';
 import { readSummary } from '#office/mandates/pass.ts';
-import { jobFigures } from '#office/mandates/progress.ts';
+import { jobFigures, mandatePlan } from '#office/mandates/progress.ts';
 import { listMandates, mandateWrite, readMandate } from '#office/mandates/store.ts';
 import type { MandateOp } from '#office/mandates/store.ts';
 import type { Mandate, MandateInput, ReadMandate } from '#office/mandates/types.ts';
@@ -35,6 +36,7 @@ import type {
   MandateContract,
   MandateDetailResponse,
   MandateDraftResponse,
+  MandatePlanResponse,
   MandateRow,
   MandatesResponse,
   PostMandateDraftResponse,
@@ -141,6 +143,20 @@ export function getMandate(ctx: ServerCtx, _req: http.IncomingMessage, res: http
     goal: m.goal,
     directives: readDirectives(root, { mandate: id, limit: 20 }),
   };
+  json(res, redactDeep(out, allKnownValues(root, config)));
+}
+
+/** GET /api/mandates/:id/plan: the mandate plan, as `forge mandate plan` prints it, redacted. No tracker call. */
+export function getMandatePlan(ctx: ServerCtx, _req: http.IncomingMessage, res: http.ServerResponse, match: RouteMatch): void {
+  const { root } = ctx;
+  const id = match.params[0];
+  // Checked before any path is built from it.
+  if (!isMandateId(id)) return jsonStatus(res, 404, { error: 'no such mandate' });
+  const m = listMandates(root).find((x) => x.id === id);
+  if (!m) return jsonStatus(res, 404, { error: `no mandate ${id}` });
+  if (!isReadable(m)) return jsonStatus(res, 409, { error: `mandate ${id} can't be read (${m.problem})` });
+  const { config } = loadConfig(root);
+  const out: MandatePlanResponse = mandatePlan(root, config, m, { jobs: listJobs(root), archived: listArchived(root), at: Date.now() });
   json(res, redactDeep(out, allKnownValues(root, config)));
 }
 

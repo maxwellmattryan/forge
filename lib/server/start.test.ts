@@ -10,7 +10,7 @@ import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobCi, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject, postSession } from './routes/machine.ts';
-import { getMandate, getMandateDraft, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
+import { getMandate, getMandateDraft, getMandatePlan, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
@@ -114,6 +114,7 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/mandates/g1/close', postMandateAction, ['g1', 'close']],
       ['POST', '/shelf', postShelf, []],
       ['GET', '/mandates/g1/draft', getMandateDraft, ['g1']],
+      ['GET', '/mandates/g1/plan', getMandatePlan, ['g1']],
       ['POST', '/mandates/g1/draft', postMandateDraft, ['g1']],
       ['POST', '/focus', postFocus, []],
       ['GET', '/chats', getChats, []],
