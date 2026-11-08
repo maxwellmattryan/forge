@@ -3,7 +3,7 @@ import type { Progress, Stage } from '../core/types.ts';
 import { STAGE_LABEL } from '../core/labels.ts';
 import { protectedSummary } from './protected.ts';
 import type { ProtectedSummary } from './protected.ts';
-import { isOpen, isShelved, needsHuman, progressWidth } from './state.ts';
+import { isOpen, isShelved, needsHuman, prChipModel, progressWidth } from './state.ts';
 import type { JobLike } from './state.ts';
 
 const s = (v: unknown): string => String(v ?? '');
@@ -72,6 +72,23 @@ export function sortByRank<T extends JobLike>(jobs: T[]): T[] {
 export function boardColumns<T extends JobLike>(jobs: T[]): { id: BoardGroupId; jobs: T[] }[] {
   const sorted = sortByRank(jobs);
   return BOARD_GROUPS.map((g) => ({ id: g.id, jobs: sorted.filter((j) => boardGroup(j) === g.id) })).filter((c) => c.id !== 'done' || c.jobs.length > 0);
+}
+
+/** The table's columns that show only when a row fills them; Job, Stage, State and Updated always show. */
+export const OPTIONAL_COLUMNS = ['tasks', 'verdicts', 'pr', 'tokens', 'cost', 'budget'] as const;
+export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
+
+/** The optional table columns at least one job fills, judged as each cell judges value vs `—`; `hasBudget` is the Budget cell's own test. */
+export function tableColumns<T extends JobLike>(jobs: T[], hasBudget: (j: T) => boolean): Set<OptionalColumn> {
+  const fills: Record<OptionalColumn, (j: T) => boolean> = {
+    tasks: (j) => Number(j.progress?.total) > 0,
+    verdicts: (j) => Array.isArray(j.reviewers) && j.reviewers.length > 0,
+    pr: (j) => prChipModel(j.pr) !== null,
+    tokens: (j) => j.usage?.totalTokens != null,
+    cost: (j) => j.usage?.estCostUsd != null,
+    budget: hasBudget,
+  };
+  return new Set(OPTIONAL_COLUMNS.filter((c) => jobs.some(fills[c])));
 }
 
 export interface StageStep {
