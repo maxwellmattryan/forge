@@ -9,6 +9,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { forgeInProcess, initMilestoneRepo, repoTemplate, serveProjects } from '../../helpers.ts';
 import { loadConfig } from '#core/config/load.ts';
+import { listRequests } from '#core/job/requests.ts';
+import { loadJob } from '#core/job/store.ts';
 import { MANDATE_SUMMARY_SCHEMA_VERSION } from '#core/versions/mandate-summary.ts';
 import { logDirective } from '#office/mandates/directives.ts';
 import { writeSummary } from '#office/mandates/pass.ts';
@@ -49,17 +51,19 @@ async function served() {
   const headers = { origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/json' };
   const mandatesDir = path.join(repo.dir, '.forge', 'runtime', 'mandates');
   const audit = path.join(repo.dir, '.forge', 'runtime', 'audit.jsonl');
+  const requestsDir = path.join(repo.dir, '.forge', 'runtime', 'requests');
   return {
     repo,
     get: (p: string) => hit(s, { path: `${api}${p}` }),
     post: (p: string, body: unknown) => hit(s, { method: 'POST', path: `${api}${p}`, headers, body: typeof body === 'string' ? body : JSON.stringify(body) }),
     file: (id: string) => fs.readFileSync(path.join(mandatesDir, `${id}.md`), 'utf8'),
     auditEvents: () => (fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : []),
-    /** Every file under the mandates dir with its bytes, and the repo audit log: what a refused write must leave alone. */
+    /** Every file under the mandates dir with its bytes, the repo audit log and the requests: what a refused write must leave alone. */
     snapshot: () => {
       const files = fs.existsSync(mandatesDir) ? (fs.readdirSync(mandatesDir, { recursive: true }) as string[]).sort() : [];
       const body = files.map((f) => [f, fs.statSync(path.join(mandatesDir, f)).isFile() ? fs.readFileSync(path.join(mandatesDir, f), 'utf8') : 'dir']);
-      return { body, audit: fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8') : '' };
+      const requests = fs.existsSync(requestsDir) ? fs.readdirSync(requestsDir).sort().map((f) => [f, fs.readFileSync(path.join(requestsDir, f), 'utf8')]) : [];
+      return { body, audit: fs.existsSync(audit) ? fs.readFileSync(audit, 'utf8') : '', requests };
     },
     cleanup: async () => {
       await s.cleanup();
@@ -227,6 +231,60 @@ test('mandates over the dashboard API', async () => {
   }
 });
 
+test('the Office page cancels and deletes a mandate as the dashboard', async () => {
+  const t = await served();
+  try {
+    assert.equal((await t.post('/mandates', { id: 'c1', title: 'C1', milestones: ['M1'] })).status, 200);
+    const jobs: string[] = [];
+    for (const title of ['one', 'two']) {
+      const made = await forgeInProcess(t.repo.dir, ['job', 'new', '--title', title, '--mandate', 'c1']);
+      assert.equal(made.status, 0, JSON.stringify(made.error));
+      jobs.push((made.data as { id: string }).id);
+    }
+    jobs.sort();
+
+    // AC12: cancel closes it and queues each job's cancel from the dashboard.
+    const cancelled = await t.post('/mandates/c1/cancel', { reason: 'not needed' });
+    assert.equal(cancelled.status, 200, cancelled.text);
+    assert.deepEqual([cancelled.json.ok, cancelled.json.changed, cancelled.json.mandate.status, cancelled.json.mandate.reason], [true, true, 'closed', 'cancelled: not needed']);
+    assert.deepEqual(
+      cancelled.json.cancelled.map((c: { job: string }) => c.job),
+      jobs,
+    );
+    const queued = listRequests(t.repo.dir).filter((r) => r.type === 'cancel');
+    assert.deepEqual(
+      queued.map((r) => [r.job, r.from, r.text]).sort(),
+      jobs.map((j) => [j, 'dashboard', 'mandate c1 cancelled: not needed']),
+    );
+    const cancelEvent = t.auditEvents().filter((e) => e.type === 'mandate-cancel');
+    assert.deepEqual([cancelEvent.length, cancelEvent[0]?.mandate, cancelEvent[0]?.actor?.source, cancelEvent[0]?.jobs], [1, 'c1', 'dashboard', jobs]);
+    assert.deepEqual([(await t.post('/mandates/c1/cancel', {})).json.changed, listRequests(t.repo.dir).filter((r) => r.type === 'cancel').length], [false, 2], 'again: nothing new');
+
+    // Delete, with the id echoed back.
+    const deleted = await t.post('/mandates/c1/delete', { confirm: 'c1' });
+    assert.equal(deleted.status, 200, deleted.text);
+    assert.deepEqual(deleted.json, { ok: true, deleted: 'c1', jobs });
+    assert.ok(!fs.existsSync(path.join(t.repo.dir, '.forge', 'runtime', 'mandates', 'c1.md')));
+    assert.equal(t.auditEvents().find((e) => e.type === 'mandate-delete')?.actor?.source, 'dashboard');
+    assert.equal((await t.get('/mandates/c1')).status, 404);
+
+    // AC7: the jobs stay, with their mandate, and /api/state lists them.
+    for (const j of jobs) assert.equal(loadJob(t.repo.dir, j).mandate, 'c1');
+    const state = await t.get('/state');
+    assert.equal(state.status, 200, state.text.slice(0, 200));
+    assert.deepEqual(
+      jobs.map((j) => state.json.jobs.find((x: { id: string }) => x.id === j)?.mandate),
+      ['c1', 'c1'],
+    );
+
+    // The id is not taken again while a job names it.
+    const reuse = await t.post('/mandates', { id: 'c1', title: 'Again', milestones: ['M1'] });
+    assert.deepEqual([reuse.status, reuse.json.error], [409, "mandate id c1 is still named by 2 jobs (a deleted mandate's); pick another id"]);
+  } finally {
+    await t.cleanup();
+  }
+});
+
 test('GET /api/mandates/:id/plan', async () => {
   const t = await served();
   try {
@@ -298,9 +356,19 @@ test('mandate writes the dashboard refuses write nothing', async () => {
       ['/mandates/a1/close', { reason: 'x'.repeat(1001) }, 400, /^body must be/],
       ['/mandates/a1/resume', { reason: 'x' }, 400, 'body must be {}'],
       ['/mandates', '{"id":', 400, 'body is not JSON'],
+      ['/mandates/a1/cancel', { reason: 5 }, 400, /^body must be \{"reason"\?: /],
+      ['/mandates/a1/cancel', { why: 'x' }, 400, /^body must be \{"reason"\?: /],
+      ['/mandates/a1/delete', {}, 400, 'body must be {"confirm": <the mandate id>}'],
+      ['/mandates/a1/delete', { confirm: 'a2' }, 400, 'body must be {"confirm": <the mandate id>}'],
+      ['/mandates/a1/delete', { confirm: 'a1', also: 1 }, 400, 'body must be {"confirm": <the mandate id>}'],
       // 404: an id that can't be one, or no such mandate.
       ['/mandates/none/pause', {}, 404, 'no such mandate'],
       ['/mandates/nope/edit', { updatedAt, title: 'x' }, 404, 'no mandate "nope"'],
+      ['/mandates/nope/cancel', {}, 404, 'no mandate "nope"'],
+      ['/mandates/nope/delete', { confirm: 'nope' }, 404, 'no mandate "nope"'],
+      ['/mandates/none/delete', { confirm: 'none' }, 404, 'no such mandate'],
+      // 409: only a closed mandate is deleted.
+      ['/mandates/a1/delete', { confirm: 'a1' }, 409, 'mandate a1 is active: only a closed mandate can be deleted (forge mandate close or cancel first)'],
       // 409: the contract's own refusals, as the CLI words them.
       ['/mandates', { ...ok, decides: ['release'] }, 409, 'release is not in foreman.decides'],
       ['/mandates', { ...ok, decides: ['conflicts'] }, 409, 'conflicts is reserved (gate:conflicts)'],

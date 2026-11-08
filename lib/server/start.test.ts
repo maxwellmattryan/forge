@@ -10,7 +10,7 @@ import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getEnvironmentLogs, getEnvironments, getJobEnvironment, postJobEnvironment } from './routes/environment.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobCi, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject, postSession } from './routes/machine.ts';
-import { getMandate, getMandateDraft, getMandatePlan, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
+import { getMandate, getMandateDraft, getMandatePlan, getMandates, postMandate, postMandateAction, postMandateCancel, postMandateDelete, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getTranscript, getTranscriptEvents } from './routes/transcripts.ts';
@@ -112,6 +112,8 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/mandates', postMandate, []],
       ['POST', '/mandates/g1/edit', postMandateAction, ['g1', 'edit']],
       ['POST', '/mandates/g1/close', postMandateAction, ['g1', 'close']],
+      ['POST', '/mandates/g1/cancel', postMandateCancel, ['g1']],
+      ['POST', '/mandates/g1/delete', postMandateDelete, ['g1']],
       ['POST', '/shelf', postShelf, []],
       ['GET', '/mandates/g1/draft', getMandateDraft, ['g1']],
       ['GET', '/mandates/g1/plan', getMandatePlan, ['g1']],
@@ -156,9 +158,11 @@ test('the route table sends each method and path to its handler, and nothing els
       ['POST', '/chats/..%2f0123456789/messages'],
       ['POST', '/chats/0123456789ab'],
       ['GET', '/chats/0123456789ab/messages'],
-      // Only the four mandate actions match, and only as POSTs.
-      ['POST', '/mandates/g1/delete'],
+      // Only the mandate actions match, and only as POSTs.
+      ['POST', '/mandates/g1/purge'],
       ['GET', '/mandates/g1/edit'],
+      ['GET', '/mandates/g1/cancel'],
+      ['GET', '/mandates/g1/delete'],
       ['POST', '/mandates/g1'],
       ['GET', '/mandates/'],
     ],

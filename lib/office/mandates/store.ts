@@ -1,7 +1,7 @@
 // Mandate files: `.forge/runtime/mandates/<id>.md`, YAML frontmatter then the owner's guidance. Read
 // without following a link or blocking on a FIFO, and written under one lock only through mandateWrite
-// (`forge mandate new|edit|pause|resume|close` and the dashboard's Office page, the same checks for
-// both) and by the Office pass (`forge office pass`, which pauses and closes). Read for a job whose
+// (`forge mandate new|edit|pause|resume|close|cancel|delete` and the dashboard's Office page, the same
+// checks for both) and by the Office pass (`forge office pass`, which pauses and closes). Read for a job whose
 // `mandate` is set to narrow what the Foreman decides (jobMandateDecides), and to tell `forge sync`
 // whether its merged work gets a score run (jobMandateScoring). A mandate's runtime dir `<id>/`
 // beside it holds its drafting runs' files (draft.ts, intake.ts), its board and its closing summary
@@ -11,8 +11,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { paths } from '#core/paths.ts';
 import { ForgeError } from '#core/errors.ts';
+import { listArchived } from '#core/job/archive.ts';
+import { enqueue, listRequests } from '#core/job/requests.ts';
 import { listJobs, logRepoEvent } from '#core/job/store.ts';
-import { readRegular, writeTextAtomic } from '#core/os/fs.ts';
+import { confinedDir, readRegular, writeTextAtomic } from '#core/os/fs.ts';
 import { withLock, withLockAsync } from '#core/os/lock.ts';
 import { now } from '#core/utils.ts';
 import * as yaml from '#core/format/yaml.ts';
@@ -30,7 +32,7 @@ export { MANDATE_ID };
 const MAX_BYTES = 64 * 1024;
 
 /** The audit actions a mandate write logs, as `mandate-<action>`; `filed` is a goal mandate's draft filed (filing.ts). */
-export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close' | 'filed';
+export type MandateAction = 'new' | 'edit' | 'pause' | 'resume' | 'close' | 'cancel' | 'delete' | 'filed';
 
 const fileOf = (root: string, id: string): string => path.join(paths(root).mandates, `${id}.md`);
 
@@ -133,14 +135,22 @@ export function writeMandate<T extends { mandate: Mandate; action: MandateAction
     const out = plan(listMandates(root));
     if (!out) return out;
     const { mandate: m, action, reason } = out;
-    writeTextAtomic(fileOf(root, m.id), render(m), { root });
-    logRepoEvent(root, `mandate-${action}`, { mandate: m.id, ...(reason ? { reason } : {}), actor: out.actor ?? currentActor(root) });
+    commitMandate(root, m.id, m, action, reason ? { reason } : {}, out.actor);
     return out;
   });
 }
 
+/**
+ * Under the mandates lock: writes `m`'s file when given, then appends one `mandate-<action>` event for
+ * mandate `id` with `data`, and `actor` or else whoever runs the CLI.
+ */
+function commitMandate(root: string, id: string, m: Mandate | null, action: MandateAction, data: Record<string, unknown>, actor: EventActor | undefined): void {
+  if (m) writeTextAtomic(fileOf(root, m.id), render(m), { root });
+  logRepoEvent(root, `mandate-${action}`, { mandate: id, ...data, actor: actor ?? currentActor(root) });
+}
+
 /** The owner's mandate writes: `forge mandate <op>` and the Office page's POSTs. */
-export type MandateOp = 'new' | 'edit' | 'pause' | 'resume' | 'close';
+export type MandateOp = 'new' | 'edit' | 'pause' | 'resume' | 'close' | 'cancel' | 'delete';
 
 /** The readable mandate `id` among `all`; not_found when there is none, refused when it can't be read. */
 export function mandateTarget(all: ReadMandate[], id: string): Mandate {
@@ -178,15 +188,98 @@ const ID_ATTEMPTS = 16;
  * A new mandate's id when the owner gives none: `m-` and 8 random hex digits that no mandate holds,
  * readable or not, and that no `<id>.md` entry or runtime dir `<id>/` holds either. A leftover runtime
  * dir keeps an old mandate's survey, draft, ledger and filing.json, which a new mandate must never
- * inherit. Call it under the mandates lock, inside the write, so two creates can't pick the same id.
+ * inherit, and none in `named`: the ids a live or archived job still names (a deleted mandate's). Call
+ * it under the mandates lock, inside the write, so two creates can't pick the same id.
  */
-export function newMandateId(root: string, all: ReadMandate[], random: () => string = () => crypto.randomBytes(4).toString('hex')): string {
+export function newMandateId(
+  root: string,
+  all: ReadMandate[],
+  random: () => string = () => crypto.randomBytes(4).toString('hex'),
+  named: ReadonlySet<string> = new Set(),
+): string {
   for (let i = 0; i < ID_ATTEMPTS; i++) {
     const c = `m-${random()}`;
-    if (!isMandateId(c) || all.some((m) => m.id === c) || present(fileOf(root, c)) || present(mandateDir(root, c))) continue;
+    if (!isMandateId(c) || all.some((m) => m.id === c) || named.has(c) || present(fileOf(root, c)) || present(mandateDir(root, c))) continue;
     return c;
   }
   throw new ForgeError("couldn't pick an unused mandate id; pass one", 1);
+}
+
+/** How many live and archived jobs name each mandate id, so a deleted mandate's id is never handed out again. */
+function namedIds(root: string): Map<string, number> {
+  const named = new Map<string, number>();
+  const add = (id: unknown) => {
+    if (typeof id === 'string' && id) named.set(id, (named.get(id) ?? 0) + 1);
+  };
+  for (const j of listJobs(root)) add(j.mandate);
+  for (const a of listArchived(root)) add(a.job.mandate);
+  return named;
+}
+
+/** A mandate write's result: `cancelled` for a cancel, the jobs still naming it for a delete. */
+export interface MandateWriteResult {
+  changed: boolean;
+  id: string;
+  cancelled?: { job: string; request: string }[];
+  jobs?: string[];
+}
+
+/** A cancel's reason as the file stores it: `cancelled`, or `cancelled: <R>`, cleaned to one capped line. */
+const cancelReason = (raw: string | null | undefined): string => cleanReason(raw ? `cancelled: ${raw}` : 'cancelled') ?? 'cancelled';
+
+/** The open request states: a job with a cancel in one of them gets no second one. */
+const OPEN = new Set(['pending', 'in-progress']);
+
+/**
+ * `cancel`, under the mandates lock: the close as `close` makes it (null when already closed), then one
+ * `cancel` request per unfinished live job of the mandate, in id order, skipping a job that already has
+ * an open one. Logs one `mandate-cancel` event when anything changed.
+ */
+function cancelMandate(root: string, config: Config, id: string, o: { reason?: string | null; actor?: EventActor; from: 'cli' | 'dashboard' }): { closed: Mandate | null; cancelled: { job: string; request: string }[] } {
+  return withMandatesLock(root, () => {
+    const m = mandateTarget(listMandates(root), id);
+    const reason = cancelReason(o.reason);
+    const closed = statusMove('close', m, reason, now());
+    if (closed) writeTextAtomic(fileOf(root, m.id), render(closed), { root });
+    const open = new Set(listRequests(root).filter((r) => r.type === 'cancel' && OPEN.has(r.status)).map((r) => r.job));
+    const text = `mandate ${m.id} ${reason}`;
+    const cancelled = listJobs(root)
+      .filter((j) => j.mandate === m.id && j.state !== 'done' && j.state !== 'cancelled' && !open.has(j.id))
+      .map((j) => j.id)
+      .sort()
+      .map((job) => ({ job, request: enqueue(root, config, { type: 'cancel', job, text, from: o.from }).id }));
+    if (closed || cancelled.length) commitMandate(root, m.id, null, 'cancel', { reason, jobs: cancelled.map((c) => c.job) }, o.actor);
+    return { closed, cancelled };
+  });
+}
+
+/**
+ * `delete`, under the mandates lock: only a closed mandate no open mandate follows (`after`). Removes the
+ * runtime dir `<id>/` first, then `<id>.md`, so a stopped run leaves the file and runs again. rmSync
+ * lstats every entry: a link is unlinked, never followed. Logs one `mandate-delete` event; returns the
+ * live jobs that still name it.
+ */
+function deleteMandate(root: string, id: string, actor: EventActor | undefined): string[] {
+  return withMandatesLock(root, () => {
+    const all = listMandates(root);
+    const m = mandateTarget(all, id);
+    if (m.status !== 'closed') throw new ForgeError(`mandate ${m.id} is ${m.status}: only a closed mandate can be deleted (forge mandate close or cancel first)`, 1);
+    const follower = all.find((x) => isReadable(x) && x.status !== 'closed' && x.after === m.id);
+    if (follower) throw new ForgeError(`mandate ${follower.id} follows ${m.id} (after) and is not closed; change its --after first`, 1);
+    // The mandates dir itself must be a real directory under the repo, never a link: m.id already passed isMandateId.
+    confinedDir(root, paths(root).mandates);
+    fs.rmSync(mandateDir(root, m.id), { recursive: true, force: true });
+    fs.rmSync(fileOf(root, m.id), { force: true });
+    const jobs = mandateJobs(root, m.id);
+    commitMandate(root, m.id, null, 'delete', { jobs: jobs.length }, actor);
+    return jobs;
+  });
+}
+
+/** After a close wrote, outside the mandates lock (the retro queue takes its own): its retro and the `retro` directive. */
+function afterClose(root: string, config: Config, id: string, actor: EventActor | undefined): void {
+  const retro = queueMandateRetro(root, config, id);
+  if (retro) logDirective(root, { mandate: id, action: 'retro', reason: `queued request ${retro.request} over ${retro.jobs} jobs`, actor: actor ?? currentActor(root) });
 }
 
 /**
@@ -196,23 +289,34 @@ export function newMandateId(root: string, all: ReadMandate[], random: () => str
  * null id picks one (newMandateId, under the same lock); `edit` replaces only the terms given, and with
  * `updatedAt` refuses once the stored mandate has moved on (a CLI edit or a pass pause in between); the
  * status moves are idempotent. A close that writes queues the mandate's retro (queueMandateRetro) and
- * logs its `retro` directive with the owner's actor. `changed` is false when nothing was written; `id` is
- * the mandate's id, the picked one for a new mandate without one.
+ * logs its `retro` directive with the owner's actor. `cancel` closes too, then queues a `cancel` request
+ * (`from`, default cli) per unfinished job (`cancelled`); `delete` removes a closed mandate (`jobs`: the
+ * live jobs still naming it). A new mandate never takes an id a job still names. `changed` is false
+ * when nothing was written; `id` is the mandate's id, the picked one for a new mandate without one.
  */
 export function mandateWrite(
   root: string,
   config: Config,
   op: MandateOp,
   id: string | null,
-  o: { input?: MandateInput; reason?: string | null; updatedAt?: string; actor?: EventActor } = {},
-): { changed: boolean; id: string } {
+  o: { input?: MandateInput; reason?: string | null; updatedAt?: string; actor?: EventActor; from?: 'cli' | 'dashboard' } = {},
+): MandateWriteResult {
   if (id === null && op !== 'new') throw new ForgeError('a mandate id is required', 'usage');
+  if (op === 'cancel') {
+    const { closed, cancelled } = cancelMandate(root, config, id as string, { reason: o.reason, actor: o.actor, from: o.from ?? 'cli' });
+    if (closed) afterClose(root, config, closed.id, o.actor);
+    return { changed: closed !== null || cancelled.length > 0, id: id as string, cancelled };
+  }
+  if (op === 'delete') return { changed: true, id: id as string, jobs: deleteMandate(root, id as string, o.actor) };
   const actor = o.actor ? { actor: o.actor } : {};
   const input = o.input ?? {};
   const out = writeMandate(root, (all) => {
     if (op === 'new') {
-      const mid = id ?? newMandateId(root, all);
+      const named = namedIds(root);
+      const mid = id ?? newMandateId(root, all, undefined, new Set(named.keys()));
       if (all.some((m) => m.id === mid)) throw new ForgeError(`mandate ${mid} exists; change it with forge mandate edit`, 1);
+      const naming = named.get(mid);
+      if (naming) throw new ForgeError(`mandate id ${mid} is still named by ${naming} jobs (a deleted mandate's); pick another id`, 1);
       const refs = issueRefs(root, config, fillDefaults(config, input));
       const m = applyInput(blankMandate(mid, now()), refs.input);
       const problems = [...refs.problems, ...mandateProblems(config, m, all, null)];
@@ -233,10 +337,7 @@ export function mandateWrite(
     return same(m, existing) ? null : { mandate: { ...m, updatedAt: now() }, action: 'edit' as MandateAction, ...actor };
   });
   // After the mandates lock is released: the retro queue takes its own lock.
-  if (op === 'close' && out !== null) {
-    const retro = queueMandateRetro(root, config, out.mandate.id);
-    if (retro) logDirective(root, { mandate: out.mandate.id, action: 'retro', reason: `queued request ${retro.request} over ${retro.jobs} jobs`, actor: o.actor ?? currentActor(root) });
-  }
+  if (op === 'close' && out !== null) afterClose(root, config, out.mandate.id, o.actor);
   return { changed: out !== null, id: out?.mandate.id ?? (id as string) };
 }
 

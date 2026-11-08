@@ -1,4 +1,4 @@
-// `forge mandate new|edit|pause|resume|close|list|show|plan`, `forge mandate draft
+// `forge mandate new|edit|pause|resume|close|cancel|delete|list|show|plan`, `forge mandate draft
 // start|prepare|record|show|approve|revise|reject|assist` and `forge mandate release assist|approve`: the
 // owner's mandates to the Office, a goal mandate's drafting runs and its milestone-approval gate, and an
 // `until: released` mandate's release at the `release` gate class (lib/office/mandates/, docs/CONFIG.md "Mandates"). Every write
@@ -79,7 +79,7 @@ const MANDATE: HelpGroup = {
         ],
         ...TERMS,
       ],
-      exits: [[1, `an id given exists or is not a mandate id, a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
+      exits: [[1, `an id given exists, is not a mandate id or is still named by a job (a deleted mandate's), a term breaks the contract (every problem named), or ${DAEMON_EXIT}`]],
       docs: DOCS,
       common: true,
     },
@@ -112,6 +112,23 @@ const MANDATE: HelpGroup = {
       summary: 'close a mandate for good, which starts the next link of its chain and, with the foreman on, queues one retro over its jobs (changed false when already closed)',
       flags: [['--reason R', 'why, one line']],
       exits: [[1, `no such mandate (not_found), it can't be read, or ${DAEMON_EXIT}`]],
+      docs: DOCS,
+    },
+    {
+      command: 'mandate cancel',
+      args: '<id> [--reason R]',
+      summary:
+        "close a mandate as close does (reason cancelled, or cancelled: R) and queue one cancel request for each of its unfinished jobs, in job id order: every live job but a done or cancelled one, and none that already has an open cancel ({ok, changed, mandate, cancelled: [{job, request}]}; changed false when it was closed and nothing was queued)",
+      flags: [['--reason R', 'why, one line']],
+      exits: [[1, `no such mandate (not_found), it can't be read, or ${DAEMON_EXIT}`]],
+      docs: DOCS,
+    },
+    {
+      command: 'mandate delete',
+      args: '<id>',
+      summary:
+        "remove a closed mandate's file and its runtime dir, never following a link; its jobs keep their mandate field, so the Foreman decides nothing for them, and no new mandate takes the id while a job names it ({ok, deleted, jobs})",
+      exits: [[1, `no such mandate (not_found), it can't be read, it is not closed, a mandate not closed follows it (after), or ${DAEMON_EXIT}`]],
       docs: DOCS,
     },
     {
@@ -251,7 +268,7 @@ const MANDATE: HelpGroup = {
 
 export const HELP: HelpGroup[] = [MANDATE];
 
-const WRITES = new Set(['new', 'edit', 'pause', 'resume', 'close']);
+const WRITES = new Set(['new', 'edit', 'pause', 'resume', 'close', 'cancel', 'delete']);
 
 /** A list flag: undefined when absent, [] for `none`, else the comma-split entries. */
 function listFlag(v: unknown, flag: string): string[] | undefined {
@@ -333,9 +350,11 @@ function write(ctx: CliContext, sub: MandateOp, id: string | null, flags: Record
     return written(root, made, true);
   }
   const input = sub === 'edit' ? inputFrom(ctx, flags) : undefined;
-  const reason = sub === 'pause' || sub === 'close' ? str(flags.reason, '--reason') : undefined;
+  const reason = sub === 'pause' || sub === 'close' || sub === 'cancel' ? str(flags.reason, '--reason') : undefined;
   const out = mandateWrite(root, config, sub, id, { input, reason });
-  return written(root, out.id, out.changed);
+  // The mandate is gone: no summary to print.
+  if (sub === 'delete') return { ok: true, deleted: out.id, jobs: out.jobs ?? [] };
+  return { ...written(root, out.id, out.changed), ...(sub === 'cancel' ? { cancelled: out.cancelled ?? [] } : {}) };
 }
 
 /** A mandate's job figures from the CLI's records, with no tracker call: the jobs, spend and starts. */

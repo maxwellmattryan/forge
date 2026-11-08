@@ -467,6 +467,26 @@ export interface PostMandateResponse {
   mandate: MandateRow;
 }
 
+/** POST /api/mandates/:id/cancel's body: the reason, as for close. */
+export type PostMandateCancelBody = PostMandateStatusBody;
+
+/** POST /api/mandates/:id/cancel's reply: the closed mandate and the cancel request queued for each unfinished job. */
+export interface PostMandateCancelResponse extends PostMandateResponse {
+  cancelled: { job: string; request: string }[];
+}
+
+/** POST /api/mandates/:id/delete's body: exactly the mandate id, typed again to confirm. */
+export interface PostMandateDeleteBody {
+  confirm: string;
+}
+
+/** POST /api/mandates/:id/delete's reply: the deleted id and the live jobs that still name it. */
+export interface PostMandateDeleteResponse {
+  ok: true;
+  deleted: string;
+  jobs: string[];
+}
+
 // ---------- a goal mandate's milestone draft and its approval gate ----------
 
 /** A milestone draft's milestone: one line of title and its exit criteria. */

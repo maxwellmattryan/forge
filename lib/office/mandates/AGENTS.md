@@ -1,6 +1,6 @@
 # lib/office/mandates/
 
-Mandates: the owner's standing instructions to the Office, one file each in `.forge/runtime/mandates/`, written by the owner through `mandateWrite` (`store.ts`), which `forge mandate new|edit|pause|resume|close` (`lib/cli/commands/mandate.ts`) and the dashboard's Office page (`lib/server/routes/mandates.ts`) both call, with the same checks.
+Mandates: the owner's standing instructions to the Office, one file each in `.forge/runtime/mandates/`, written by the owner through `mandateWrite` (`store.ts`), which `forge mandate new|edit|pause|resume|close|cancel|delete` (`lib/cli/commands/mandate.ts`) and the dashboard's Office page (`lib/server/routes/mandates.ts`) both call, with the same checks.
 
 - `store.ts` is the only reader and writer of the files. A file that can't be read safely is unreadable with a `problem`, and nothing acts on it: narrowing fails closed.
 - A mandate's `decides` only ever narrows `foreman.decides`: `checkForemanDecision` and `gateOwner` (`lib/office/foreman/policy.ts`) and `forge job assist` read it through `jobMandateDecides`, and the milestone-approval gate through `mandateDecides`. Engine code can't import this module, so `assistantBrief` takes the mandate as a parameter.

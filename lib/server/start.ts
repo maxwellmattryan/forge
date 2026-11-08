@@ -18,7 +18,7 @@ import { postJobEnvironment, getEnvironmentLogs, getEnvironments, getJobEnvironm
 import { getConfig, postBudgetAck, postConfig } from './routes/config.ts';
 import { getJob, getJobFile, getRequests, postJob, postJobBudget, postJobCi, postJobDelete, postJobEffort, postJobMerge, postJobRepos, postRequest, postRunOrEditor, postShelf } from './routes/jobs.ts';
 import { getProjects, getProjectsEvents, getProjectsStats, postProject, postSession } from './routes/machine.ts';
-import { getMandate, getMandateDraft, getMandatePlan, getMandates, postMandate, postMandateAction, postMandateDraft } from './routes/mandates.ts';
+import { getMandate, getMandateDraft, getMandatePlan, getMandates, postMandate, postMandateAction, postMandateCancel, postMandateDelete, postMandateDraft } from './routes/mandates.ts';
 import { getAbout, getBacklog, getBacklogItem, getDoctor, getEvals, getEvalsCompare, getGitHubPreview, getProject, getRoster, getState, getStats, getSupportBundle, postFocus } from './routes/misc.ts';
 import { getEvents, getSessionLog, postDaemon, postDaemonMode, postPermission } from './routes/office.ts';
 import { getChat, getChatLog, getChats, postChat, postChatArchive, postChatMessage, postChatRename } from './routes/chats.ts';
@@ -128,6 +128,9 @@ export const PROJECT_ROUTES: readonly Route<ServerCtx>[] = [
   { method: 'GET', path: /^\/mandates\/([^/]+)$/, guards: ['read'], handler: getMandate },
   { method: 'POST', path: '/mandates', handler: postMandate },
   { method: 'POST', path: /^\/mandates\/([^/]+)\/(edit|pause|resume|close)$/, handler: postMandateAction },
+  // Cancel queues a cancel request per unfinished job; delete needs the id echoed back as `confirm`.
+  { method: 'POST', path: /^\/mandates\/([^/]+)\/cancel$/, handler: postMandateCancel },
+  { method: 'POST', path: /^\/mandates\/([^/]+)\/delete$/, handler: postMandateDelete },
   { method: 'POST', path: '/shelf', handler: postShelf },
   { method: 'GET', path: /^\/mandates\/([^/]+)\/draft$/, guards: ['read'], handler: getMandateDraft },
   { method: 'GET', path: /^\/mandates\/([^/]+)\/plan$/, guards: ['read'], handler: getMandatePlan },

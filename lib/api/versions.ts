@@ -152,6 +152,9 @@ export const API_CHANGES = [
   // GET /api/mandates/:id/plan (MandatePlanResponse, MandatePlanNode, MandatePlanEdge, MandatePlanProblem,
   // MandatePlanState): a mandate's scope issues and their dependencies, from the Office pass's stored scope read.
   { id: 'mandate-plan' },
+  // POST /api/mandates/:id/cancel (PostMandateCancelBody, PostMandateCancelResponse: the close plus a cancel request per
+  // unfinished job) and /api/mandates/:id/delete (PostMandateDeleteBody, the id echoed as confirm; PostMandateDeleteResponse).
+  { id: 'mandate-cancel-delete' },
 ] as const;
 
 /**

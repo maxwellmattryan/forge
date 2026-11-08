@@ -35,7 +35,7 @@ import type { QueueNotify } from '../notify.ts';
 import { cleanReason, isReadable } from './contract.ts';
 import { logDirective, readDirectives } from './directives.ts';
 import { bounceHold, cadenceStalled, gateEntries, jobFigures, mandateProgress, qualityFloor, qualityReason, readProgressCtx, scopeFromTracker, scopeItems, storeScope } from './progress.ts';
-import { listMandates, mandateDir, summaryFile, withOfficeLock, writeMandate } from './store.ts';
+import { listMandates, mandateDir, readMandate, summaryFile, withMandatesLock, withOfficeLock, writeMandate } from './store.ts';
 import type { Config, JobEvent, Tracker } from '#core/types.ts';
 import type { DirectiveAction } from './directives.ts';
 import type { MandateProgress, ProgressCtx, ScopeResult } from './progress.ts';
@@ -200,8 +200,13 @@ function finalizeCard(root: string, config: Config, m: Mandate, all: ReadMandate
   if (s === null || 'problem' in s || s.outcomesFinalAt !== null) return false;
   const card = buildReportCard(m, jobFigures(root, config, m, all, ctx), config, at);
   if (card.outcomes.open > 0) return false;
-  writeSummary(root, { ...s, card, outcomesFinalAt: new Date(at).toISOString() });
-  return true;
+  // Under the mandates lock, and only while the mandate is still there: a pass racing `forge mandate
+  // delete` must not recreate a deleted mandate's runtime dir.
+  return withMandatesLock(root, () => {
+    if (!isReadable(readMandate(root, m.id))) return false;
+    writeSummary(root, { ...s, card, outcomesFinalAt: new Date(at).toISOString() });
+    return true;
+  });
 }
 
 const money = (n: number): string => String(Math.round(n * 100) / 100);
