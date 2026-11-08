@@ -81,10 +81,6 @@
   });
 </script>
 
-{#snippet header(label: string, extra: string)}
-  <span class="label text-fg shrink-0">{label}</span>{#if extra}<span class="mono muted num text-[11px] shrink-0">{extra}</span>{/if}
-{/snippet}
-
 {#if !loaded}
   <Loading class="flex flex-col gap-3">
     <div class="plate p-3 flex flex-col gap-3"><Skeleton w="14rem" h="1rem" /><div class="flex gap-3"><Skeleton w="220px" h="56px" /><Skeleton w="220px" h="56px" /></div></div>
@@ -97,7 +93,7 @@
     {#each graph.plates as p (p.id)}
       <section class="plate open min-w-0" aria-label={$t('pipeline.graph.plateLabel', { title: p.title })}>
         <header class="plain flex flex-wrap items-center gap-x-2.5 gap-y-1 px-3 py-2 border-b border-line border-dashed">
-          {@render header($t('pipeline.graph.mandate'), '')}
+          <span class="label text-fg shrink-0">{$t('pipeline.graph.mandate')}</span>
           <h2 class="h card min-w-0 truncate">{p.title}</h2>
           {#if p.status !== 'loading'}<span class="mono muted num text-[11px] shrink-0">{$t('pipeline.graph.merged', { merged: p.merged, total: p.total })}</span>{/if}
           <span class="ml-auto shrink-0"><Chip tone={STATE_TONE[p.state]} text={p.state} /></span>
@@ -120,7 +116,8 @@
     {#if graph.loose.count}
       <section class="plate open min-w-0" aria-label={$t('pipeline.graph.noMandate')}>
         <header class="plain flex items-center justify-between gap-2 px-3 py-2 border-b border-line border-dashed">
-          {@render header($t('pipeline.graph.noMandate'), $t('pipeline.graph.jobs', { count: graph.loose.count }))}
+          <h2 class="label text-fg shrink-0">{$t('pipeline.graph.noMandate')}</h2>
+          <span class="mono muted num text-[11px] shrink-0">{$t('pipeline.graph.jobs', { count: graph.loose.count })}</span>
         </header>
         <div class="flex flex-col gap-1 p-2 min-w-0">
           {#each graph.loose.chains as b (b.nodes[0].id)}<GraphBlock block={b} {hot} />{/each}

@@ -17,6 +17,8 @@
 
   // Whole literals, so Tailwind sees every class.
   const DOT: Record<Tone, string> = { ok: 'dot ok', bad: 'dot bad', warn: 'dot warn', info: 'dot gleam plain', muted: 'dot hollow', live: 'dot gleam', you: 'dot ember' };
+  // Opacity also fades a button's focus ring and hover border, so a dimmed node comes back to full strength on both.
+  const DIM = 'graph-dim focus-visible:opacity-100 hover:opacity-100';
   const seg = (x: StageStep): string => (x.status === 'past' ? 'past' : x.status === 'current' ? (x.tone === 'ember' ? 'now ember' : 'now') : '');
   const open = (n: GNode): void => void (n.job ? openDrawer(n.job) : n.ref ? openIssue(n.ref) : undefined);
   const fixed = $derived({
@@ -45,9 +47,8 @@
     </svg>
     {#each block.nodes as n (n.id)}
       <button
-        class="plate clickable {n.dashed ? 'cold' : ''} {n.match ? '' : 'graph-dim'} text-left px-2 py-1 flex flex-col justify-center gap-0.5 min-w-0"
+        class="plate clickable {n.dashed ? 'cold' : ''} {n.match ? '' : DIM} text-left px-2 py-1 flex flex-col justify-center gap-0.5 min-w-0"
         style="position:absolute;left:{n.x}px;top:{n.y}px;width:{n.w}px;height:{n.h}px"
-        title={n.title}
         onclick={() => open(n)}
       >
         <span class="flex items-center gap-1.5 min-w-0">
@@ -59,8 +60,11 @@
             {:else if n.mark === 'held'}<span class={DOT[n.tone ?? 'muted']}></span>
             {:else}<span class="text-muted inline-grid"><Icon name="circle-dashed" /></span>{/if}
           </span>
-          {#if n.title !== n.label}<span class="mono muted text-[11px] shrink-0 max-w-[45%] truncate">{n.label}</span>{/if}
-          <span class="text-[13px] leading-4 font-medium text-fg truncate min-w-0">{n.title}</span>
+          <!-- The title wins the row: the ref starts at zero width and only grows into what the title leaves (up to its own
+               length), so the title truncates only once it fills the row alone. The tooltip sits on the title text, not the
+               button, so a screen reader does not hear the title twice. -->
+          {#if n.title !== n.label}<span class="mono muted text-[11px] flex-1 min-w-0 max-w-max truncate">{n.label}</span>{/if}
+          <span class="text-[13px] leading-4 font-medium text-fg truncate min-w-0" title={n.title}>{n.title}</span>
         </span>
         <span class="text-[11px] leading-[14px] truncate {n.mark === 'merged' ? 'text-ok' : 'text-muted'}">{line(n)}</span>
         <!-- 4 + 16 + 2 + 14 + 2 + 2 + 2 + 4 = 46px: fits the compact 48px node with its track. -->
