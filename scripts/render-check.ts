@@ -110,7 +110,8 @@ async function checkPage(context: BrowserContext, url: string, act: (page: Page,
 async function waitForTexts(scope: Page | ReturnType<Page['locator']>, texts: string[], timeout: number, problems: string[], exact = false): Promise<void> {
   for (const t of texts) {
     try {
-      await scope.getByText(t, { exact }).first().waitFor({ state: 'visible', timeout });
+      // Visible matches only: a closed list (the project switcher's rows, say) can hold the same words out of sight.
+      await scope.getByText(t, { exact }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout });
     } catch {
       problems.push(`missing text "${t}"`);
     }

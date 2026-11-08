@@ -30,6 +30,25 @@
     },
     "missing": "missing",
     "unavailable": "unavailable",
+    "status": {
+      "working": {
+        "one": "{count} session running",
+        "other": "{count} sessions running"
+      },
+      "foreman": "Foreman working",
+      "waiting": {
+        "one": "{count} waiting on you",
+        "other": "{count} waiting on you"
+      },
+      "open": {
+        "one": "{count} active job",
+        "other": "{count} active jobs"
+      },
+      "idle": "Idle",
+      "missing": "Directory missing",
+      "unavailable": "Not loaded"
+    },
+    "sessions": "Sessions running: {live} of {cap}",
     "rail": "Switch project",
     "shortcut": "Switch project ({key})",
     "add": "Add project",
