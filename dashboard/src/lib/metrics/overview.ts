@@ -1,5 +1,6 @@
 // The Overview page: project cards sorted by what waits on you, the stacked bars of jobs shipped and cost per
-// UTC day across projects (GET /api/projects/stats), and the machine section's meter. No DOM access.
+// UTC day across projects (GET /api/projects/stats), each graph's mode (empty, a stat below three days with data,
+// else the chart), and the machine section's meter. No DOM access.
 import { STATS_WINDOWS } from './analytics.ts';
 import { switcherEntries, type SwitcherEntry } from '../shell/switcher.ts';
 import type { DaemonStatus, MachineProjectSummary, ProjectsResponse, ProjectsStatsResponse } from '../core/types.ts';
@@ -126,4 +127,24 @@ export function stackedSeries(r: ProjectsStatsResponse, metric: 'shipped' | 'cos
   const grand = sums.reduce((n, v) => n + v, 0);
   const legend = projects.map((p, i): StackLegend => ({ project: p.name, total: sums[i]!, share: grand > 0 ? sums[i]! / grand : null, series: series(i), error: p.error }));
   return { max, columns, legend };
+}
+
+/** Below this many days with data, a graph shows its total as a number instead of bars. */
+export const CHART_MIN_DAYS = 3;
+export type StackedView =
+  | { kind: 'empty'; errors: StackLegend[] }
+  | { kind: 'stat'; total: number; days: string[]; breakdown: StackLegend[]; errors: StackLegend[] }
+  | { kind: 'chart' };
+
+/**
+ * A graph's mode over its window: `empty` with no day above 0, `stat` (the total, the days that hold data and each
+ * project above 0) below CHART_MIN_DAYS such days, else `chart`. A day counts by its total across projects.
+ */
+export function stackedView(s: Stacked): StackedView {
+  const days = s.columns.filter((c) => c.total > 0).map((c) => c.day);
+  const errors = s.legend.filter((l) => l.error);
+  if (!days.length) return { kind: 'empty', errors };
+  if (days.length >= CHART_MIN_DAYS) return { kind: 'chart' };
+  const total = round4(s.legend.reduce((n, l) => n + l.total, 0));
+  return { kind: 'stat', total, days, breakdown: s.legend.filter((l) => l.total > 0), errors };
 }

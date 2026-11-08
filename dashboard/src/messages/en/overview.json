@@ -33,6 +33,7 @@
     "spendSub": "Across loaded projects, UTC",
     "noShipped": "No job shipped in this window.",
     "noCost": "No cost recorded in this window.",
+    "byProject": "By project",
     "statsError": "Couldn't load the graphs: {error}",
     "share": "Share",
     "total": "Total"

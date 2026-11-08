@@ -1,7 +1,7 @@
 // The Overview's model: cards sorted by what waits on you, and the stacked bars and legend of the cross-project graphs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OVERVIEW_WINDOWS, SERIES, machineMeter, overviewCards, stackedSeries } from './overview.ts';
+import { CHART_MIN_DAYS, OVERVIEW_WINDOWS, SERIES, machineMeter, overviewCards, stackedSeries, stackedView } from './overview.ts';
 import type { MachineProjectSummary, ProjectStatsSeries, ProjectsResponse, ProjectsStatsResponse } from '../core/types.ts';
 
 const latest = (at: string): MachineProjectSummary['latest'] => ({ id: `j-${at}`, title: `job of ${at}`, at, stage: 'build', state: 'running' });
@@ -94,6 +94,36 @@ test('stackedSeries stacks each project and gives its share', () => {
   assert.deepEqual(none.legend.map((l) => l.series), [...SERIES, 'series-1', 'series-2'], 'the classes cycle');
   assert.ok(none.legend.every((l) => l.share === null), 'no share when the total is 0');
   assert.equal(none.max, 0);
+});
+
+test('stackedView switches from a stat to the chart at three days', () => {
+  const days = ['2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08'];
+  const view = (projects: Pick<ProjectStatsSeries, 'name' | 'shipped' | 'costUsd'>[], metric: 'shipped' | 'costUsd' = 'shipped') => stackedView(stackedSeries(stats(projects, days), metric));
+  const broken = { name: 'zed', shipped: [0, 0, 0, 0], costUsd: [0, 0, 0, 0], error: 'stats unreadable' };
+
+  const empty = view([{ name: 'web', shipped: [0, 0, 0, 0], costUsd: [0, 0, 0, 0] }, broken]);
+  assert.equal(empty.kind, 'empty');
+  assert.deepEqual(empty.kind === 'empty' && empty.errors.map((l) => [l.project, l.error]), [['zed', 'stats unreadable']], 'errors show with no data');
+
+  const one = view([{ name: 'web', shipped: [0, 0, 0, 2], costUsd: [0, 0, 0, 0] }, { name: 'api', shipped: [0, 0, 0, 1], costUsd: [0, 0, 0, 0] }, { name: 'idle', shipped: [0, 0, 0, 0], costUsd: [0, 0, 0, 0] }, broken]);
+  assert.equal(one.kind, 'stat');
+  if (one.kind === 'stat') {
+    assert.equal(one.total, 3);
+    assert.deepEqual(one.days, ['2026-11-08']);
+    assert.deepEqual(one.breakdown.map((l) => [l.project, l.total, l.series]), [['api', 1, 'series-1'], ['web', 2, 'series-3']], 'only projects above 0, in name order, keeping their colour');
+    assert.deepEqual(one.errors.map((l) => l.project), ['zed'], 'errors show in a stat');
+  }
+
+  const two = view([{ name: 'web', shipped: [0, 1, 0, 1], costUsd: [0.1, 0, 0, 0] }, { name: 'api', shipped: [0, 0, 0, 0], costUsd: [0, 0, 0.2, 0] }], 'costUsd');
+  assert.equal(two.kind, 'stat');
+  if (two.kind === 'stat') {
+    assert.equal(two.total, 0.3, 'cost totals round to 4 places');
+    assert.deepEqual(two.days, ['2026-11-05', '2026-11-07'], 'oldest first');
+  }
+
+  assert.deepEqual(view([{ name: 'web', shipped: [1, 0, 1, 1], costUsd: [0, 0, 0, 0] }]), { kind: 'chart' }, 'exactly three days is the chart');
+  assert.deepEqual(view([{ name: 'web', shipped: [1, 1, 0, 0], costUsd: [0, 0, 0, 0] }, { name: 'api', shipped: [0, 0, 1, 1], costUsd: [0, 0, 0, 0] }]), { kind: 'chart' }, 'days count across projects');
+  assert.equal(CHART_MIN_DAYS, 3);
 });
 
 test('machineMeter with and without a machine cap', () => {
