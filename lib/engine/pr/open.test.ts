@@ -334,3 +334,46 @@ describe('the held push', { concurrency: 4 }, () => {
     }
   });
 });
+
+test("pr open titles the PR from pr.md's Title: line and names the job after it", () => {
+  const s = opening(() => {});
+  try {
+    const dir = jobDir(s.root, s.id);
+    fs.writeFileSync(path.join(dir, 'pr.md'), 'Title: feat(cli): open me\n\n## Summary\n\nOpens it.\n');
+    const first = s.open();
+    const record = s.github.record(first.number!)!;
+    assert.equal(record.title, 'feat(cli): open me');
+    assert.ok(!String(record.body).includes('Title:'), 'the Title: line is not in the body');
+    assert.ok(String(record.body).startsWith('## Summary'));
+    assert.equal(loadJob(s.root, s.id).title, 'feat(cli): open me', 'titles.job: pr names the job after its PR');
+    assert.deepEqual(s.events('retitled').map((e) => [e.from, e.to, e.source]), [['open me', 'feat(cli): open me', 'pr']]);
+    assert.deepEqual(s.events('pr-title').map((e) => e.source), ['approver']);
+
+    // A later Title: never retitles the open PR, nor the job.
+    fs.writeFileSync(path.join(dir, 'pr.md'), 'Title: fix(cli): open me again\n\n## Summary\n\nAgain.\n');
+    s.commit({ 'more.txt': 'more\n' });
+    s.open();
+    assert.equal(s.github.record(first.number!)!.title, 'feat(cli): open me');
+    assert.equal(loadJob(s.root, s.id).title, 'feat(cli): open me');
+  } finally {
+    s.cleanup();
+  }
+});
+
+test('pr open falls back to the job title when the Title: line fails the schema', () => {
+  const s = opening((c) => {
+    c.titles.job = 'request';
+  });
+  try {
+    fs.writeFileSync(path.join(jobDir(s.root, s.id), 'pr.md'), 'Title: Opened the thing\n\n## Summary\n\nx\n');
+    const first = s.open();
+    assert.equal(s.github.record(first.number!)!.title, 'open me');
+    assert.equal(loadJob(s.root, s.id).title, 'open me');
+    const [ev] = s.events('pr-title');
+    assert.equal(ev.source, 'job');
+    assert.match(String(ev.problem), /not a conventional commit subject/);
+    assert.deepEqual(s.events('retitled'), [], 'titles.job: request never renames');
+  } finally {
+    s.cleanup();
+  }
+});

@@ -266,6 +266,18 @@ export interface Config {
     /** The root PR's required checks, each optionally bound to its source; empty: the base's protection decides (docs/CONFIG.md "Merge"). */
     requiredChecks: RequiredCheckConfig[];
   };
+  /** The title schema the approver's PR titles and job names follow (lib/engine/ops/titles/check.ts, docs/CONFIG.md "Titles"). */
+  titles: {
+    style: 'conventional' | 'plain';
+    /** A regex that replaces the style's check; null: the style's own. */
+    pattern: string | null;
+    /** Free text for the spec writer's and approver's briefs; null: none. */
+    guide: string | null;
+    /** Recent merged PR titles the approver's brief shows as examples, 0-20. */
+    examples: number;
+    /** pr: the job is renamed to its PR's title; schema: named from the spec under the schema; request: keeps the request's words. */
+    job: 'pr' | 'schema' | 'request';
+  };
   aiAttribution: 'forbid' | 'allow';
   /** The root repo's release settings: its interim strategy as a dependency and its release strategy, every key present once defaults fill it (docs/CONFIG.md "Release strategy"). */
   release: { interim: InterimStrategy } & { [K in keyof ReleaseStrategy]-?: ReleaseStrategy[K] };

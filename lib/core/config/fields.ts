@@ -156,6 +156,12 @@ export const FIELDS: ConfigField[] = [
   field('pr.integrationReview', 'review', 'Integration review', 'After a conflict fix: always review, or skip when only docs or generated files conflicted.', { type: 'enum', options: ['always', 'code-only'] }),
   field('pr.maxCiReworks', 'review', 'CI rework cap', 'CI reworks forge sync starts in a row on a red PR before the next red head waits for a person. 0 sends every red head to a person.', { type: 'integer', min: 0, max: 20 }),
   field('pr.needsHumanLabel', 'review', 'Needs-a-person label', 'The label on a PR whose merge waits on your decision in Forge, created in the repo when missing. Empty: no label.', { type: 'string', nullable: true, locked: 'a label Forge creates on GitHub' }),
+  // Editable: they change how titles read, never what Forge may do; the CLI checks every title before it leaves the machine.
+  field('titles.style', 'review', 'Title style', 'conventional: PR titles read type(scope): subject, like a conventional commit, so a squash merge leaves a conventional history. plain: any one-line title.', { type: 'enum', options: ['conventional', 'plain'] }),
+  field('titles.pattern', 'review', 'Title pattern', "A regular expression every PR title must match instead of the style's check, such as a ticket-key prefix. Empty: the style's check.", { type: 'string', nullable: true }),
+  field('titles.guide', 'review', 'Title guide', 'Notes for the spec writer and approver when they write a title: allowed scopes, wording. Empty: none.', { type: 'string', nullable: true }),
+  field('titles.examples', 'review', 'Title examples', "Recent merged PR titles the approver sees as examples of the repo's convention. 0: none.", { type: 'integer', min: 0, max: 20 }),
+  field('titles.job', 'review', 'Job names', "pr renames each job to its PR's title; schema names it from the spec under the title schema; request keeps the words it was asked with.", { type: 'enum', options: ['pr', 'schema', 'request'] }),
   field('review.panel', 'review', 'Panel', 'The review lenses: built-in names or .forge/reviewers/<name>.md.', { type: 'object', locked: 'lenses name checklist files and models' }),
 
   ...Object.keys(base.runtime.models).map((role) =>
@@ -432,6 +438,10 @@ export const CONFIG_DISCLOSURE: Record<string, Disclosure> = {
   merge: 'plain',
   // Check names, workflow files and creator logins (a person's, not only a bot's) are repo-specific, so a bundle counts them but doesn't print them.
   'merge.requiredChecks': 'text',
+  titles: 'plain',
+  // A pattern and a guide are repo-specific prose (ticket keys, scope names), so a bundle counts them but doesn't print them.
+  'titles.pattern': 'text',
+  'titles.guide': 'text',
   aiAttribution: 'plain',
   release: 'plain',
   // A release command can carry hostnames, paths or tokens like any other configured command.

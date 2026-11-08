@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { addProject } from '../project/machine-index.ts';
 import type { ServiceOptions } from '../project/login-service.ts';
-import { commandEnvCheck, commandPathCheck, daemonBillingCheck, daemonIsolationCheck, doctor, envCopyCheck, instructionsPolicyCheck, requiredChecksCheck } from './doctor.ts';
+import { commandEnvCheck, commandPathCheck, daemonBillingCheck, daemonIsolationCheck, doctor, envCopyCheck, instructionsPolicyCheck, requiredChecksCheck, squashTitleCheck, titleDriftCheck } from './doctor.ts';
 import { buildBundle } from './bundle.ts';
 import { droppedVariables } from '../guard/command-env.ts';
 import { defaults } from '#core/config/load.ts';
@@ -278,4 +278,27 @@ test('doctor reports the login service once', { skip: process.platform === 'win3
   const rows = (await doctor(repo.dir, withPolicy(null), true, undefined, { service })).checks.filter((c) => c.name === 'service');
   assert.deepEqual(rows, [{ name: 'service', ok: true, detail: 'not installed (forge service install starts the dashboard at login); dashboard not running; no restart recorded' }]);
   assert.deepEqual(calls, [], 'nothing installed: no launchctl call');
+});
+
+test('squashTitleCheck warns only when a GitHub squash would ignore a schema-shaped title', () => {
+  const c = defaults();
+  assert.equal(squashTitleCheck(c, 'o/r', 'PR_TITLE')?.warn, undefined);
+  const warn = squashTitleCheck(c, 'o/r', 'COMMIT_OR_PR_TITLE');
+  assert.equal(warn?.warn, true);
+  assert.match(String(warn?.detail), /gh api -X PATCH repos\/o\/r -f squash_merge_commit_title=PR_TITLE/);
+  assert.equal(squashTitleCheck(c, 'o/r', null), null, 'unreadable: no row');
+  c.titles.style = 'plain';
+  assert.equal(squashTitleCheck(c, 'o/r', 'COMMIT_OR_PR_TITLE'), null, 'plain without a pattern: no row');
+  c.titles.style = 'conventional';
+  c.merge.method = 'merge';
+  assert.equal(squashTitleCheck(c, 'o/r', 'COMMIT_OR_PR_TITLE'), null, 'not a squash: no row');
+});
+
+test('titleDriftCheck notes a history that mostly fails the schema', () => {
+  const c = defaults();
+  assert.equal(titleDriftCheck(c, ['feat: a']), null, 'too few to judge');
+  assert.equal(titleDriftCheck(c, ['feat: a', 'fix: b', 'docs: c', 'Add d', 'Tidy e'])?.warn, undefined);
+  const drift = titleDriftCheck(c, ['feat: a', 'Add b', 'Tidy c', 'Bump d', 'Split e']);
+  assert.equal(drift?.warn, true);
+  assert.match(String(drift?.detail), /only 1 of the last 5 merged PR titles pass titles.style: conventional/);
 });

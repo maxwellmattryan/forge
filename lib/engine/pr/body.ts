@@ -13,6 +13,8 @@ import type { MergeGate } from '../pipeline/step/stages/pr.ts';
 import type { ActorSource, Config, GateReason, Job, JobEvent } from '#core/types.ts';
 import { readRegularText, readText } from '#core/os/fs.ts';
 import { safeText } from '#core/text.ts';
+import { checkTitle } from '../ops/titles/check.ts';
+import { withoutTitleLine, writtenPrTitle } from '../ops/titles/rename.ts';
 
 // The sibling line's section: Forge rewrites only what sits between these, so a human's edits to
 // the rest of a linked job's PR body survive every update.
@@ -41,7 +43,27 @@ const noMarker = (s: string): string => s.replace(/<!--/g, '<!- -');
  * `forge secrets scan`) reads the same text gh would receive.
  */
 export function prText(root: string, config: Config, job: Job, title?: string): { title: string; body: string } {
-  return { title: title ?? job.title, body: prBody(root, config, job) };
+  return { title: prTitle(root, config, job, title).title, body: prBody(root, config, job) };
+}
+
+/** Where a PR title came from: `--title`, the approver's checked `Title:` line, or the job title. */
+export interface PrTitle {
+  title: string;
+  source: 'flag' | 'approver' | 'job';
+  /** Why the approver's title was not used: the schema check's problem. */
+  problem?: string;
+}
+
+/**
+ * The title `forge pr open` sends: `--title` when a person passed one, else pr.md's `Title:` line when
+ * it passes the title schema (lib/engine/ops/titles/check.ts), else the job title.
+ */
+export function prTitle(root: string, config: Config, job: Job, flag?: string): PrTitle {
+  if (flag !== undefined) return { title: flag, source: 'flag' };
+  const written = writtenPrTitle(root, job.id);
+  if (written === null) return { title: job.title, source: 'job' };
+  const check = checkTitle(config, written);
+  return check.ok ? { title: check.title, source: 'approver' } : { title: job.title, source: 'job', problem: check.problem };
 }
 
 /** A person's approval of the job's latest escalation: escalationApproval. */
@@ -125,7 +147,8 @@ const gateBlock = (text: string): string => (text ? `${GATE_START}\n${noMarker(t
 
 function prBody(root: string, config: Config, job: Job): string {
   const dir = jobDir(root, job.id);
-  const custom = readText(path.join(dir, 'pr.md')).trim();
+  // The approver's `Title:` line is the PR title, never part of the body.
+  const custom = withoutTitleLine(readText(path.join(dir, 'pr.md'))).trim();
   const parts = [custom || `## Summary\n\n${firstParagraph(readText(path.join(dir, 'spec.md'))) || job.title}`];
   // Always present, so `forge pr gate` can fill it later; the approval line lives inside it, never twice.
   parts.push(gateBlock(approvalLine(readEvents(root, job.id), job.protectedPaths)));

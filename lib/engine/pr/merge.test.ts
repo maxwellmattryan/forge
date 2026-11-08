@@ -223,12 +223,12 @@ function requiredRows(source: 'config' | 'protection'): typeof ROWS {
       },
     },
     {
-      name: `required checks (${source}): every required check passing makes exactly one merge call`,
-      arrange: () => withHead({ test: 'SUCCESS', slow: 'SUCCESS' }, { protection }),
+      name: `required checks (${source}): every required check passing makes exactly one merge call, its squash subject the live PR title`,
+      arrange: () => { const s = withHead({ test: 'SUCCESS', slow: 'SUCCESS' }, { protection }); s.github.patch(7, { title: 'feat: x' }); return s; },
       config: cfg,
       check: (s, r) => {
         assert.ok(!(r instanceof Error), String(r));
-        assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head }]);
+        assert.deepEqual(s.merges(), [{ op: 'merge', slug: 'o/r', number: 7, method: 'squash', auto: false, matchHead: s.head, subject: 'feat: x (#7)' }]);
         assert.deepEqual([r.action, r.required], ['merged', { source, state: 'passing', blocking: [] }]);
         assert.equal(ops(s, 'headChecks').length, 1);
         reads(s);

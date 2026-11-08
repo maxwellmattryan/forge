@@ -196,6 +196,9 @@ export const CONFIG_STEPS: readonly Step[] = [
   // v53 adds review.startAfter ('verify'), filled from defaults, so no v52 config changes; the bump lets older Forges
   // refuse a config whose review section they would reject as an unknown key.
   { id: 'review-start-after', up: (c) => c },
+  // v54 adds the titles block (conventional PR titles, jobs renamed to match), filled from defaults, so no v53 config
+  // changes; the bump lets older Forges refuse a config whose title schema they would reject as an unknown key.
+  { id: 'titles-schema', up: (c) => c },
 ];
 
 const isPlainMap = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);

@@ -9,7 +9,7 @@ import { usageError } from './args.ts';
 import { JOB } from './job/help.ts';
 import { fromRef, link, newCmd, split } from './job/create.ts';
 import { acs, audit, findings, get, links, listCmd, panel, paths, progressCmd, scope, show } from './job/read.ts';
-import { budget, effort, note, refreshRequestCmd, set } from './job/state.ts';
+import { budget, effort, note, refreshRequestCmd, retitle, set } from './job/state.ts';
 import { claim, release, stepCmd } from './job/lease.ts';
 import { apply, assistCmd, human } from './job/decide.ts';
 import { interim, repo } from './job/repos.ts';
@@ -32,6 +32,7 @@ export const JOB_HANDLERS: Readonly<Record<string, JobHandler>> = {
   claim,
   release,
   'refresh-request': refreshRequestCmd,
+  retitle,
   repo,
   interim,
   note,

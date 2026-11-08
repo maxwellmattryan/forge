@@ -225,6 +225,26 @@ const OPS: { name: string; reply: RunResult; call: (g: GitHub) => unknown; argv:
     result: { ok: true },
   },
   {
+    name: 'merge, with a squash subject',
+    reply: ok(),
+    call: (g) => g.merge('/r', 'o/r', 7, { method: 'squash', auto: false, matchHead: null, subject: '--admin\nfeat: x (#7)' }),
+    argv: ['pr', 'merge', '7', '-R', 'o/r', '--squash', '--subject=--admin feat: x (#7)'],
+    opts: { allowFail: true },
+    result: { ok: true },
+  },
+  {
+    name: 'mergedTitles',
+    reply: ok(JSON.stringify([
+      { title: 'feat: a', isCrossRepository: false, headRefName: 'forge/a' },
+      { title: 'evil fork', isCrossRepository: true, headRefName: 'x' },
+      { title: 'Release 1.2.0', isCrossRepository: false, headRefName: 'release/v1.2.0' },
+      { title: 'fix:\u0007 b\nc', isCrossRepository: false, headRefName: 'forge/b' },
+    ])),
+    call: (g) => g.mergedTitles('/r', 'o/r', 'develop', 10),
+    argv: ['pr', 'list', '-R', 'o/r', '--state', 'merged', '--base', 'develop', '--limit', '10', '--json', 'title,isCrossRepository,headRefName'],
+    result: ['feat: a', 'fix: b c'],
+  },
+  {
     name: 'merge, refused',
     reply: failed('  auto-merge is not allowed\n', 'ignored'),
     call: (g) => g.merge('/r', 'o/r', 7, { method: 'merge', auto: false, matchHead: null }),

@@ -207,6 +207,14 @@ export const CORE: HelpGroup[] = [
         exits: [[1, "no such job, --repo names no PR member, --repo and --root together, --root given a value, or a targeted PR's release gate is held or bump-due, or its manifests at HEAD don't name the recorded release (code release_gate; nothing is called)"], GH_FAILED],
       },
       {
+        command: 'pr titles',
+        args: '[--refresh]',
+        summary:
+          "the titles of the last 30 PRs merged into git.base (forks and release/ branches left out; cached 6 hours), the titles.examples newest as quoted data for the approver, the convention they suggest (style, pattern, common scopes, the share that follows it; null below 5 titles) and how many pass the configured title schema; read-only",
+        flags: [['--refresh', 'read GitHub now instead of the cache']],
+        exits: [],
+      },
+      {
         command: 'pr rerun',
         args: '<id>',
         summary:
