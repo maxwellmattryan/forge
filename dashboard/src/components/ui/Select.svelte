@@ -2,7 +2,8 @@
      themes. A select-only combobox (WAI-ARIA APG): a field-styled button (or, with variant="button", a small toolbar
      button) controls a listbox that opens in the top layer (popover="manual"), so the drawer, the settings dialog and
      overflow-hidden parents never clip it. The list is a compact menu panel that fades and grows from the trigger edge it
-     opened against (`menu-pop` in style.css); its first and last rows follow the plate's cut corners (`menu-list`).
+     opened against (`menu-pop` in style.css); the plate stays still while the listbox inside it scrolls, so the plate's
+     grain covers the whole panel, and its first and last rows follow the plate's cut corners (`menu-list`).
      Entries are dense rows: a check column, then the label with an optional icon, hint line and an option `badge` (an
      ember dot after the label), or the caller's `entry` snippet (`roomy` gives those rows more air and centres them on
      the check column); `separator` rules an entry off and consecutive entries of one `group` sit under its name; an
@@ -86,7 +87,7 @@
   const groupId = (r: number): string => `${uid}-grp-${r}`;
 
   let trigger = $state<HTMLButtonElement>();
-  let list = $state<HTMLUListElement>();
+  let list = $state<HTMLDivElement>();
   // Raw: src/lib/ui/select.ts returns the state it was given for a key it ignores, and a proxy would never compare equal to it.
   let st = $state.raw<SelectState>(CLOSED);
   let at = $state<{ left: number; top: number }>({ left: 0, top: 0 });
@@ -270,16 +271,18 @@
   onkeyup={keyUp}
   onfocusout={focusOut}
 >{#if variant === 'button' && icon}<Icon name={icon} />{/if}<span class="{sel || text !== undefined ? 'truncate' : 'truncate text-muted'}" lang={text === undefined ? sel?.lang : undefined}>{text ?? sel?.label ?? placeholder ?? $t('select.choose')}</span>{#if variant !== 'button' && badge}<span class="{badgeTone === 'ember' ? 'dot ember' : 'dot spark'} ml-auto size-2 shrink-0" aria-hidden="true"></span>{/if}<Icon name="chevron-down" class="shrink-0" />{#if variant === 'button' && badge}<span class="{badgeTone === 'ember' ? 'dot ember' : 'dot spark'} absolute -top-1 -right-1 size-2" aria-hidden="true"></span>{/if}</button>
-<ul
+<div
   bind:this={list}
-  id={listId}
   popover="manual"
+  class="plate solid menu-pop fixed inset-auto m-0 p-0 text-fg hidden open:flex flex-col max-w-[calc(100vw_-_16px)] max-h-[min(20rem,calc(100dvh_-_16px))] text-sm shadow-(--shadow-overlay) {variant === 'button' ? 'w-[min(16rem,calc(100vw_-_16px))]' : ''}"
+  style="left: {at.left}px; top: {at.top}px; min-width: {minWidth}px; transform-origin: {origin}"
+><ul
+  id={listId}
   role="listbox"
   aria-label={label}
   aria-labelledby={labelledby}
   tabindex="-1"
-  class="plate solid menu-pop menu-list fixed inset-auto m-0 text-fg hidden open:flex flex-col max-w-[calc(100vw_-_16px)] max-h-[min(20rem,calc(100dvh_-_16px))] overflow-y-auto overscroll-contain text-sm shadow-(--shadow-overlay) {variant === 'button' ? 'w-[min(16rem,calc(100vw_-_16px))]' : ''}"
-  style="left: {at.left}px; top: {at.top}px; min-width: {minWidth}px; transform-origin: {origin}"
+  class="menu-list m-0 flex min-h-0 flex-col overflow-y-auto overscroll-contain"
   onmousedown={(e) => e.preventDefault()}
 >
   {#each runs as run, r (run.start)}
@@ -294,7 +297,7 @@
       </li>
     {/if}
   {/each}
-</ul>
+</ul></div>
 
 {#snippet row(o: SelectOption, i: number)}
   <!-- svelte-ignore a11y_click_events_have_key_events (focus stays on the combobox button, which chooses options from the keyboard; the list cancels mousedown so a press never moves focus here) -->
