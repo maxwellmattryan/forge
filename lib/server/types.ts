@@ -36,8 +36,8 @@ export interface ServerOptions {
   /** How often an open /api/projects/events stream recomputes its body; 5000 ms by default. */
   projectsPollMs?: number;
   /**
-   * Set only by `forge dash --dev` (what `npm run dev` runs): serve the watching dev build and leave
-   * every pool off until Start. No config key or /api route reaches it.
+   * Set only by `forge dash --dev` (what `npm run dev` runs): serve the watching dev build. Its pools
+   * boot as a plain dashboard's do, while their trusted files match a human's approval. No config key or /api route reaches it.
    */
   dev?: boolean;
   /** Test seam: what runs gh for GitHub previews. */
