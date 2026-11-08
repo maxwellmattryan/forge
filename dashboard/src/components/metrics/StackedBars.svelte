@@ -1,8 +1,10 @@
 <!-- The Overview's stacked bars: one column per UTC day, stacked by project in its series colour, each column titled with
      its day and every project's value; then the legend table with each project's swatch, total, share and any error
-     reading its stats. `empty` replaces the bars when every day is 0. Built from src/lib/metrics/overview.ts stackedSeries. -->
+     reading its stats. Below three days with data the total shows as a number with its days and a per-project line
+     instead; with none, only `empty` shows. Errors show in every mode. Built from src/lib/metrics/overview.ts
+     stackedSeries and stackedView. -->
 <script lang="ts">
-  import type { StackColumn, Stacked } from '../../lib/metrics/overview.ts';
+  import { stackedView, type StackColumn, type Stacked } from '../../lib/metrics/overview.ts';
   import { pct } from '../../lib/core/util.ts';
   import { t } from '../../lib/text/locale.ts';
 
@@ -12,11 +14,12 @@
   const SLOT = 10;
   const width = $derived(Math.max(1, series.columns.length) * SLOT);
   const gap = $derived(series.columns.length > 45 ? 1.5 : 1);
+  const view = $derived(stackedView(series));
   const barTitle = (c: StackColumn): string => [`${c.day} · ${format(c.total)}`, ...c.segments.map((g) => `${g.project} ${format(g.value)}`)].join('\n');
 </script>
 
 <div class="flex flex-col gap-3">
-  {#if series.max > 0}
+  {#if view.kind === 'chart'}
     <svg role="img" aria-label={label} class="block h-40 w-full" viewBox="0 0 {width} 100" preserveAspectRatio="none">
       {#each series.columns as c, i (c.day)}
         <g>
@@ -29,24 +32,39 @@
       {/each}
     </svg>
     <div class="caption muted flex justify-between font-mono num"><span>{series.columns[0]?.day ?? ''}</span><span>{series.columns.at(-1)?.day ?? ''}</span></div>
+    <div class="overflow-x-auto">
+      <table class="tbl">
+        <thead><tr><th>{$t('overview.project')}</th><th class="r">{$t('overview.total')}</th><th class="r">{$t('overview.share')}</th></tr></thead>
+        <tbody>
+          {#each series.legend as l (l.project)}
+            <tr>
+              <td>
+                <span class="inline-flex items-center gap-2"><span class="series-swatch {l.series}" aria-hidden="true"></span><span class="font-mono">{l.project}</span></span>
+                {#if l.error}<span class="block text-[13px] text-bad">{l.error}</span>{/if}
+              </td>
+              <td class="r num">{format(l.total)}</td>
+              <td class="r num">{pct(l.share)}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
   {:else}
-    <p class="text-sm text-muted">{empty}</p>
-  {/if}
-  <div class="overflow-x-auto">
-    <table class="tbl">
-      <thead><tr><th>{$t('overview.project')}</th><th class="r">{$t('overview.total')}</th><th class="r">{$t('overview.share')}</th></tr></thead>
-      <tbody>
-        {#each series.legend as l (l.project)}
-          <tr>
-            <td>
-              <span class="inline-flex items-center gap-2"><span class="series-swatch {l.series}" aria-hidden="true"></span><span class="font-mono">{l.project}</span></span>
-              {#if l.error}<span class="block text-[13px] text-bad">{l.error}</span>{/if}
-            </td>
-            <td class="r num">{format(l.total)}</td>
-            <td class="r num">{pct(l.share)}</td>
-          </tr>
+    {#if view.kind === 'stat'}
+      <div>
+        <p class="font-mono text-[28px] leading-8 font-medium num">{format(view.total)}</p>
+        <p class="caption muted font-mono num">{view.days.join(' · ')}</p>
+      </div>
+      <ul class="flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label={$t('overview.byProject')}>
+        {#each view.breakdown as l (l.project)}
+          <li class="inline-flex items-center gap-2"><span class="series-swatch {l.series}" aria-hidden="true"></span><span class="font-mono">{l.project}</span><span class="num">{format(l.total)}</span></li>
         {/each}
-      </tbody>
-    </table>
-  </div>
+      </ul>
+    {:else}
+      <p class="text-sm text-muted">{empty}</p>
+    {/if}
+    {#each view.errors as l (l.project)}
+      <p class="text-[13px]"><span class="font-mono">{l.project}</span> <span class="text-bad">{l.error}</span></p>
+    {/each}
+  {/if}
 </div>
