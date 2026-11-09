@@ -11,5 +11,5 @@ The Pipeline's Graph and Table layouts: the graph's plates and node blocks, and 
 | `GraphBlock.svelte` | One block of the Pipeline graph (lib/project/pipeline-graph.ts): a box of the block's size in its own sideways scroller, its edges as an aria-hidden SVG behind the nodes (dashed until the upstream merges, a heat run while `hot` holds the edge, hidden under reduced motion), then one button per node in layout order, so Tab walks it by column and row. |
 | `JobsTable.svelte` | The pipeline's table layout. |
 | `JobsTableFilters.svelte` | The Pipeline table's filter row: a search over ref, id and title, one removable chip per filter, + Filter offering the mandates, states and stages present among the table's jobs (src/lib/jobs/board.ts filterChoices), and the Group by mandate toggle when some job has a mandate. |
-| `PipelineGraph.svelte` | The Pipeline's Graph layout (issue #714): a plate per open mandate, its plan's issues by dependency depth with each live job on its issue, then a "No mandate" plate of the other jobs as dependsOn chains and lone nodes. |
+| `PipelineGraph.svelte` | The Pipeline's Graph layout (issue #714): a plate per open mandate, its plan's issues by dependency depth with each live job on its issue, then a "No mandate" plate of the other jobs the filter keeps as dependsOn chains and lone nodes. |
 <!-- forge:map:end -->
