@@ -3,18 +3,22 @@
      loads the mandates and each open mandate's plan in parallel, again every 15 s while the tab is visible; a reply for
      another project is dropped, and a failed plan keeps the last good one. Job state comes from the 2 s state poll, so
      marks and edges move between plan fetches. A merge seen after the page settled heats the edges it satisfies once.
+     Each plate's header ends with its mandate's controls (components/office/MandateControls.svelte: state chip,
+     play/pause, the ⋯ menu); its Edit opens MandateEditor here, outside the plate, and closing it refocuses the ⋯ button.
      The model is lib/project/pipeline-graph.ts; mandate, plan and job text renders as text. -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import GraphBlock from './GraphBlock.svelte';
+  import MandateControls from '../../office/MandateControls.svelte';
+  import MandateEditor from '../../office/MandateEditor.svelte';
   import Chip from '../../ui/Chip.svelte';
   import Empty from '../../ui/feedback/Empty.svelte';
   import Loading from '../../ui/feedback/Loading.svelte';
   import Skeleton from '../../ui/feedback/Skeleton.svelte';
   import { S, loadMandates } from '../../../lib/core/app.svelte.ts';
   import { currentProject } from '../../../lib/core/project.ts';
-  import type { MandatePlanResponse } from '../../../lib/core/types.ts';
-  import { fetchMandatePlan, STATE_TONE } from '../../../lib/office/foreman.ts';
+  import type { MandatePlanResponse, MandateRow } from '../../../lib/core/types.ts';
+  import { fetchMandatePlan, isUnreadable, STATE_TONE } from '../../../lib/office/foreman.ts';
   import { HEAT_COOL_MS, graphMarks, heatedEdges, newlyMerged, openMandates, pipelineGraph, type GraphMark } from '../../../lib/project/pipeline-graph.ts';
   import { PLAN_SIZE, PLAN_SIZE_COMPACT } from '../../../lib/project/plan-layout.ts';
   import { settled } from '../../../lib/ui/motion.ts';
@@ -64,6 +68,18 @@
   const empty = $derived(jobs.length === 0 && graph.plates.length === 0);
   const mandatesError = $derived(S.mandates === null ? S.mandatesError : null);
 
+  // A plate's readable row carries its controls; with none (unreadable, or gone since the plan) the plate keeps its chip.
+  const rowOf = (id: string): MandateRow | null => S.mandates?.mandates.find((m): m is MandateRow => m.id === id && !isUnreadable(m)) ?? null;
+  /** The mandate whose editor is open, from a plate's ⋯ › Edit mandate. */
+  let editing = $state<string | null>(null);
+  const editingRow = $derived(editing === null ? null : rowOf(editing));
+  async function closeEditor(): Promise<void> {
+    const id = editing;
+    editing = null;
+    await tick();
+    document.getElementById(`mandate-menu-${id}`)?.focus();
+  }
+
   // Heat: the edges leaving a node that merged since the last render, once the page has settled. `prev` is plain, not
   // state, so storing it never re-runs this.
   let prev: Map<string, GraphMark> | null = null;
@@ -91,12 +107,14 @@
   <div class="flex flex-col gap-3 min-w-0">
     {#if mandatesError}<p class="plain caption muted px-1 break-words">{$t('pipeline.graph.mandatesError', { error: mandatesError })}</p>{/if}
     {#each graph.plates as p (p.id)}
+      {@const row = rowOf(p.id)}
       <section class="plate open min-w-0" aria-label={$t('pipeline.graph.plateLabel', { title: p.title })}>
         <header class="plain flex flex-wrap items-center gap-x-2.5 gap-y-1 px-3 py-2 border-b border-line border-dashed">
           <span class="label text-fg shrink-0">{$t('pipeline.graph.mandate')}</span>
           <h2 class="h card min-w-0 truncate">{p.title}</h2>
           {#if p.status !== 'loading'}<span class="mono muted num text-[11px] shrink-0">{$t('pipeline.graph.merged', { merged: p.merged, total: p.total })}</span>{/if}
-          <span class="ml-auto shrink-0"><Chip tone={STATE_TONE[p.state]} text={p.state} /></span>
+          {#if row}<MandateControls m={row} onedit={() => (editing = row.id)} />
+          {:else}<span class="ml-auto shrink-0"><Chip tone={STATE_TONE[p.state]} text={p.state} /></span>{/if}
         </header>
         {#if p.problems.length}
           <div class="plain flex flex-col px-3 pt-2">
@@ -131,3 +149,4 @@
     {/if}
   </div>
 {/if}
+{#if editingRow && S.mandates}<MandateEditor mandates={S.mandates} row={editingRow} onclose={closeEditor} />{/if}

@@ -3,15 +3,16 @@
      every line the config capped; its live jobs (each opens the drawer); its merge queue when it lists any open PR (each
      overlap group in merge order, then the merge-now and unchecked PRs; each id opens the drawer); a goal mandate's draft
      and gate, pointing at Needs you, which decides it. Then the actions its status offers (mandateActions): Pause and
-     Close open a confirm row with an optional one-line reason (Close says it is final and starts the next link); focus
-     moves to Confirm, and Cancel hands it back to the button that opened the row. A refusal is the server's error as a
+     Close open the shared confirm row (MandateConfirm) with an optional one-line reason (Close says it is final and
+     starts the next link); focus moves to Confirm, and Cancel hands it back to the button that opened the row. A refusal is the server's error as a
      toast and changes nothing; a success reloads the mandates and the state. Every mandate string is owner or tracker
      text and renders as Svelte text. -->
 <script lang="ts">
   import { tick } from 'svelte';
   import Chip from '../ui/Chip.svelte';
   import ReportCard from './ReportCard.svelte';
-  import { STATE_TONE, inIntake, mandateActions, mergeQueueView, postMandateStatus, type MandateStatusAction } from '../../lib/office/foreman.ts';
+  import MandateConfirm from './MandateConfirm.svelte';
+  import { STATE_TONE, inIntake, mandateActions, mergeQueueView, postMandateStatus } from '../../lib/office/foreman.ts';
   import { tokensShort, usd } from '../../lib/core/util.ts';
   import { S, loadMandates, openDrawer, refresh } from '../../lib/core/app.svelte.ts';
   import { toast } from '../../lib/ui/overlay/toast.svelte.ts';
@@ -26,34 +27,24 @@
   const goal = $derived(inIntake(m) && m.draft !== null);
   const gatePending = $derived(m.draft?.gate === 'pending' || m.draft?.gate === 'filing');
   const queue = $derived(mergeQueueView(m.mergeQueue));
-  /** The confirm row open for Pause or Close, with its reason. */
+  /** The confirm row open for Pause or Close (MandateConfirm holds its reason and posts it). */
   let confirming = $state<'pause' | 'close' | null>(null);
-  let reason = $state('');
   let busy = $state(false);
-  let confirmButton = $state<HTMLButtonElement>();
-  const reasonId = $derived(`mandate-reason-${m.id}`);
 
-  async function openConfirm(action: 'pause' | 'close'): Promise<void> {
-    confirming = action;
-    reason = '';
-    await tick();
-    confirmButton?.focus();
-  }
-
-  async function cancelConfirm(): Promise<void> {
+  async function closeConfirm(done: boolean): Promise<void> {
     const was = confirming;
     confirming = null;
+    if (done) return;
     await tick();
     document.getElementById(`mandate-${was}-${m.id}`)?.focus();
   }
 
-  async function act(action: MandateStatusAction): Promise<void> {
+  async function resume(): Promise<void> {
     if (busy) return;
     busy = true;
     try {
-      const r = await postMandateStatus(m.id, action, reason);
-      if (r.changed) toast(action === 'pause' ? $t('foreman.mandate.paused', { id: m.id }) : action === 'resume' ? $t('foreman.mandate.resumed', { id: m.id }) : $t('foreman.mandate.closed', { id: m.id }));
-      confirming = null;
+      const r = await postMandateStatus(m.id, 'resume', '');
+      if (r.changed) toast($t('foreman.mandate.resumed', { id: m.id }));
       await Promise.all([loadMandates(), refresh()]);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), true);
@@ -160,20 +151,10 @@
   {#if actions.length && S.data}
     <div class="flex flex-wrap gap-2">
       {#if actions.includes('edit')}<button id="mandate-edit-{m.id}" class="btn" disabled={busy} onclick={() => onedit?.()}>{$t('foreman.mandate.edit')}</button>{/if}
-      {#if actions.includes('pause') && confirming !== 'pause'}<button id="mandate-pause-{m.id}" class="btn" disabled={busy || confirming !== null} onclick={() => openConfirm('pause')}>{$t('foreman.mandate.pause')}</button>{/if}
-      {#if actions.includes('resume')}<button class="btn" disabled={busy || confirming !== null} aria-busy={busy} onclick={() => act('resume')}>{$t('foreman.mandate.resume')}</button>{/if}
-      {#if actions.includes('close') && confirming !== 'close'}<button id="mandate-close-{m.id}" class="btn" disabled={busy || confirming !== null} onclick={() => openConfirm('close')}>{$t('foreman.mandate.close')}</button>{/if}
+      {#if actions.includes('pause') && confirming !== 'pause'}<button id="mandate-pause-{m.id}" class="btn" disabled={busy || confirming !== null} onclick={() => (confirming = 'pause')}>{$t('foreman.mandate.pause')}</button>{/if}
+      {#if actions.includes('resume')}<button class="btn" disabled={busy || confirming !== null} aria-busy={busy} onclick={resume}>{$t('foreman.mandate.resume')}</button>{/if}
+      {#if actions.includes('close') && confirming !== 'close'}<button id="mandate-close-{m.id}" class="btn" disabled={busy || confirming !== null} onclick={() => (confirming = 'close')}>{$t('foreman.mandate.close')}</button>{/if}
     </div>
-    {#if confirming}
-      <div class="plain border border-line-soft flex flex-col gap-2 p-3">
-        {#if confirming === 'close'}<p class="text-[13px]">{$t('foreman.mandate.closeFinal')}</p>{/if}
-        <label for={reasonId} class="label text-[10px]">{$t('foreman.mandate.reasonLabel')}</label>
-        <input id={reasonId} type="text" class="w-full" maxlength="200" bind:value={reason} disabled={busy} />
-        <div class="flex flex-wrap gap-2">
-          <button bind:this={confirmButton} class="btn sm {confirming === 'close' ? 'text-bad' : ''}" disabled={busy} aria-busy={busy} onclick={() => confirming && act(confirming)}>{$t('foreman.mandate.confirm')}</button>
-          <button class="btn sm" disabled={busy} onclick={cancelConfirm}>{$t('foreman.mandate.cancel')}</button>
-        </div>
-      </div>
-    {/if}
+    {#if confirming}<MandateConfirm {m} kind={confirming} onclose={closeConfirm} />{/if}
   {/if}
 </article>
