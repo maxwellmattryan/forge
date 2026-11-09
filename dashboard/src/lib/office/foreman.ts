@@ -1,6 +1,7 @@
 // The Office page (#/p/<project>/office): its mandates, pending gates and directives,
 // the editor's POST bodies, a mandate's merge queue as its card lists it, the mandate badge on a job, and the GETs and POSTs of /api/mandates
-// (lib/server/routes/mandates.ts). Every string from a mandate, a directive or a request is owner, session or tracker
+// (lib/server/routes/mandates.ts). The Pipeline's mandate controls (play/pause and the ⋯ menu on a plate or a table
+// group row) use the same toggle, menu, confirm and POST helpers. Every string from a mandate, a directive or a request is owner, session or tracker
 // text: the components render it as text. Plain TS, so a test can pin it.
 import { post } from '../project/focus.ts';
 import { api } from '../core/util.ts';
@@ -15,6 +16,8 @@ import type {
   MergeQueueEntry,
   MandatesResponse,
   PostMandateBody,
+  PostMandateCancelResponse,
+  PostMandateDeleteResponse,
   PostMandateEditBody,
   PostMandateResponse,
   UnreadableMandateRow,
@@ -47,6 +50,17 @@ export function postMandateStatus(id: string, action: MandateStatusAction, reaso
   const body = action === 'resume' ? {} : { reason: reason.trim() || null };
   return post<PostMandateResponse>(`${mandatePath(id)}/${action}`, body, fetchImpl);
 }
+
+/** POST /api/mandates/:id/cancel: closes the mandate and asks to cancel each unfinished job; the reason as for close. */
+export const postMandateCancel = (id: string, reason: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateCancelResponse> =>
+  post<PostMandateCancelResponse>(`${mandatePath(id)}/cancel`, { reason: reason.trim() || null }, fetchImpl);
+
+/** POST /api/mandates/:id/delete: the id echoed as `confirm`, which the server checks again. */
+export const postMandateDelete = (id: string, fetchImpl: typeof fetch = fetch): Promise<PostMandateDeleteResponse> =>
+  post<PostMandateDeleteResponse>(`${mandatePath(id)}/delete`, { confirm: id }, fetchImpl);
+
+/** Whether the delete panel's typed text names the mandate: exact, after trimming. */
+export const deleteReady = (typed: string, id: string): boolean => typed.trim() === id;
 
 // ---------- the editor ----------
 
@@ -204,6 +218,42 @@ export function mandateActions(m: MandateRow | UnreadableMandateRow): MandateAct
   if (m.status === 'active') return ['edit', 'pause', 'close'];
   if (m.status === 'paused') return ['edit', 'resume', 'close'];
   return [];
+}
+
+/** A mandate plate's play/pause button: pause while it runs (active or waiting), resume while paused, none when closed or unreadable. */
+export function mandateToggle(m: MandateRow | UnreadableMandateRow): 'pause' | 'resume' | null {
+  if (isUnreadable(m)) return null;
+  if (m.status === 'active') return 'pause';
+  if (m.status === 'paused') return 'resume';
+  return null;
+}
+
+export type MandateMenuId = 'edit' | 'close' | 'cancel' | 'delete';
+
+/** What a confirm panel (components/office/MandateConfirm.svelte) asks about: Pause only on the Office card. */
+export type MandateConfirmAction = 'pause' | 'close' | 'cancel' | 'delete';
+
+export interface MandateMenuEntry {
+  id: MandateMenuId;
+  disabled: boolean;
+  danger: boolean;
+  separator: boolean;
+}
+
+/**
+ * A mandate's ⋯ menu, top to bottom: Edit, a rule, Close, Cancel with its jobs, a rule, Delete (danger). Edit and Close
+ * need an open mandate; Cancel stays enabled on a closed one (it still cancels the unfinished jobs); Delete needs a
+ * closed one. An unreadable mandate has no menu.
+ */
+export function mandateMenu(m: MandateRow | UnreadableMandateRow): MandateMenuEntry[] {
+  if (isUnreadable(m)) return [];
+  const closed = m.status === 'closed';
+  return [
+    { id: 'edit', disabled: closed, danger: false, separator: false },
+    { id: 'close', disabled: closed, danger: false, separator: true },
+    { id: 'cancel', disabled: false, danger: false, separator: false },
+    { id: 'delete', disabled: !closed, danger: true, separator: true },
+  ];
 }
 
 // ---------- the merge queue ----------

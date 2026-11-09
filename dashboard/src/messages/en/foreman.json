@@ -157,7 +157,26 @@
       "cancel": "Cancel",
       "paused": "Paused {id}",
       "resumed": "Resumed {id}",
-      "closed": "Closed {id}"
+      "closed": "Closed {id}",
+      "pauseMandate": "Pause mandate",
+      "resumeMandate": "Resume mandate",
+      "actions": "Mandate actions",
+      "menu": {
+        "edit": "Edit mandate",
+        "close": "Close mandate",
+        "cancel": "Cancel with its jobs",
+        "delete": "Delete mandate",
+        "closedHint": "This mandate is closed",
+        "deleteHint": "Only a closed mandate can be deleted"
+      },
+      "cancelFinal": "Cancelling closes the mandate and asks Forge to cancel each of its unfinished jobs.",
+      "deleteFinal": "Deleting removes the mandate's file and runtime folder for good. Its jobs stay and show under No mandate.",
+      "deleteType": "Type {id} to confirm",
+      "cancelled": {
+        "one": "Cancelled {id} and asked to cancel {count} job",
+        "other": "Cancelled {id} and asked to cancel {count} jobs"
+      },
+      "deleted": "Deleted {id}"
     },
     "card": {
       "title": "Report card",

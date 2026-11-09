@@ -153,4 +153,12 @@ test('groupByMandate orders groups and counts merged; a collapsed group keeps it
   assert.deepEqual(kinds(new Set()), ['g:m-b:true:3/2', '2', '4', '5', 'g:m-a:true:1/0', '3', 'g::true:2/1', '1', '6']);
   assert.deepEqual(kinds(new Set(['m-b', ''])), ['g:m-b:false:3/2', 'g:m-a:true:1/0', '3', 'g::false:2/1'], 'collapsed groups keep their headers and counts');
   assert.deepEqual(groupByMandate([]), []);
+  // With the loaded mandates' ids, a deleted mandate's jobs group under No mandate; null keeps today's grouping.
+  const shape = (gs: ReturnType<typeof groupByMandate>) => gs.map((g) => [g.mandate, ids(g.jobs), g.merged]);
+  assert.deepEqual(shape(groupByMandate(rows, new Set(['m-a']))), [
+    ['m-a', ['3'], 0],
+    [null, ['1', '2', '4', '5', '6'], 3],
+  ]);
+  assert.deepEqual(shape(groupByMandate(rows, null)), shape(groups));
+  assert.deepEqual(shape(groupByMandate(rows, new Set())), [[null, ['1', '2', '3', '4', '5', '6'], 3]]);
 });
