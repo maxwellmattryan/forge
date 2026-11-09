@@ -2,8 +2,12 @@
      row opens it too. Job, Title, Stage, State and Updated always show (only Job, Title and State below a 40rem
      container); each other column only when some row fills it (src/lib/jobs/board.ts tableColumns). Headers sort (the
      saved per-project `tableSort`, a third click back to the urgency order), JobsTableFilters narrows the rows, and
-     Group by mandate (the saved `tableGroup`) splits them into one collapsible tbody per mandate. -->
+     Group by mandate (the saved `tableGroup`) splits them into one collapsible tbody per mandate. It loads the mandates
+     list on mount: once loaded, a deleted mandate's jobs group under No mandate, and each readable mandate's group row
+     (closed ones too) carries its controls (components/office/MandateControls.svelte); their Edit opens MandateEditor
+     here, outside the <th>, and closing it refocuses the ⋯ button. -->
 <script lang="ts">
+  import { tick, untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import StateChip from '../StateChip.svelte';
   import VerdictChip from '../VerdictChip.svelte';
@@ -12,6 +16,8 @@
   import JobsTableFilters from './JobsTableFilters.svelte';
   import BudgetCell from '../../metrics/BudgetCell.svelte';
   import MandateBadge from '../../office/MandateBadge.svelte';
+  import MandateControls from '../../office/MandateControls.svelte';
+  import MandateEditor from '../../office/MandateEditor.svelte';
   import Icon from '../../ui/Icon.svelte';
   import { ago, num, usd } from '../../../lib/core/util.ts';
   import { cardModel, filterTable, groupByMandate, nextSort, openNeedIds, parseSort, sortPref, sortTable, tableColumns, tableRows } from '../../../lib/jobs/board.ts';
@@ -21,9 +27,10 @@
   import type { JobLike } from '../../../lib/jobs/state.ts';
   import { budgetCellModel, unattendedDefault } from '../../../lib/metrics/budget.ts';
   import { pref } from '../../../lib/settings/prefs.ts';
-  import { S, openDrawer } from '../../../lib/core/app.svelte.ts';
+  import { S, loadMandates, openDrawer } from '../../../lib/core/app.svelte.ts';
   import { ticker } from '../../../lib/core/clock.svelte.ts';
-  import type { Job, StateJob } from '../../../lib/core/types.ts';
+  import { isUnreadable } from '../../../lib/office/foreman.ts';
+  import type { Job, MandateRow, StateJob } from '../../../lib/core/types.ts';
   import { t } from '../../../lib/text/locale.ts';
 
   let { jobs }: { jobs: StateJob[] } = $props();
@@ -40,7 +47,12 @@
   // Columns judge the received jobs, not the filtered rows, so typing in the search never makes them jump. Budget asks
   // the same question BudgetCell does.
   const cols = $derived(tableColumns(jobs, (j) => budgetCellModel(j as Job, S.data?.config?.pipeline?.budget, unattendedDefault(S.data?.config)).kind !== 'none', all));
+  // Once the mandates list has loaded, a deleted mandate's jobs group under No mandate, as on the graph.
+  const known = $derived(S.mandates ? new Set(S.mandates.mandates.map((m) => m.id)) : null);
+  // A job naming a deleted mandate still counts, so deleting the last mandate leaves the grouping (its jobs under No mandate).
   const showGroup = $derived(groupByMandate(jobs).some((g) => g.mandate !== null));
+  /** The mandate id to show for a job: none once the mandate is gone, matching the group it falls under. */
+  const mandateOf = (j: StateJob): string | null | undefined => (j.mandate && known && !known.has(j.mandate) ? null : j.mandate);
   const grouped = $derived(showGroup && group);
   const columnCount = $derived(5 + cols.size);
   const PHONE_HIDDEN = 'hidden @min-[40rem]:table-cell';
@@ -61,6 +73,21 @@
     chips = [];
     text = '';
   }
+  // The group rows' controls and the deleted-mandate grouping need the list; each action reloads it.
+  $effect(() => {
+    untrack(() => void loadMandates());
+  });
+  /** A group's readable mandate row: only these get controls (closed ones too). */
+  const rowOf = (id: string): MandateRow | null => S.mandates?.mandates.find((m): m is MandateRow => m.id === id && !isUnreadable(m)) ?? null;
+  /** The mandate whose editor is open, from a group row's ⋯ › Edit mandate. */
+  let editing = $state<string | null>(null);
+  const editingRow = $derived(editing === null ? null : rowOf(editing));
+  async function closeEditor(): Promise<void> {
+    const id = editing;
+    editing = null;
+    await tick();
+    document.getElementById(`mandate-menu-${id}`)?.focus();
+  }
   const needLinks = (j: StateJob) => {
     const open = openNeedIds(j, all);
     return depLinks(j, all).filter((l) => open.includes(l.id));
@@ -79,7 +106,7 @@
     <td class="mono muted text-[11px] whitespace-nowrap" title={m.refTitle}>{m.ref}</td>
     <!-- stopPropagation: the row's own click would load the drawer a second time. -->
     <!-- No minimum width on a phone, and a long unbroken title wraps anywhere, so State still fits beside Job and Title. -->
-    <td class="@min-[40rem]:min-w-48"><button class="h card block text-left wrap-anywhere hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button>{#if !grouped}<MandateBadge mandate={j.mandate} extra="mt-1" />{/if}</td>
+    <td class="@min-[40rem]:min-w-48"><button class="h card block text-left wrap-anywhere hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button>{#if !grouped}<MandateBadge mandate={mandateOf(j)} extra="mt-1" />{/if}</td>
     <td class={PHONE_HIDDEN}><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}</span></div></td>
     <td><StateChip job={j} /></td>
     {#if cols.has('needs')}<td class="{PHONE_HIDDEN} mono text-[11px]" title={needs.length ? needs.map(depChipTitle).join('\n') : undefined}>{needs.length ? needs.map((l) => l.ref ?? l.id).join(' ') : '—'}</td>{/if}
@@ -95,7 +122,7 @@
 <!-- The scroller sits inside the plate, so the plate's cut corners clip it. -->
 <div class="plate flat">
   <JobsTableFilters {jobs} bind:chips bind:text {group} ongroup={toggleGroup} {showGroup} />
-  <div class="overflow-x-auto">
+  <div class="@container overflow-x-auto">
   <table class="tbl">
     <thead><tr>
       {@render head('job', $t('common.job'), '')}
@@ -115,12 +142,13 @@
     {#if !shown.length}
       <tbody><tr><td colspan={columnCount}><div class="flex flex-wrap items-center gap-3 text-muted">{$t('table.filter.none')}<button type="button" class="btn sm" onclick={clearFilters}>{$t('table.filter.clear')}</button></div></td></tr></tbody>
     {:else if grouped}
-      {#each groupByMandate(shown) as g (g.mandate ?? '')}
+      {#each groupByMandate(shown, known) as g (g.mandate ?? '')}
         {@const key = g.mandate ?? ''}
         <tbody>
           {#each tableRows([g], collapsed) as r (r.kind === 'group' ? ':group' : r.job.id)}
             {#if r.kind === 'group'}
-              <tr><th scope="rowgroup" colspan={columnCount}><button type="button" class="inline-flex items-center gap-2 uppercase hover:text-fg" aria-expanded={r.open} onclick={() => toggleCollapsed(key)}><Icon name="chevron-down" class="sm {r.open ? '' : '-rotate-90'}" />{$t('table.group.mandate')}<span class="text-fg normal-case tracking-normal">{g.mandate ?? $t('table.filter.noMandate')}</span>{' · '}{$t('table.group.count', { jobs: g.jobs.length, merged: g.merged })}</button></th></tr>
+              {@const mrow = g.mandate === null ? null : rowOf(g.mandate)}
+              <tr><th scope="rowgroup" colspan={columnCount}><div class="sticky left-0 flex w-[calc(100cqw-1.5rem)] flex-wrap items-center gap-x-2 gap-y-1"><button type="button" class="inline-flex items-center gap-2 uppercase hover:text-fg" aria-expanded={r.open} onclick={() => toggleCollapsed(key)}><Icon name="chevron-down" class="sm {r.open ? '' : '-rotate-90'}" />{$t('table.group.mandate')}<span class="text-fg normal-case tracking-normal">{g.mandate ?? $t('table.filter.noMandate')}</span>{' · '}{$t('table.group.count', { jobs: g.jobs.length, merged: g.merged })}</button>{#if mrow}<MandateControls m={mrow} onedit={() => (editing = mrow.id)} />{/if}</div></th></tr>
             {:else}
               {@render row(r.job)}
             {/if}
@@ -133,3 +161,4 @@
   </table>
   </div>
 </div>
+{#if editingRow && S.mandates}<MandateEditor mandates={S.mandates} row={editingRow} onclose={closeEditor} />{/if}

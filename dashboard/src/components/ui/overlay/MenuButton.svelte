@@ -1,6 +1,9 @@
-<!-- A small button that opens a non-modal dialog under it: the session log's Filter control.
-     The panel opens in the top layer (popover="manual"), so no scrolling or overflow-hidden ancestor (the drawer, the
-     Foreman popover's body, the Agents tab panel) clips it, while staying a DOM descendant of them, so their own
+<!-- A small button that opens a non-modal dialog under it: the session log's Filter control. With `items` it opens a
+     role="menu" instead (a mandate plate's ⋯): no title bar, one role="menuitem" button per item, focus on the first
+     when it opens, ArrowUp/ArrowDown wrapping and Home/End (src/lib/ui/overlay/menu.ts menuMove); a disabled item keeps
+     focus and announces its hint (aria-disabled, aria-describedby) but does nothing, and choosing an enabled one closes
+     the menu, then calls `onselect` with its id. The panel opens in the top layer (popover="manual"), so no scrolling
+     or overflow-hidden ancestor (the drawer, the Foreman popover's body, the Agents tab panel) clips it, while staying a DOM descendant of them, so their own
      contains() checks still count it as inside. Manual mode keeps dismissal here instead of the browser's light dismiss,
      which would race App's window Escape handler: Escape closes only this panel and refocuses the button; a press outside
      or focus leaving both closes it (src/lib/ui/overlay/popover.ts dismissal decides the focus); a resize, a scroll that moves the button,
@@ -11,10 +14,11 @@
   import Icon from '../Icon.svelte';
   import Tooltip from './Tooltip.svelte';
   import type { IconName } from '../../../lib/ui/icons.ts';
-  import { placeMenu } from '../../../lib/ui/overlay/menu.ts';
+  import { menuMove, placeMenu, type MenuItem } from '../../../lib/ui/overlay/menu.ts';
   import { FOCUSABLE, dismissal } from '../../../lib/ui/overlay/popover.ts';
 
   let {
+    id,
     label,
     title,
     icon,
@@ -22,8 +26,22 @@
     iconOnly = false,
     badge = false,
     extraTitle,
+    items,
+    onselect,
     children,
-  }: { label: string; title: string; icon?: IconName; text?: string; iconOnly?: boolean; badge?: boolean; extraTitle?: string; children: Snippet } = $props();
+  }: {
+    id?: string;
+    label: string;
+    title: string;
+    icon?: IconName;
+    text?: string;
+    iconOnly?: boolean;
+    badge?: boolean;
+    extraTitle?: string;
+    items?: readonly MenuItem[];
+    onselect?: (id: string) => void;
+    children?: Snippet;
+  } = $props();
 
   const uid = $props.id();
   const panelId = `${uid}-menu`;
@@ -44,8 +62,30 @@
     open = true;
     place();
     await tick();
-    // The first enabled field (the filter's search), else the panel itself.
-    (panel.querySelector<HTMLElement>('input:not(:disabled)') ?? panel).focus();
+    // A menu's first item; else the first enabled field (the filter's search), else the panel itself.
+    (panel.querySelector<HTMLElement>(items ? '[role="menuitem"]' : 'input:not(:disabled)') ?? panel).focus();
+  }
+
+  function choose(item: MenuItem): void {
+    if (item.disabled) return;
+    hide(false);
+    onselect?.(item.id);
+  }
+
+  function menuKey(e: KeyboardEvent): void {
+    if (!items || !panel || e.isComposing) return;
+    const buttons = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    const at = buttons.findIndex((b) => b === document.activeElement);
+    // From the panel itself, ArrowDown lands on the first item and ArrowUp on the last.
+    const to = menuMove(buttons.length, at < 0 ? (e.key === 'ArrowUp' ? 0 : -1) : at, e.key);
+    if (to < 0) return;
+    e.preventDefault();
+    buttons[to]?.focus();
+  }
+
+  function panelKey(e: KeyboardEvent): void {
+    key(e);
+    if (!e.defaultPrevented) menuKey(e);
   }
 
   function place(): void {
@@ -110,11 +150,12 @@
 
 <button
   bind:this={trigger}
+  {id}
   type="button"
   class="btn sm {iconOnly ? 'icon' : ''}"
   aria-label={label}
   title={iconOnly ? undefined : extraTitle ? `${label}. ${extraTitle}` : label}
-  aria-haspopup="dialog"
+  aria-haspopup={items ? 'menu' : 'dialog'}
   aria-expanded={open}
   aria-controls={panelId}
   onclick={() => (open ? hide(false) : show())}
@@ -125,15 +166,32 @@
   bind:this={panel}
   id={panelId}
   popover="manual"
-  role="dialog"
-  aria-labelledby={titleId}
+  role={items ? 'menu' : 'dialog'}
+  aria-label={items ? title : undefined}
+  aria-labelledby={items ? undefined : titleId}
   tabindex="-1"
   class="plate solid menu-pop fixed inset-auto m-0 p-0 text-fg hidden open:flex flex-col w-[min(16rem,calc(100vw_-_16px))] max-h-[calc(100dvh_-_16px)] shadow-(--shadow-overlay)"
   style="left: {at.left}px; top: {at.top}px; transform-origin: {origin}"
-  onkeydown={key}
+  onkeydown={panelKey}
   onfocusout={focusOut}
 >
-  <div class="flex shrink-0 items-center border-b border-line px-3 py-1.5"><h2 id={titleId} class="h section min-w-0 truncate">{title}</h2></div>
-  <div class="min-h-0 overflow-y-auto overscroll-contain p-3 flex flex-col gap-3 text-xs">{@render children()}</div>
+  {#if items}
+    <div class="min-h-0 overflow-y-auto overscroll-contain p-1 flex flex-col text-[13px]">
+      {#each items as item, i (item.id)}
+        <button
+          type="button"
+          role="menuitem"
+          tabindex="-1"
+          class="flex flex-col items-start gap-0.5 px-2 py-1.5 text-left hover:bg-raised focus-visible:bg-raised {item.danger ? 'text-bad' : 'text-fg'} {item.disabled ? 'cursor-default' : ''} {item.separator ? 'mt-1 border-t border-line-soft' : ''}"
+          aria-disabled={item.disabled ? 'true' : undefined}
+          aria-describedby={item.hint ? `${uid}-hint-${i}` : undefined}
+          onclick={() => choose(item)}
+        ><span class={item.disabled ? 'opacity-40' : ''}>{item.label}</span>{#if item.hint}<span id="{uid}-hint-{i}" class="text-xs text-muted">{item.hint}</span>{/if}</button>
+      {/each}
+    </div>
+  {:else}
+    <div class="flex shrink-0 items-center border-b border-line px-3 py-1.5"><h2 id={titleId} class="h section min-w-0 truncate">{title}</h2></div>
+    <div class="min-h-0 overflow-y-auto overscroll-contain p-3 flex flex-col gap-3 text-xs">{@render children?.()}</div>
+  {/if}
 </div>
 {#if iconOnly}<Tooltip anchor={trigger} text={label} off={open} />{/if}
