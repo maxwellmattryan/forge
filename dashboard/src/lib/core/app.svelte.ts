@@ -131,7 +131,7 @@ class AppState {
   overviewError = $state<string | null>(null);
   /** The Overview's graph window in days (machine pref `overviewWindow`). */
   overviewWindow = $state(pref.get('overviewWindow', '30'));
-  layout = $state(pref.get('layout', 'board'));
+  layout = $state(pref.get('layout', 'graph'));
   filter = $state(pref.get('filter', 'active'));
   window = $state(pref.get('window', '30'));
   stats = $state.raw<Stats | null>(null);
@@ -402,7 +402,7 @@ export function switchProject(name: string | null): void {
   S.threadSeen = {};
   S.sent = {};
   S.openNeeds = false;
-  S.layout = pref.get('layout', 'board');
+  S.layout = pref.get('layout', 'graph');
   S.filter = pref.get('filter', 'active');
   S.window = pref.get('window', '30');
   refresh();

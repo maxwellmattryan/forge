@@ -1,7 +1,7 @@
-// The Pipeline table's model: which optional columns show, the sort, the filter chips and the mandate groups.
+// pipelineLayout: the layout a saved pref opens. The Pipeline table's model: which optional columns show, the sort, the filter chips and the mandate groups.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { OPTIONAL_COLUMNS, filterChoices, filterTable, groupByMandate, nextSort, parseSort, sortByRank, sortPref, sortTable, tableColumns, tableRows } from './board.ts';
+import { OPTIONAL_COLUMNS, PIPELINE_LAYOUTS, filterChoices, filterTable, groupByMandate, nextSort, parseSort, pipelineLayout, sortByRank, sortPref, sortTable, tableColumns, tableRows } from './board.ts';
 import type { OptionalColumn } from './board.ts';
 import type { JobLike } from './state.ts';
 
@@ -10,6 +10,18 @@ const hasBudget = (j: Row): boolean => j.budgeted === true;
 const cols = (jobs: Row[]): OptionalColumn[] => [...tableColumns(jobs, hasBudget)].sort();
 const ids = (jobs: JobLike[]): string[] => jobs.map((j) => String(j.id));
 const usage = (totalTokens: number): JobLike['usage'] => ({ totalTokens }) as JobLike['usage'];
+
+test('pipelineLayout opens the graph unless board or table was saved', () => {
+  assert.deepEqual([...PIPELINE_LAYOUTS], ['graph', 'board', 'table'], 'the switch order, the graph first');
+  const rows: [string, string][] = [
+    ['', 'graph'],
+    ['graph', 'graph'],
+    ['board', 'board'],
+    ['table', 'table'],
+    ['bogus', 'graph'],
+  ];
+  for (const [raw, want] of rows) assert.equal(pipelineLayout(raw), want, `saved ${JSON.stringify(raw)}`);
+});
 
 test('tableColumns shows a column only when a row fills it', () => {
   const blank: Row = { id: 'blank', title: 'Blank', progress: { done: 0, total: 0 }, reviewers: [], pr: null, usage: undefined, dependsOn: ['finished'], round: 0 };

@@ -1,6 +1,6 @@
 # dashboard/src/lib/project/
 
-The project around the jobs: its graph, a mandate's plan layout, environments and focus, and the Issues page.
+The project around the jobs: its graph, a mandate's plan layout and the Pipeline graph built on it, environments and focus, and the Issues page.
 
 - `focus.ts` also holds `post`, the shared JSON POST helper the gates, office and shell folders import.
 - Environment log lines are untrusted text: they only ever reach `{line}`.
@@ -14,5 +14,6 @@ The project around the jobs: its graph, a mandate's plan layout, environments an
 | `focus.ts` | Focus and a job's environment as the dashboard shows them: the status bar's focus fact, the drawer's Environment section's header, and the POSTs behind it (lib/server/routes/). |
 | `graph.ts` | The Project view's graph logic (issue #175): a deterministic layered layout of GET /api/project, the highlight of a job's components and their downstream consumers, and the job selector's options with where each job's list came from (the diff or the spec) and why an unmatched one is empty. |
 | `issue-view.ts` | The issue panel's model, kept here so it is tested without the Svelte compiler: the jobs that name an Issues item, which of them holds it, and whether Start is offered. |
+| `pipeline-graph.ts` | The Pipeline's graph layout (issue #714): one plate per open mandate, its plan's issues laid out by dependency depth with each live job on its issue, then the jobs in no mandate as dependsOn chains and lone nodes. |
 | `plan-layout.ts` | A mandate's plan laid out by dependency depth (issue #713): layers by longest path, order by barycenter sweeps with ties by ref, and boxes and edge paths for a given size, depending only on the plan's nodes and edges. |
 <!-- forge:map:end -->

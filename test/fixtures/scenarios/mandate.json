@@ -1,0 +1,82 @@
+{
+  "description": "Two mandates on a local backlog: Billing v2 with a merged, a running, a gated and three not-started issues, and Old cleanup closed and deleted under its job; plus a dependsOn chain and a lone job in no mandate",
+  "backlog": "# Backlog\n\n## Next\n\n- [ ] Ledger schema\n  The ledger tables.\n- [ ] Invoice API\n  Create and list invoices.\n- [ ] Tax rates\n  Rates by region.\n- [ ] Invoice PDF\n  Render an invoice.\n- [ ] Dunning email\n  Remind on late invoices.\n- [ ] Billing docs\n  Document billing.\n- [ ] Retire the old importer\n  Remove the legacy import path.\n",
+  "mandates": [
+    ["new", "m-0000b111", "--title", "Billing v2", "--order", "listed", "--issues", "ledger-schema,invoice-api,tax-rates,invoice-pdf,dunning-email,billing-docs"],
+    ["new", "m-0000d222", "--title", "Old cleanup", "--order", "listed", "--issues", "retire-the-old-importer"]
+  ],
+  "jobs": [
+    {
+      "key": "ledger",
+      "title": "Ledger schema",
+      "new": ["--mandate", "m-0000b111", "--issue", "ledger-schema", "--tracker", "local"],
+      "steps": [["job", "set", "{id}", "--stage", "done", "--state", "done"]]
+    },
+    {
+      "key": "invoice",
+      "title": "Invoice API",
+      "new": ["--mandate", "m-0000b111", "--issue", "invoice-api", "--tracker", "local"],
+      "steps": [
+        ["job", "set", "{id}", "--field", "dependsOn=[\"{id:ledger}\"]"],
+        ["job", "set", "{id}", "--stage", "build", "--state", "running"]
+      ]
+    },
+    {
+      "key": "tax",
+      "title": "Tax rates <img src=x onerror=\"console.error('unescaped')\">",
+      "new": ["--mandate", "m-0000b111", "--issue", "tax-rates", "--tracker", "local"],
+      "steps": [
+        ["job", "set", "{id}", "--field", "dependsOn=[\"{id:ledger}\"]"],
+        ["job", "set", "{id}", "--stage", "spec", "--state", "waiting", "--waiting-on", "spec-approval", "--reason", "spec ready"]
+      ]
+    },
+    {
+      "key": "legacy",
+      "title": "Remove the legacy importer",
+      "new": ["--mandate", "m-0000d222", "--issue", "retire-the-old-importer", "--tracker", "local"],
+      "steps": [
+        ["mandate", "close", "m-0000d222", "--reason", "folded into Billing v2"],
+        ["mandate", "delete", "m-0000d222"]
+      ]
+    },
+    {
+      "key": "tidy",
+      "title": "Tidy the parser",
+      "steps": [["job", "set", "{id}", "--stage", "build", "--state", "running"]]
+    },
+    {
+      "key": "document",
+      "title": "Document the parser",
+      "steps": [["job", "set", "{id}", "--field", "dependsOn=[\"{id:tidy}\"]"]]
+    },
+    {
+      "key": "escape",
+      "title": "Escape <script>console.error('unescaped')</script> titles",
+      "steps": [["job", "set", "{id}", "--stage", "plan", "--state", "running"]]
+    }
+  ],
+  "expect": {
+    "pipeline": [
+      "Billing v2",
+      "@pipeline.graph.mandate",
+      "@pipeline.graph.noMandate",
+      "@pipeline.graph.state.planned",
+      "Ledger schema",
+      "Invoice API",
+      "invoice-pdf",
+      "Spec approval",
+      "Remove the legacy importer",
+      "Tidy the parser",
+      "Document the parser",
+      "Escape <script>console.error('unescaped')</script> titles"
+    ],
+    "project": ["@project.empty"],
+    "issues": ["Ledger schema", "Invoice PDF", "Retire the old importer"],
+    "agents": ["@agents.noRunning", "@agents.noSessions"],
+    "office": ["@foreman.office.title", "@statusbar.foreman.offTitle", "Billing v2"],
+    "foreman": ["@foreman.title", "@foreman.chats.emptyTitle"],
+    "analytics": ["@analytics.jobs", "@analytics.noUsage"],
+    "evals": ["@evals.empty"],
+    "drawer": { "job": "invoice", "text": ["@thread.progress.stage"] }
+  }
+}

@@ -2,16 +2,16 @@
      mandates, states and stages present among the table's jobs (src/lib/jobs/board.ts filterChoices), and the Group by
      mandate toggle when some job has a mandate. Chips and search live in the table, never in prefs. -->
 <script lang="ts">
-  import Icon from '../ui/Icon.svelte';
-  import Select from '../ui/Select.svelte';
-  import CloseButton from '../ui/CloseButton.svelte';
-  import { filterChoices } from '../../lib/jobs/board.ts';
-  import type { FilterChip, FilterField } from '../../lib/jobs/board.ts';
-  import type { JobLike } from '../../lib/jobs/state.ts';
-  import { STAGE_LABEL } from '../../lib/core/labels.ts';
-  import type { Stage } from '../../lib/core/types.ts';
-  import type { SelectOption } from '../../lib/ui/select.ts';
-  import { t } from '../../lib/text/locale.ts';
+  import Icon from '../../ui/Icon.svelte';
+  import Select from '../../ui/Select.svelte';
+  import CloseButton from '../../ui/CloseButton.svelte';
+  import { filterChoices } from '../../../lib/jobs/board.ts';
+  import type { FilterChip, FilterField } from '../../../lib/jobs/board.ts';
+  import type { JobLike } from '../../../lib/jobs/state.ts';
+  import { STAGE_LABEL } from '../../../lib/core/labels.ts';
+  import type { Stage } from '../../../lib/core/types.ts';
+  import type { SelectOption } from '../../../lib/ui/select.ts';
+  import { t } from '../../../lib/text/locale.ts';
 
   let {
     jobs,

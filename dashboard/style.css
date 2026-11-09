@@ -1103,6 +1103,23 @@
 @utility graph-edge-runtime { stroke-dasharray: 5 4; }
 @utility graph-edge-lit { stroke: var(--gleam); stroke-width: 2; }
 @utility graph-arrow { fill: var(--line-strong); &.lit { fill: var(--gleam); } }
+/* The Pipeline graph (components/jobs/GraphBlock.svelte): an edge stays dashed until its upstream merges, then solid.
+   A merge seen after the page settled runs one heat line along each edge it satisfies, drawn on and faded over
+   --heat-cool; it ends invisible, so an overlay removed late shows nothing. The markup hides it under reduced motion. */
+@utility graph-edge-open { stroke-dasharray: 4 4; }
+@utility graph-edge-heat {
+  fill: none; stroke: var(--heat); stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1;
+  animation: edge-heat var(--heat-cool) var(--ease-enter) forwards;
+}
+@keyframes edge-heat { 0% { stroke-dashoffset: 1; opacity: 1; } 60% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+/* A started node's stage track: nine hairline segments, past and current in gleam, a current step that needs a person
+   in ember (stageSteps marks it), the rest a soft seam. */
+@utility graph-track {
+  display: flex; gap: 2px; height: 2px;
+  & > i { flex: 1 1 0; background: var(--line-soft); }
+  & > i.past, & > i.now { background: var(--gleam); }
+  & > i.now.ember { background: var(--ember); }
+}
 
 /* ---------- series: the Overview's stacked bars (components/metrics/StackedBars.svelte) ----------
    One colour per project, the same in the bars (fill) and the legend swatch (background), cycling by name order

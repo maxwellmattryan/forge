@@ -31,7 +31,7 @@
     }
   ],
   "expect": {
-    "pipeline": ["Tidy the changelog script", "90k tok"],
+    "pipeline": ["Tidy the changelog script"],
     "project": ["@project.empty"],
     "issues": ["@issues.empty"],
     "agents": ["@agents.running", "Tidy the changelog script"],

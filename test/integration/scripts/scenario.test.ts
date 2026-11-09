@@ -66,7 +66,7 @@ async function readJobs(root: string): Promise<SeededJob[]> {
   );
 }
 
-const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: string; root: string; jobs: Record<string, string> }) => void }[] = [
+const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: string; root: string; jobs: Record<string, string> }) => void | Promise<void> }[] = [
   { name: 'empty', check: (jobs) => assert.equal(jobs.length, 0) },
   {
     name: 'busy',
@@ -114,11 +114,27 @@ const ROWS: { name: string; check: (jobs: SeededJob[], seeded: { worktrees: stri
       assert.ok(fs.readFileSync(path.join(seeded.root, '.forge', 'backlog.md'), 'utf8').includes(`→ ${seeded.jobs.export}`));
     },
   },
+  {
+    name: 'mandate',
+    check: async (jobs, seeded) => {
+      // The mandates run before any job, so each job's --mandate names one that exists.
+      const billing = json(await forgeAsync(seeded.root, ['mandate', 'show', 'm-0000b111', '--json']));
+      assert.equal(billing.title, 'Billing v2');
+      assert.equal(billing.state, 'active');
+      const file = (id: string): string => path.join(seeded.root, '.forge', 'runtime', 'mandates', `${id}.md`);
+      assert.ok(fs.existsSync(file('m-0000b111')), 'an open mandate keeps its file');
+      // A step closed and deleted Old cleanup; its job still names it.
+      assert.equal(fs.existsSync(file('m-0000d222')), false, 'the deleted mandate has no file');
+      const legacy = json(await forgeAsync(seeded.root, ['job', 'get', seeded.jobs.legacy, 'mandate', '--json']));
+      assert.equal(legacy, 'm-0000d222');
+      assert.deepEqual(jobs.filter((j) => j.stage === 'done').map((j) => j.title), ['Ledger schema']);
+    },
+  },
 ];
 
 describe('scripts/scenario.ts', () => {
   it('listScenarios reads the scenario dir', async () => {
-    assert.deepEqual(listScenarios(), ['busy', 'costs', 'empty', 'failures', 'gates', 'issues']);
+    assert.deepEqual(listScenarios(), ['busy', 'costs', 'empty', 'failures', 'gates', 'issues', 'mandate']);
     const dir = tempDir();
     try {
       writeScenario(dir, 'extra', valid());
@@ -158,7 +174,7 @@ describe('scripts/scenario.ts', () => {
           const titles = loadScenario(row.name).jobs.map((j) => j.title);
           assert.deepEqual(jobs.map((j) => j.title).sort(), [...titles].sort());
           assert.deepEqual(Object.keys(seeded.jobs).length, titles.length);
-          row.check(jobs, seeded);
+          await row.check(jobs, seeded);
         } finally {
           seeded.cleanup();
         }
@@ -198,6 +214,22 @@ describe('scripts/scenario.ts', () => {
       ['backlog-not-string', { ...valid(), backlog: ['- [ ] x'] }, 'backlog must be a non-empty string'],
       ['backlog-unknown-key', { ...valid(), backlog: '- [~] x → {id:nope}' }, 'backlog: unknown job key "nope"'],
       ['issue-no-backlog', { ...valid(), expect: { ...valid().expect, issue: [{ title: 'x' }] } }, 'expect.issue needs a backlog'],
+      // A mandates entry is `mandate new` only: a goal queues a drafting run, a body file reads any local file,
+      // --json is the seeder's, and no job exists yet for a placeholder to name.
+      ['mandates-not-list', { ...valid(), mandates: { new: [] } }, 'mandates must be a list'],
+      ['mandates-entry', { ...valid(), mandates: ['new'] }, 'mandate 1: a mandate is the string list'],
+      ...['pause', 'cancel', 'draft', '--title'].map((sub, i): [string, unknown, string] => [`mandates-sub-${i}`, { ...valid(), mandates: [[sub, 'm-0000a001', '--title', 'T']] }, `forge mandate ${sub} is not allowed`]),
+      ...['--goal', '--goal=ship it', '--goal-file', '--goal-file=goal.md', '--body-file', '--body-file=/etc/passwd'].map((flag, i): [string, unknown, string] => [
+        `mandates-flag-${i}`,
+        { ...valid(), mandates: [['new', '--title', 'T', ...(flag.includes('=') ? [flag] : [flag, 'x'])]] },
+        `must not pass ${flag.split('=')[0]}`,
+      ]),
+      ['mandates-json', { ...valid(), mandates: [['new', '--title', 'T', '--json']] }, 'must not pass --json'],
+      ['mandates-placeholder', { ...valid(), mandates: [['new', '--title', '{id:a}']] }, 'placeholders are not allowed'],
+      // Of `mandate`, steps run only the status moves: cancel queues cancel requests, edit takes --body-file,
+      // draft approve files to a tracker, and a flag in argv[1] must not stand in for the subcommand.
+      ...['cancel', 'edit', 'draft', 'plan', '--reason'].map((sub, i): [string, unknown, string] => [`step-mandate-${i}`, jobWith({ steps: [['mandate', sub, 'm-0000a001']] }), `forge mandate ${sub} is not allowed`]),
+      ['step-mandate-bare', jobWith({ steps: [['mandate']] }), 'forge mandate is not allowed'],
     ];
     try {
       for (const [name, body] of rows) writeScenario(dir, name, body);
@@ -213,10 +245,12 @@ describe('scripts/scenario.ts', () => {
       }
       // The baseline the rows break loads, its @keys resolved and its drawer defaulted to the first job.
       // and each allowed command group loads.
-      const steps = [['job', 'set', '{id}', '--stage', 'spec'], ['job', 'human', '{id}', 'approve'], ['worktree', 'create', '{id}'], ['verify', '{id}'], ['requests', 'list']];
-      writeScenario(dir, 'ok', { ...valid(), jobs: [{ key: 'a', title: 'Job A', steps }], expect: { ...valid().expect, evals: ['@nav.evals'] } });
+      const steps = [['job', 'set', '{id}', '--stage', 'spec'], ['job', 'human', '{id}', 'approve'], ['worktree', 'create', '{id}'], ['verify', '{id}'], ['requests', 'list'], ...['pause', 'resume', 'close', 'delete'].map((sub) => ['mandate', sub, 'm-0000a001'])];
+      const mandates = [['new', 'm-0000a001', '--title', 'Billing', '--order', 'listed', '--issues', 'a,b']];
+      writeScenario(dir, 'ok', { ...valid(), mandates, jobs: [{ key: 'a', title: 'Job A', steps }], expect: { ...valid().expect, evals: ['@nav.evals'] } });
       const ok = loadScenario('ok', dir);
       assert.equal(ok.jobs[0].steps.length, steps.length);
+      assert.deepEqual(ok.mandates, mandates);
       assert.deepEqual(ok.expect.views.evals, [MESSAGES.nav.evals]);
       assert.deepEqual(ok.expect.drawer, { title: 'Job A', text: [] });
     } finally {

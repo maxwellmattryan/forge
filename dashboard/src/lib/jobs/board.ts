@@ -1,5 +1,5 @@
-// The Pipeline page's board and table: filters, counts, columns, urgency order, each card's slots, and the table's
-// sort, filter chips and mandate groups. No DOM access.
+// The Pipeline page's layout choice (graph, board or table), and its board and table: filters, counts, columns, urgency
+// order, each card's slots, and the table's sort, filter chips and mandate groups. No DOM access.
 import type { Progress, Stage } from '../core/types.ts';
 import { MANDATE_ID_SOURCE } from '../core/types.ts';
 import { STAGE_LABEL } from '../core/labels.ts';
@@ -9,6 +9,13 @@ import { isOpen, isShelved, needsHuman, prChipModel, progressWidth } from './sta
 import type { JobLike } from './state.ts';
 
 const s = (v: unknown): string => String(v ?? '');
+
+/** The Pipeline's layouts, in the switch's order: the graph first, as the default. */
+export const PIPELINE_LAYOUTS = ['graph', 'board', 'table'] as const;
+export type PipelineLayout = (typeof PIPELINE_LAYOUTS)[number];
+
+/** The layout a saved `layout` pref opens: board or table as saved, the graph for anything else (none, or an old or unknown value). */
+export const pipelineLayout = (raw: string): PipelineLayout => (raw === 'board' || raw === 'table' ? raw : 'graph');
 
 /** The Waiting filter: a job waiting, blocked or failed, but not one a person set aside. */
 const waits = (j: JobLike): boolean => ['waiting', 'blocked', 'failed'].includes(j.state as string) && !isShelved(j);
@@ -290,7 +297,7 @@ export const stepPosition = (steps: StageStep[]): number => {
  * An issue as a short label: `#12` for a bare number, `repo#12` for `owner/repo#12` (the dashboard
  * knows no repo slug, so a qualified ref keeps its last segment), any other ref as it is.
  */
-function issueLabel(ref: unknown): string | null {
+export function issueLabel(ref: unknown): string | null {
   const r = s(ref);
   if (!r) return null;
   if (/^\d+$/.test(r)) return `#${r}`;

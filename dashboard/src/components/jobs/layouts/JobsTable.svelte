@@ -5,26 +5,26 @@
      Group by mandate (the saved `tableGroup`) splits them into one collapsible tbody per mandate. -->
 <script lang="ts">
   import { SvelteSet } from 'svelte/reactivity';
-  import StateChip from './StateChip.svelte';
-  import VerdictChip from './VerdictChip.svelte';
-  import PrChip from './PrChip.svelte';
-  import StageStepper from './StageStepper.svelte';
+  import StateChip from '../StateChip.svelte';
+  import VerdictChip from '../VerdictChip.svelte';
+  import PrChip from '../PrChip.svelte';
+  import StageStepper from '../StageStepper.svelte';
   import JobsTableFilters from './JobsTableFilters.svelte';
-  import BudgetCell from '../metrics/BudgetCell.svelte';
-  import MandateBadge from '../office/MandateBadge.svelte';
-  import Icon from '../ui/Icon.svelte';
-  import { ago, num, usd } from '../../lib/core/util.ts';
-  import { cardModel, filterTable, groupByMandate, nextSort, openNeedIds, parseSort, sortPref, sortTable, tableColumns, tableRows } from '../../lib/jobs/board.ts';
-  import type { FilterChip, SortColumn, TableSort } from '../../lib/jobs/board.ts';
-  import { depChipTitle, depLinks } from '../../lib/jobs/deps.ts';
-  import { prChipModel } from '../../lib/jobs/state.ts';
-  import type { JobLike } from '../../lib/jobs/state.ts';
-  import { budgetCellModel, unattendedDefault } from '../../lib/metrics/budget.ts';
-  import { pref } from '../../lib/settings/prefs.ts';
-  import { S, openDrawer } from '../../lib/core/app.svelte.ts';
-  import { ticker } from '../../lib/core/clock.svelte.ts';
-  import type { Job, StateJob } from '../../lib/core/types.ts';
-  import { t } from '../../lib/text/locale.ts';
+  import BudgetCell from '../../metrics/BudgetCell.svelte';
+  import MandateBadge from '../../office/MandateBadge.svelte';
+  import Icon from '../../ui/Icon.svelte';
+  import { ago, num, usd } from '../../../lib/core/util.ts';
+  import { cardModel, filterTable, groupByMandate, nextSort, openNeedIds, parseSort, sortPref, sortTable, tableColumns, tableRows } from '../../../lib/jobs/board.ts';
+  import type { FilterChip, SortColumn, TableSort } from '../../../lib/jobs/board.ts';
+  import { depChipTitle, depLinks } from '../../../lib/jobs/deps.ts';
+  import { prChipModel } from '../../../lib/jobs/state.ts';
+  import type { JobLike } from '../../../lib/jobs/state.ts';
+  import { budgetCellModel, unattendedDefault } from '../../../lib/metrics/budget.ts';
+  import { pref } from '../../../lib/settings/prefs.ts';
+  import { S, openDrawer } from '../../../lib/core/app.svelte.ts';
+  import { ticker } from '../../../lib/core/clock.svelte.ts';
+  import type { Job, StateJob } from '../../../lib/core/types.ts';
+  import { t } from '../../../lib/text/locale.ts';
 
   let { jobs }: { jobs: StateJob[] } = $props();
   // App remounts this on a project switch, so reading the prefs at mount is enough.
