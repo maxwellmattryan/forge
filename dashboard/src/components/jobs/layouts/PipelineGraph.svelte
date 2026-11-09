@@ -1,5 +1,6 @@
 <!-- The Pipeline's Graph layout (issue #714): a plate per open mandate, its plan's issues by dependency depth with each
-     live job on its issue, then a "No mandate" plate of the other jobs as dependsOn chains and lone nodes. On mount it
+     live job on its issue, then a "No mandate" plate of the other jobs the filter keeps as dependsOn chains and lone
+     nodes. On mount it
      loads the mandates and each open mandate's plan in parallel, again every 15 s while the tab is visible; a reply for
      another project is dropped, and a failed plan keeps the last good one. Job state comes from the 2 s state poll, so
      marks and edges move between plan fetches. A merge seen after the page settled heats the edges it satisfies once.
@@ -61,7 +62,8 @@
 
   const jobs = $derived(S.data?.jobs ?? []);
   const graph = $derived(pipelineGraph({ jobs, mandates: S.mandates?.mandates ?? null, plans, planErrors, filter: S.filter, size: S.pane.md ? PLAN_SIZE : PLAN_SIZE_COMPACT }));
-  const empty = $derived(jobs.length === 0 && graph.plates.length === 0);
+  // Nothing to draw: no open mandate, and no job the filter keeps under No mandate.
+  const empty = $derived(graph.plates.length === 0 && graph.loose.count === 0);
   const mandatesError = $derived(S.mandates === null ? S.mandatesError : null);
 
   // Heat: the edges leaving a node that merged since the last render, once the page has settled. `prev` is plain, not
