@@ -182,11 +182,11 @@
           type="button"
           role="menuitem"
           tabindex="-1"
-          class="flex flex-col items-start gap-0.5 px-2 py-1.5 text-left hover:bg-raised focus-visible:bg-raised {item.danger ? 'text-bad' : 'text-fg'} {item.disabled ? 'opacity-40 cursor-default' : ''} {item.separator ? 'mt-1 border-t border-line-soft' : ''}"
+          class="flex flex-col items-start gap-0.5 px-2 py-1.5 text-left hover:bg-raised focus-visible:bg-raised {item.danger ? 'text-bad' : 'text-fg'} {item.disabled ? 'cursor-default' : ''} {item.separator ? 'mt-1 border-t border-line-soft' : ''}"
           aria-disabled={item.disabled ? 'true' : undefined}
           aria-describedby={item.hint ? `${uid}-hint-${i}` : undefined}
           onclick={() => choose(item)}
-        ><span>{item.label}</span>{#if item.hint}<span id="{uid}-hint-{i}" class="text-xs text-muted">{item.hint}</span>{/if}</button>
+        ><span class={item.disabled ? 'opacity-40' : ''}>{item.label}</span>{#if item.hint}<span id="{uid}-hint-{i}" class="text-xs text-muted">{item.hint}</span>{/if}</button>
       {/each}
     </div>
   {:else}

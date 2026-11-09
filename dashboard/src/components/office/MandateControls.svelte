@@ -42,15 +42,31 @@
   });
   const items = $derived<MenuItem[]>(mandateMenu(m).map((i) => ({ ...i, label: labels[i.id], hint: i.disabled ? hints[i.id] : undefined })));
 
+  // Every focus target on the page, in order, when a confirm opens: if the action removes this mandate's controls
+  // (Close drops a plate, Delete a group row), focus goes to the next one still there, else the previous, not <body>.
+  const TARGETS = '[id^="mandate-menu-"], th[scope="rowgroup"] button[aria-expanded]';
+  let targets: string[] = [];
+  const targetId = (el: Element): string => {
+    if (!el.id) el.id = `mandate-focus-${Math.random().toString(36).slice(2, 8)}`;
+    return el.id;
+  };
+
   async function refocus(): Promise<void> {
     await tick();
-    document.getElementById(menuId)?.focus();
+    const own = document.getElementById(menuId);
+    if (own) return own.focus();
+    const at = targets.indexOf(menuId);
+    const next = [...targets.slice(at + 1), ...targets.slice(0, at).reverse()].map((id) => document.getElementById(id)).find((el) => el !== null);
+    next?.focus();
   }
 
   function select(id: string): void {
     if (busy || confirmBusy) return;
     if (id === 'edit') onedit();
-    else if (id === 'close' || id === 'cancel' || id === 'delete') confirming = id;
+    else if (id === 'close' || id === 'cancel' || id === 'delete') {
+      targets = [...document.querySelectorAll(TARGETS)].map(targetId);
+      confirming = id;
+    }
   }
 
   function closeConfirm(): void {

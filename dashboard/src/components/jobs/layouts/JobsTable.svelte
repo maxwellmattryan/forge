@@ -49,7 +49,10 @@
   const cols = $derived(tableColumns(jobs, (j) => budgetCellModel(j as Job, S.data?.config?.pipeline?.budget, unattendedDefault(S.data?.config)).kind !== 'none', all));
   // Once the mandates list has loaded, a deleted mandate's jobs group under No mandate, as on the graph.
   const known = $derived(S.mandates ? new Set(S.mandates.mandates.map((m) => m.id)) : null);
-  const showGroup = $derived(groupByMandate(jobs, known).some((g) => g.mandate !== null));
+  // A job naming a deleted mandate still counts, so deleting the last mandate leaves the grouping (its jobs under No mandate).
+  const showGroup = $derived(groupByMandate(jobs).some((g) => g.mandate !== null));
+  /** The mandate id to show for a job: none once the mandate is gone, matching the group it falls under. */
+  const mandateOf = (j: StateJob): string | null | undefined => (j.mandate && known && !known.has(j.mandate) ? null : j.mandate);
   const grouped = $derived(showGroup && group);
   const columnCount = $derived(5 + cols.size);
   const PHONE_HIDDEN = 'hidden @min-[40rem]:table-cell';
@@ -103,7 +106,7 @@
     <td class="mono muted text-[11px] whitespace-nowrap" title={m.refTitle}>{m.ref}</td>
     <!-- stopPropagation: the row's own click would load the drawer a second time. -->
     <!-- No minimum width on a phone, and a long unbroken title wraps anywhere, so State still fits beside Job and Title. -->
-    <td class="@min-[40rem]:min-w-48"><button class="h card block text-left wrap-anywhere hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button>{#if !grouped}<MandateBadge mandate={j.mandate} extra="mt-1" />{/if}</td>
+    <td class="@min-[40rem]:min-w-48"><button class="h card block text-left wrap-anywhere hover:text-gleam" onclick={(e) => { e.stopPropagation(); openDrawer(j.id); }}>{j.title}</button>{#if !grouped}<MandateBadge mandate={mandateOf(j)} extra="mt-1" />{/if}</td>
     <td class={PHONE_HIDDEN}><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}</span></div></td>
     <td><StateChip job={j} /></td>
     {#if cols.has('needs')}<td class="{PHONE_HIDDEN} mono text-[11px]" title={needs.length ? needs.map(depChipTitle).join('\n') : undefined}>{needs.length ? needs.map((l) => l.ref ?? l.id).join(' ') : '—'}</td>{/if}
@@ -119,7 +122,7 @@
 <!-- The scroller sits inside the plate, so the plate's cut corners clip it. -->
 <div class="plate flat">
   <JobsTableFilters {jobs} bind:chips bind:text {group} ongroup={toggleGroup} {showGroup} />
-  <div class="overflow-x-auto">
+  <div class="@container overflow-x-auto">
   <table class="tbl">
     <thead><tr>
       {@render head('job', $t('common.job'), '')}
@@ -145,7 +148,7 @@
           {#each tableRows([g], collapsed) as r (r.kind === 'group' ? ':group' : r.job.id)}
             {#if r.kind === 'group'}
               {@const mrow = g.mandate === null ? null : rowOf(g.mandate)}
-              <tr><th scope="rowgroup" colspan={columnCount}><div class="flex flex-wrap items-center gap-x-2 gap-y-1"><button type="button" class="inline-flex items-center gap-2 uppercase hover:text-fg" aria-expanded={r.open} onclick={() => toggleCollapsed(key)}><Icon name="chevron-down" class="sm {r.open ? '' : '-rotate-90'}" />{$t('table.group.mandate')}<span class="text-fg normal-case tracking-normal">{g.mandate ?? $t('table.filter.noMandate')}</span>{' · '}{$t('table.group.count', { jobs: g.jobs.length, merged: g.merged })}</button>{#if mrow}<MandateControls m={mrow} onedit={() => (editing = mrow.id)} />{/if}</div></th></tr>
+              <tr><th scope="rowgroup" colspan={columnCount}><div class="sticky left-0 flex w-[calc(100cqw-1.5rem)] flex-wrap items-center gap-x-2 gap-y-1"><button type="button" class="inline-flex items-center gap-2 uppercase hover:text-fg" aria-expanded={r.open} onclick={() => toggleCollapsed(key)}><Icon name="chevron-down" class="sm {r.open ? '' : '-rotate-90'}" />{$t('table.group.mandate')}<span class="text-fg normal-case tracking-normal">{g.mandate ?? $t('table.filter.noMandate')}</span>{' · '}{$t('table.group.count', { jobs: g.jobs.length, merged: g.merged })}</button>{#if mrow}<MandateControls m={mrow} onedit={() => (editing = mrow.id)} />{/if}</div></th></tr>
             {:else}
               {@render row(r.job)}
             {/if}

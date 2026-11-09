@@ -30,6 +30,8 @@
   /** The confirm row open for Pause or Close (MandateConfirm holds its reason and posts it). */
   let confirming = $state<'pause' | 'close' | null>(null);
   let busy = $state(false);
+  /** MandateConfirm's request runs: Edit waits, as it did when the row shared `busy`. */
+  let confirmBusy = $state(false);
 
   async function closeConfirm(done: boolean): Promise<void> {
     const was = confirming;
@@ -150,11 +152,11 @@
 
   {#if actions.length && S.data}
     <div class="flex flex-wrap gap-2">
-      {#if actions.includes('edit')}<button id="mandate-edit-{m.id}" class="btn" disabled={busy} onclick={() => onedit?.()}>{$t('foreman.mandate.edit')}</button>{/if}
+      {#if actions.includes('edit')}<button id="mandate-edit-{m.id}" class="btn" disabled={busy || confirmBusy} onclick={() => onedit?.()}>{$t('foreman.mandate.edit')}</button>{/if}
       {#if actions.includes('pause') && confirming !== 'pause'}<button id="mandate-pause-{m.id}" class="btn" disabled={busy || confirming !== null} onclick={() => (confirming = 'pause')}>{$t('foreman.mandate.pause')}</button>{/if}
       {#if actions.includes('resume')}<button class="btn" disabled={busy || confirming !== null} aria-busy={busy} onclick={resume}>{$t('foreman.mandate.resume')}</button>{/if}
       {#if actions.includes('close') && confirming !== 'close'}<button id="mandate-close-{m.id}" class="btn" disabled={busy || confirming !== null} onclick={() => (confirming = 'close')}>{$t('foreman.mandate.close')}</button>{/if}
     </div>
-    {#if confirming}<MandateConfirm {m} kind={confirming} onclose={closeConfirm} />{/if}
+    {#if confirming}<MandateConfirm {m} kind={confirming} bind:busy={confirmBusy} onclose={closeConfirm} />{/if}
   {/if}
 </article>
