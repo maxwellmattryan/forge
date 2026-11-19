@@ -1,5 +1,30 @@
-// Where a small menu popover (components/ui/overlay/MenuButton.svelte, components/ui/Select.svelte) opens, and where focus waits while
-// a button's action runs, as plain functions node:test can pin.
+// Where a small menu popover (components/ui/overlay/MenuButton.svelte, components/ui/Select.svelte) opens, which item an
+// arrow key moves a role="menu" panel's focus to (MenuButton's menu mode: a mandate plate's ⋯), and where focus waits
+// while a button's action runs, as plain functions node:test can pin.
+
+/** One item of MenuButton's menu mode: `hint` explains a disabled item, `separator` draws a rule above it. */
+export interface MenuItem {
+  id: string;
+  label: string;
+  hint?: string;
+  disabled?: boolean;
+  danger?: boolean;
+  separator?: boolean;
+}
+
+/**
+ * The item index `key` moves focus to from `from` in a menu of `count` items: ArrowDown and ArrowUp wrap at the ends,
+ * Home and End jump to them; any other key, or an empty menu, is -1 (not handled). Disabled items stay reachable, so
+ * their hint is announced.
+ */
+export function menuMove(count: number, from: number, key: string): number {
+  if (count <= 0) return -1;
+  if (key === 'ArrowDown') return (from + 1) % count;
+  if (key === 'ArrowUp') return (from - 1 + count) % count;
+  if (key === 'Home') return 0;
+  if (key === 'End') return count - 1;
+  return -1;
+}
 
 export interface MenuPlaceInput {
   /** The trigger's rect edges, in viewport px. */

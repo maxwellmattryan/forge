@@ -1,9 +1,10 @@
 // The Office page's model: the editor's exact POST bodies, the mandate groups and the
-// actions each status offers, the pending gates, the directives feed and the badge.
+// actions each status offers, the Pipeline's toggle, menu and action requests, the pending gates, the directives feed and the badge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   blankForm,
+  deleteReady,
   directiveActor,
   directiveFeed,
   editMandateBody,
@@ -11,10 +12,16 @@ import {
   mandateActions,
   mandateBadge,
   mandateGroups,
+  mandateMenu,
+  mandateToggle,
   mergeQueueView,
   newMandateBody,
   pendingGates,
+  postMandateCancel,
+  postMandateDelete,
+  postMandateStatus,
 } from './foreman.ts';
+import { setProject } from '../core/project.ts';
 import type { Directive, ForgeRequest, MandateRow, UnreadableMandateRow } from '../core/types.ts';
 
 const row = (id: string, o: Partial<MandateRow> = {}): MandateRow => ({
@@ -123,6 +130,71 @@ test('mandate groups and actions', () => {
   assert.deepEqual(mandateActions(row('c', { status: 'paused', state: 'paused' })), ['edit', 'resume', 'close']);
   assert.deepEqual(mandateActions(row('b', { status: 'closed', state: 'closed' })), []);
   assert.deepEqual(mandateActions(bad), []);
+});
+
+test('mandate toggle and menu', () => {
+  const bad: UnreadableMandateRow = { id: 'bad', problem: 'no frontmatter between --- lines' };
+  const active = row('a');
+  const waiting = row('w', { state: 'waiting' });
+  const paused = row('p', { status: 'paused', state: 'paused' });
+  const closed = row('c', { status: 'closed', state: 'closed' });
+  assert.equal(mandateToggle(active), 'pause');
+  assert.equal(mandateToggle(waiting), 'pause');
+  assert.equal(mandateToggle(paused), 'resume');
+  assert.equal(mandateToggle(closed), null);
+  assert.equal(mandateToggle(bad), null);
+
+  // Edit, a rule, Close, Cancel with its jobs, a rule, Delete in danger.
+  const shape = (m: MandateRow | UnreadableMandateRow) => mandateMenu(m).map((i) => `${i.separator ? '|' : ''}${i.id}${i.danger ? '!' : ''}${i.disabled ? ':off' : ''}`);
+  const open = ['edit', '|close', 'cancel', '|delete!:off'];
+  assert.deepEqual(shape(active), open);
+  assert.deepEqual(shape(waiting), open);
+  assert.deepEqual(shape(paused), open);
+  assert.deepEqual(shape(closed), ['edit:off', '|close:off', 'cancel', '|delete!'], 'a closed mandate is only cancelled or deleted');
+  assert.deepEqual(mandateMenu(bad), []);
+});
+
+test('mandate action requests', async () => {
+  const seen: { url: string; body: unknown }[] = [];
+  const ok = (reply: unknown) =>
+    (async (url: string, init: RequestInit) => {
+      seen.push({ url, body: JSON.parse(String(init.body)) });
+      return new Response(JSON.stringify(reply), { status: 200 });
+    }) as unknown as typeof fetch;
+  setProject('web');
+  const m = row('m-0000b111');
+
+  // Pause and play from a plate: no reason, no confirmation.
+  await postMandateStatus(m.id, 'pause', '', ok({ ok: true, changed: true, mandate: m }));
+  await postMandateStatus(m.id, 'resume', '', ok({ ok: true, changed: true, mandate: m }));
+  // Cancel with its jobs: the trimmed reason, null when blank.
+  const cancelled = await postMandateCancel(m.id, '  scope moved  ', ok({ ok: true, changed: true, mandate: m, cancelled: [{ job: 'j1', request: 'r1' }] }));
+  assert.deepEqual(cancelled.cancelled, [{ job: 'j1', request: 'r1' }]);
+  await postMandateCancel(m.id, '   ', ok({ ok: true, changed: false, mandate: m, cancelled: [] }));
+  // Delete echoes the id as confirm.
+  assert.deepEqual(await postMandateDelete(m.id, ok({ ok: true, deleted: m.id, jobs: ['j1'] })), { ok: true, deleted: m.id, jobs: ['j1'] });
+  assert.deepEqual(seen, [
+    { url: '/api/p/web/mandates/m-0000b111/pause', body: { reason: null } },
+    { url: '/api/p/web/mandates/m-0000b111/resume', body: {} },
+    { url: '/api/p/web/mandates/m-0000b111/cancel', body: { reason: 'scope moved' } },
+    { url: '/api/p/web/mandates/m-0000b111/cancel', body: { reason: null } },
+    { url: '/api/p/web/mandates/m-0000b111/delete', body: { confirm: 'm-0000b111' } },
+  ]);
+
+  // A refusal rejects with the server's error text.
+  const refusing = (async () => new Response(JSON.stringify({ error: 'mandate m-0000b111 is not closed' }), { status: 409 })) as unknown as typeof fetch;
+  await assert.rejects(postMandateDelete(m.id, refusing), /mandate m-0000b111 is not closed/);
+  await assert.rejects(postMandateCancel(m.id, '', refusing), /mandate m-0000b111 is not closed/);
+
+  // The typed id: exact after trimming, nothing else.
+  for (const [typed, ready] of [
+    ['m-0000b111', true],
+    ['  m-0000b111 ', true],
+    ['M-0000B111', false],
+    ['m-0000b11', false],
+    ['', false],
+  ] as const)
+    assert.equal(deleteReady(typed, 'm-0000b111'), ready, JSON.stringify(typed));
 });
 
 test('the gates no gate run has taken yet', () => {

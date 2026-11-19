@@ -241,12 +241,13 @@ const effortError = (v: unknown) => `unknown effort ${JSON.stringify(v)} (${EFFO
 export function createJob(
   root: string,
   config: Config,
-  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; components?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null; mandate?: string | null },
+  opts: { title: string; issues?: JobIssue[]; body?: string; parent?: string; branch?: string; kind?: string; slug?: string; components?: string[]; origin?: string; splitMode?: 'never' | null; effort?: Effort | null; mandate?: string | null; base?: string },
 ): LoadedJob {
   const title = oneLineTitle(opts.title);
   if (!title || (opts.effort != null && !isEffort(opts.effort))) throw new ForgeError(title ? effortError(opts.effort) : 'a job needs a title');
-  // A PR's headRefName arrives here as --branch, and the branch later fills shell templates.
+  // A PR's headRefName arrives here as --branch, and both refs later reach git and shell templates (job new checks --base too).
   if (opts.branch !== undefined) assertSafeRef(opts.branch, '--branch');
+  if (opts.base !== undefined) assertSafeRef(opts.base, '--base');
   const p = paths(root);
   fs.mkdirSync(p.jobs, { recursive: true });
   const slug = opts.slug ? slugify(opts.slug) : slugify(title, 5);
@@ -272,7 +273,7 @@ export function createJob(
     parent: opts.parent ?? null,
     components: opts.components ?? [], componentsDeclared: opts.components?.length ? opts.components : null,
     branch: opts.branch ?? `${config.git.branchPrefix}${id}`,
-    base: config.git.base,
+    base: opts.base ?? config.git.base,
     maxRounds: config.pipeline.maxRounds,
     splitMode: opts.splitMode ?? null,
     effort: opts.effort ?? null, mandate: opts.mandate ?? null,

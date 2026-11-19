@@ -1310,6 +1310,7 @@ See [Local links](CONFIG.md#local-links).
 
 | Flag | Meaning |
 |---|---|
+| `--base B` | the branch it starts from and its PR targets (default: git.base); must be a branch on git.remote, and a daemon session may not pass it |
 | `--body B` | the text |
 | `--body-file F` | read the text from F (- for stdin); in a daemon session F must be inside the session job's folder or worktree |
 | `--branch B` | the branch to push to (default: git.branchPrefix + id) |
@@ -1332,7 +1333,8 @@ See [Local links](CONFIG.md#local-links).
 
 | Exit | When |
 |---|---|
-| 1 | an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's |
+| 1 | an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, a --mandate that is unknown (not_found), closed, unreadable or not --parent's, an unsafe --base, one not on git.remote or equal to --branch, or --base from a daemon session |
+| 5 | git ls-remote failed while checking --base |
 
 **`forge job note <id> [text] [--body B | --body-file F] [--for builder]`**: log a note event. With --for builder it is a person's hint for the job's builder instead: logs a builder-note event, rewrites approval-notes.md (which the builder brief lists) and returns approvalNotes { path, written, error? }
 
@@ -1472,7 +1474,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job |
 
-**`forge job split <id>`**: turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing
+**`forge job split <id>`**: turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate and base, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing
 
 | Exit | When |
 |---|---|
@@ -2407,7 +2409,7 @@ A job's git worktree.
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
+| 1 | no such job, an unsafe branch name, a dependency that lands on another base than the job's or whose branch Forge did not name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
 | 5 | git failed |
 
 **`forge worktree path <id> [--repo NAME]`**: the worktree's path, or member repo NAME's (empty when it has none)

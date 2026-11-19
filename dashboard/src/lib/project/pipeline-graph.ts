@@ -1,7 +1,8 @@
 // The Pipeline's graph layout (issue #714): one plate per open mandate, its plan's issues laid out by dependency depth
 // with each live job on its issue, then the jobs in no mandate as dependsOn chains and lone nodes. Each node's mark,
-// state line, stage track, filter match and place, each edge's style, and the merges that heat an edge. Plain TS, no
-// DOM access, so node:test can pin it. Job, plan and mandate text is job, tracker or owner text: it renders as text.
+// state line, stage track, filter match and place, each edge's style, and the merges that heat an edge. A plate always
+// shows its whole plan (Active dims none of it, Waiting and Done dim what they leave out); under No mandate the filter
+// hides the jobs it leaves out. Plain TS, no DOM access, so node:test can pin it. Job, plan and mandate text is job, tracker or owner text: it renders as text.
 import type { MandatePlanResponse, MandateRow, Stage, UnreadableMandateRow } from '../core/types.ts';
 import { STAGE_LABEL } from '../core/labels.ts';
 import { cardModel, cardRef, filterJobs, issueLabel, STEPPER_STAGES, type StageStep } from '../jobs/board.ts';
@@ -35,7 +36,7 @@ export interface GNode {
   dashed: boolean;
   /** The 9-segment stage track, only on a started node. */
   steps: StageStep[] | null;
-  /** Kept by the filter; a node that is not is dimmed, never removed. */
+  /** Kept by the filter; a plate's node that is not is dimmed (No mandate drops it instead). Under Active every plate node is kept. */
   match: boolean;
   x: number;
   y: number;
@@ -152,9 +153,18 @@ function matches(job: JobLike | null, mark: GraphMark, filter: string): boolean 
 
 /**
  * Lays out one block: marks from the live jobs first, then the plan's own rule for the no-job nodes over those
- * marks. `edges` are layout keys, `from` before `to`; the layout depends only on keys, waves and edges.
+ * marks. `edges` are layout keys, `from` before `to`; the layout depends only on keys, waves and edges. `hidden` is,
+ * by key, the labels of unmerged upstreams the filter hid, which still make a node wait.
  */
-function block(prefix: string, seeds: Seed[], keyEdges: { from: string; to: string }[], filter: string, size: PlanSize): Block {
+function block(
+  prefix: string,
+  seeds: Seed[],
+  keyEdges: { from: string; to: string }[],
+  filter: string,
+  size: PlanSize,
+  plate: boolean,
+  hidden: ReadonlyMap<string, string[]> = new Map(),
+): Block {
   const seedOf = new Map(seeds.map((s) => [s.key, s]));
   const edges = keyEdges.filter((e) => e.from !== e.to && seedOf.has(e.from) && seedOf.has(e.to));
   const ups = new Map<string, string[]>(seeds.map((s) => [s.key, []]));
@@ -168,11 +178,13 @@ function block(prefix: string, seeds: Seed[], keyEdges: { from: string; to: stri
 
   const merged = new Set(seeds.filter((s) => (s.job ? s.job.state === 'done' : s.plan === 'merged')).map((s) => s.key));
   const open = (key: string): string[] => ups.get(key)!.filter((u) => !merged.has(u));
+  /** The labels a node waits on: its open upstreams in the block, then the hidden ones. */
+  const waitsOn = (key: string): string[] => [...open(key).map((u) => seedOf.get(u)!.label), ...(hidden.get(key) ?? [])];
   const mark = new Map<string, GraphMark>();
   for (const s of seeds) {
     const j = s.job;
     if (merged.has(s.key)) mark.set(s.key, 'merged');
-    else if (j) mark.set(s.key, j.state === 'cancelled' ? 'cancelled' : j.state === 'running' ? 'running' : isDependencyPark(j) && open(s.key).length ? 'waiting' : 'held');
+    else if (j) mark.set(s.key, j.state === 'cancelled' ? 'cancelled' : j.state === 'running' ? 'running' : isDependencyPark(j) && waitsOn(s.key).length ? 'waiting' : 'held');
     else if (s.plan === 'running') mark.set(s.key, 'running');
     else mark.set(s.key, open(s.key).length ? 'waiting' : ups.get(s.key)!.length || downs.get(s.key)! ? 'ready' : 'planned');
   }
@@ -185,8 +197,8 @@ function block(prefix: string, seeds: Seed[], keyEdges: { from: string; to: stri
     const m = mark.get(s.key)!;
     let line: GraphLine;
     if (m === 'waiting') {
-      const waits = open(s.key);
-      line = { kind: 'waits', ref: seedOf.get(waits[0])!.label, more: waits.length - 1 };
+      const waits = waitsOn(s.key);
+      line = { kind: 'waits', ref: waits[0], more: waits.length - 1 };
     } else if (j && (m === 'running' || m === 'held')) {
       const stage = STAGE_LABEL[j.stage as Stage] ?? str(j.stage);
       // A queued job's state only repeats its stage ("Queued · queued"), so it shows the stage alone.
@@ -206,7 +218,8 @@ function block(prefix: string, seeds: Seed[], keyEdges: { from: string; to: stri
       line,
       dashed: !live,
       steps: live ? cardModel(j).steps : m === 'merged' ? ALL_PAST : null,
-      match: matches(j, m, filter),
+      // An open mandate shows whole under Active: its merged and cancelled issues too, at full strength.
+      match: (plate && filter === 'active') || matches(j, m, filter),
       x: p.x,
       y: p.y,
       w: p.w,
@@ -283,7 +296,7 @@ export function pipelineGraph(input: GraphInput): PipelineGraph {
     const planEdges = (plan && Array.isArray(plan.edges) ? plan.edges : []).map((e) => ({ from: str(e?.from), to: str(e?.to) }));
     const members = seeds.flatMap((s) => (s.job ? [s.job] : []));
     const extra = (k: string): boolean => k.startsWith(JOB_KEY);
-    const b = block(m.id, seeds, [...planEdges, ...jobEdges(members, keyOf, (f, t) => extra(f) || extra(t))], input.filter, input.size);
+    const b = block(m.id, seeds, [...planEdges, ...jobEdges(members, keyOf, (f, t) => extra(f) || extra(t))], input.filter, input.size, true);
     const problems = (plan && Array.isArray(plan.problems) ? plan.problems : []).map((p) => str(p?.detail));
     return {
       ...head,
@@ -295,8 +308,11 @@ export function pipelineGraph(input: GraphInput): PipelineGraph {
     };
   });
 
-  // No mandate: every job no plate holds, whose mandate is none, closed, deleted, unreadable or unlisted.
-  const rest = jobs.filter((j) => !claimed.has(str(j.id)) && !(typeof j.mandate === 'string' && plateIds.has(j.mandate)) && live.get(str(j.id)) === j);
+  // No mandate: every job no plate holds, whose mandate is none, closed, deleted, unreadable or unlisted, that the
+  // filter keeps. A hidden job's edges drop with it.
+  const unfiltered = jobs.filter((j) => !claimed.has(str(j.id)) && !(typeof j.mandate === 'string' && plateIds.has(j.mandate)) && live.get(str(j.id)) === j);
+  const rest = unfiltered.filter((j) => filterJobs([j], input.filter).length > 0);
+  const hiddenIds = new Set(unfiltered.map((j) => str(j.id)).filter((id) => !rest.some((j) => str(j.id) === id)));
   const restIds = new Set(rest.map((j) => str(j.id)));
   const links = new Map<string, Set<string>>(rest.map((j) => [str(j.id), new Set<string>()]));
   for (const j of rest)
@@ -322,7 +338,15 @@ export function pipelineGraph(input: GraphInput): PipelineGraph {
   const looseBlock = (group: JobLike[]): Block => {
     const seeds = group.map(jobSeed);
     const keyOf = new Map(seeds.map((s) => [str(s.job!.id), s.key]));
-    return block(LOOSE, seeds, jobEdges(group, keyOf, () => true), input.filter, input.size);
+    // A dependency the filter hid still holds its dependant until it merges.
+    const hidden = new Map<string, string[]>();
+    for (const s of seeds) {
+      const labels = deps(s.job!)
+        .filter((d) => hiddenIds.has(d) && live.get(d)!.state !== 'done')
+        .map((d) => cardRef(live.get(d)!) ?? d);
+      if (labels.length) hidden.set(s.key, labels);
+    }
+    return block(LOOSE, seeds, jobEdges(group, keyOf, () => true), input.filter, input.size, false, hidden);
   };
   return {
     plates,

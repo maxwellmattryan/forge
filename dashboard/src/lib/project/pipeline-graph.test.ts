@@ -1,6 +1,6 @@
 // The Pipeline graph: every job exactly once in layout order, a filed goal mandate readied in place by a merge, node
-// marks and state lines, the merges that heat an edge, the No mandate section, filters that dim without moving, and
-// each plate's plan status.
+// marks and state lines, the merges that heat an edge, the No mandate section, filters that dim a plate
+// without moving it and hide No mandate jobs, and each plate's plan status.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { graphMarks, heatedEdges, newlyMerged, pipelineGraph } from './pipeline-graph.ts';
@@ -260,30 +260,70 @@ test('no mandate: lone jobs, chains and orphaned mandate jobs', () => {
   assert.ok(allNodes(failed).some((n) => n.job === 'open1'));
 });
 
-test('filters dim without moving', () => {
+test('filters: a plate stays whole, No mandate hides what the filter leaves out', () => {
   const M = 'm-00009999';
   const jobs = [
     job({ id: 'm1', issue: '#1', mandate: M, stage: 'done', state: 'done' }),
     job({ id: 'm2', issue: '#2', mandate: M, stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }),
+    job({ id: 'm5', issue: '#5', mandate: M, stage: 'build', state: 'cancelled' }),
     job({ id: 'free', stage: 'build', state: 'running' }),
     job({ id: 'ev', kind: 'eval', stage: 'build', state: 'running' }),
+    job({ id: 'shipped', stage: 'done', state: 'done' }),
+    job({ id: 'dropped', stage: 'build', state: 'cancelled' }),
+    job({ id: 'gated', stage: 'spec', state: 'waiting', waitingOn: 'spec-approval' }),
+    job({ id: 'closedDone', mandate: 'm-0000c105', stage: 'done', state: 'done' }),
+    job({ id: 'closedLive', mandate: 'm-0000c105', stage: 'build', state: 'running' }),
   ];
   const input = {
     jobs,
-    mandates: [mandate(M)],
-    plans: { [M]: plan(M, [['#1', 'm1', 'merged'], ['#2', 'm2', 'running'], ['#3', null, 'ready'], ['#4', 'x', 'merged']], [['#1', '#2'], ['#1', '#3'], ['#4', '#3']]) },
+    mandates: [mandate(M), mandate('m-0000c105', { status: 'closed', state: 'closed' })],
+    plans: { [M]: plan(M, [['#1', 'm1', 'merged'], ['#2', 'm2', 'running'], ['#3', null, 'ready'], ['#4', 'x', 'merged'], ['#5', 'm5', 'running']], [['#1', '#2'], ['#1', '#3'], ['#4', '#3']]) },
   };
   const by = (f: string) => graph({ ...input, filter: f });
-  const matched = (g: PipelineGraph) => allNodes(g).filter((n) => n.match).map((n) => n.id).sort();
+  const plateNodes = (g: PipelineGraph) => g.plates[0].block.nodes;
+  const plateMatched = (g: PipelineGraph) => plateNodes(g).filter((n) => n.match).map((n) => n.id).sort();
+  const loose = (g: PipelineGraph) => [...g.loose.chains, ...g.loose.lone].flatMap((b) => b.nodes.map((n) => n.job)).sort();
+  const platePlaces = (g: PipelineGraph) => plateNodes(g).map((n) => [n.id, n.x, n.y]);
+
   const all = by('all');
-  for (const f of ['active', 'waiting', 'done']) assert.deepEqual(places(by(f)), places(all), `${f} moves nothing and removes nothing`);
-  assert.equal(matched(all).length, allNodes(all).length);
-  assert.deepEqual(matched(by('done')), [`${M}|#1`, `${M}|#4`]);
-  assert.deepEqual(matched(by('waiting')), [`${M}|#2`]);
-  assert.deepEqual(matched(by('active')), ['loose|\0job free', `${M}|#2`, `${M}|#3`], 'an eval job matches only All');
+  for (const f of ['active', 'waiting', 'done']) assert.deepEqual(platePlaces(by(f)), platePlaces(all), `${f} moves and removes nothing on a plate`);
+  assert.equal(allNodes(all).filter((n) => n.match).length, allNodes(all).length, 'All dims nothing');
+  assert.deepEqual(loose(all), ['closedDone', 'closedLive', 'dropped', 'ev', 'free', 'gated', 'shipped'], 'All hides nothing');
+
+  const active = by('active');
+  assert.equal(plateMatched(active).length, plateNodes(active).length, 'Active shows an open mandate whole, merged and cancelled too');
+  assert.deepEqual(loose(active), ['closedLive', 'free', 'gated'], 'Active hides finished, cancelled and eval jobs, a closed mandate’s too');
+  assert.equal(active.loose.count, 3);
+
+  const done = by('done');
+  assert.deepEqual(plateMatched(done), [`${M}|#1`, `${M}|#4`, `${M}|#5`]);
+  assert.deepEqual(loose(done), ['closedDone', 'dropped', 'shipped']);
+
   const waiting = by('waiting');
+  assert.deepEqual(plateMatched(waiting), [`${M}|#2`]);
+  assert.deepEqual(loose(waiting), ['gated']);
   assert.equal(edge(waiting, `${M}|#1`, `${M}|#3`).dim, true, 'both ends dimmed');
   assert.equal(edge(waiting, `${M}|#1`, `${M}|#2`).dim, false, 'one end kept');
+});
+
+test('filters: a hidden upstream leaves its kept dependant alone', () => {
+  const jobs = [job({ id: 'head', stage: 'done', state: 'done' }), job({ id: 'tail', dependsOn: ['head'] })];
+  const all = graph({ jobs });
+  assert.equal(all.loose.chains.length, 1);
+  const active = graph({ jobs, filter: 'active' });
+  assert.equal(active.loose.chains.length, 0);
+  assert.deepEqual(active.loose.lone.map((b) => b.nodes[0].job), ['tail']);
+  assert.equal(active.loose.count, 1);
+  assert.deepEqual(graph({ jobs: [job({ id: 'old', stage: 'done', state: 'done' })], filter: 'active' }).loose, { chains: [], lone: [], count: 0 });
+
+  // A running upstream hidden by Waiting still makes its parked dependant wait on it.
+  const parked = [job({ id: 'up', stage: 'build', state: 'running' }), job({ id: 'down', stage: 'backlog', state: 'waiting', waitingOn: 'external', reason: 'dependencies not done: up', dependsOn: ['up'] })];
+  const waiting = graph({ jobs: parked, filter: 'waiting' });
+  assert.deepEqual(waiting.loose.lone.map((b) => b.nodes[0].job), ['down']);
+  const down = waiting.loose.lone[0].nodes[0];
+  assert.equal(down.mark, 'waiting');
+  assert.deepEqual(down.line, { kind: 'waits', ref: 'up', more: 0 });
+  assert.deepEqual(nodeById(graph({ jobs: parked }), 'loose|\0job down').line, down.line, 'the same line as under All');
 });
 
 test('plate status: loading, error, kept plan, problems', () => {

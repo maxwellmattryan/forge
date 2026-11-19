@@ -183,6 +183,11 @@ test('mandates over the dashboard API', async () => {
     const resumed = await t.post('/mandates/m1/resume', {});
     assert.deepEqual([resumed.json.changed, resumed.json.mandate.status, resumed.json.mandate.reason], [true, 'active', null]);
     assert.equal((await t.post('/mandates/m1/resume', {})).json.changed, false);
+    // Each write from the dashboard (the Office card or a Pipeline plate) is logged as the dashboard's.
+    for (const type of ['mandate-pause', 'mandate-resume']) {
+      const sources = t.auditEvents().filter((e) => e.type === type && e.mandate === 'm1').map((e) => e.actor?.source);
+      assert.ok(sources.length > 0 && sources.every((s) => s === 'dashboard'), `${type}: ${JSON.stringify(sources)}`);
+    }
     const closed = await t.post('/mandates/m1/close', { reason: 'done for now' });
     assert.deepEqual([closed.json.changed, closed.json.mandate.status, closed.json.mandate.reason], [true, 'closed', 'done for now']);
     assert.equal((await t.post('/mandates/m1/close', { reason: null })).json.changed, false);

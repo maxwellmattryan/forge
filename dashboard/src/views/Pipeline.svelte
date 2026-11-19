@@ -1,5 +1,5 @@
 <!-- Pipeline: filters, the Graph/Board/Table switch (Graph by default), and the jobs in that layout. The graph draws
-     each open mandate's plan and the jobs in no mandate, dimming what the filter leaves out; the board puts every job
+     each open mandate's whole plan and the jobs in no mandate the filter keeps; the board puts every job
      in one of four stage groups (plus Done when the filter holds finished jobs), so it fits a desktop without
      scrolling sideways. -->
 <script lang="ts">

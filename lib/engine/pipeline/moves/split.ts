@@ -14,7 +14,7 @@ import type { Config, LoadedJob, Tracker } from '#core/types.ts';
 import { checkRepoBudget, isRepoHold, parkForRepoBudget } from '../../metrics/repo-budget.ts';
 import { createAndLink } from '../../trackers/link.ts';
 import { moveJob } from './apply.ts';
-import { refreshDependencyWait, unmetDependencies, validateDependsOn } from './deps.ts';
+import { landingBase, refreshDependencyWait, unmetDependencies, validateDependsOn } from './deps.ts';
 
 /** One `## Jobs` item: its number, a one-line title, the rest as its scope, and the items it depends on. */
 export interface PlanItem {
@@ -177,13 +177,15 @@ export async function splitJob(root: string, config: Config, id: string, opts: {
     const issue = primaryIssue(parent);
     return issue ? nativeRef(issue, config.tracker.kind, localRepoSlug(root, config)) : null;
   })();
+  // A person chose the parent's base, so its children land there too, never on git.base by default.
+  const base = landingBase(root, config, parent);
   let tracker: Tracker | null = null;
   let created = 0;
   const byItem = new Map<number, LoadedJob>();
   for (const item of parsed.items) {
     let child = existing.find((c) => c.title === item.title);
     if (!child) {
-      child = createJob(root, config, { title: item.title, body: childBody(root, id, item), parent: id, mandate: parent.mandate ?? null });
+      child = createJob(root, config, { title: item.title, body: childBody(root, id, item), parent: id, mandate: parent.mandate ?? null, base });
       created++;
       // As for forge job new: a held budget parks the child, unclaimed, until the budget allows it.
       if (budget.reason) {

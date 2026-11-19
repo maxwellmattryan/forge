@@ -84,7 +84,7 @@ export function boardColumns<T extends JobLike>(jobs: T[]): { id: BoardGroupId; 
 }
 
 /** The table's columns that show only when a row fills them, in rendered order; Job, Title, Stage, State and Updated always show. */
-export const OPTIONAL_COLUMNS = ['needs', 'round', 'tasks', 'verdicts', 'pr', 'tokens', 'cost', 'budget'] as const;
+export const OPTIONAL_COLUMNS = ['needs', 'base', 'round', 'tasks', 'verdicts', 'pr', 'tokens', 'cost', 'budget'] as const;
 export type OptionalColumn = (typeof OPTIONAL_COLUMNS)[number];
 
 /**
@@ -98,11 +98,13 @@ export function openNeedIds(j: JobLike, all: JobLike[]): string[] {
 
 /**
  * The optional table columns at least one job fills, judged as each cell judges value vs `—`; `hasBudget` is the Budget
- * cell's own test, and `all` the jobs dependencies resolve against.
+ * cell's own test, and `all` the jobs dependencies resolve against. Base shows only when some job's base differs from
+ * `repoBase` (the repo's git.base); with none known (null) it never shows.
  */
-export function tableColumns<T extends JobLike>(jobs: T[], hasBudget: (j: T) => boolean, all: JobLike[] = jobs): Set<OptionalColumn> {
+export function tableColumns<T extends JobLike>(jobs: T[], hasBudget: (j: T) => boolean, all: JobLike[] = jobs, repoBase: string | null = null): Set<OptionalColumn> {
   const fills: Record<OptionalColumn, (j: T) => boolean> = {
     needs: (j) => openNeedIds(j, all).length > 0,
+    base: (j) => repoBase !== null && typeof j.base === 'string' && j.base !== '' && j.base !== repoBase,
     round: (j) => Number(j.round) > 0,
     tasks: (j) => Number(j.progress?.total) > 0,
     verdicts: (j) => Array.isArray(j.reviewers) && j.reviewers.length > 0,
@@ -247,11 +249,16 @@ export interface MandateGroup<T> {
   merged: number;
 }
 
-/** The rows split by mandate, in input order, each group placed by its first row; No mandate always last. */
-export function groupByMandate<T extends JobLike>(rows: T[]): MandateGroup<T>[] {
+/**
+ * The rows split by mandate, in input order, each group placed by its first row; No mandate always last. With `known`
+ * (the loaded mandates' ids), a job naming an id not in it (a deleted mandate) groups under No mandate, as on the graph;
+ * null (the list not loaded) trusts every id.
+ */
+export function groupByMandate<T extends JobLike>(rows: T[], known: ReadonlySet<string> | null = null): MandateGroup<T>[] {
   const groups = new Map<string | null, MandateGroup<T>>();
   for (const j of rows) {
-    const m = mandateOf(j);
+    const id = mandateOf(j);
+    const m = id !== null && known !== null && !known.has(id) ? null : id;
     const g = groups.get(m) ?? { mandate: m, jobs: [], merged: 0 };
     g.jobs.push(j);
     if (j.pr?.state === 'MERGED' || j.state === 'done') g.merged++;
