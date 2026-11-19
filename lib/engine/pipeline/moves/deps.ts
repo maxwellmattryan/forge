@@ -155,8 +155,29 @@ export function isMerged(root: string, config: Config, dep: Job, base: string): 
 }
 
 /**
+ * The branch `job` lands on: its base, or, while stacked on a dependency's branch, the branch that
+ * dependency lands on. Reads job files only. The seen set ends a hand-edited cycle at its first
+ * repeat, whose base is a job branch, so it never matches a real base.
+ */
+export function landingBase(root: string, config: Config, job: Job): string {
+  const seen = new Set<string>();
+  let cur: Job = job;
+  for (;;) {
+    const base = cur.base ?? config.git.base;
+    if (seen.has(cur.id)) return base;
+    seen.add(cur.id);
+    const next = depIds(cur)
+      .map((d) => tryLoad(root, d))
+      .find((d) => d?.branch === base);
+    if (!next) return base;
+    cur = next;
+  }
+}
+
+/**
  * Where a new branch for `job` starts: null for the usual base, or the one unmerged
- * dependency's branch to stack on.
+ * dependency's branch to stack on. A dependency that lands on another base than the job's is
+ * refused: once it merged, retargetPlan would move the job onto a base no person chose.
  */
 export function stackSource(root: string, config: Config, job: Job): { dependency: string; start: string; base: string } | null {
   const deps = depIds(job).map((d) => {
@@ -171,6 +192,11 @@ export function stackSource(root: string, config: Config, job: Job): { dependenc
   if (!unmerged.length) return null;
   if (unmerged.length > 1) throw new ForgeError(`job ${job.id} depends on more than one unmerged job (${unmerged.map((d) => d.id).join(', ')}); wait until at most one is unmerged`);
   const dep = unmerged[0];
+  const lands = landingBase(root, config, dep);
+  if (lands !== job.base)
+    throw new ForgeError(
+      `job ${job.id} targets ${job.base} but its dependency ${dep.id} lands on ${lands}; stacking on it would move ${job.id} to ${lands} once ${dep.id} merges. Wait until ${dep.id} merges, or remove the dependency`,
+    );
   const start = depBranchRef(root, config, dep);
   if (!start) throw new ForgeError(`dependency ${dep.id} has no branch yet (${dep.branch}); create its worktree first`);
   // depBranchRef found a ref, so the dependency has a branch.
