@@ -46,7 +46,7 @@ function scratch(t: { after: (fn: () => void) => void }) {
     const job = createJob(root, config, { title, base });
     return setJob(root, job.id, { fields: { dependsOn: [dep.id] } });
   };
-  return { root, config, dependency, dependent };
+  return { root, config, dependency, dependent, branchOff };
 }
 
 test('stackSource stacks only on a dependency that lands on the job\'s base', (t) => {
@@ -89,6 +89,40 @@ test('stackSource stacks only on a dependency that lands on the job\'s base', (t
   // A dependency with no base at all counts as git.base, so a main job still stacks on it.
   const mainJob = dependent('null base, main job', 'main', nullBase);
   assert.deepEqual(stackSource(root, config, mainJob), { dependency: nullBase.id, start: nullBase.branch, base: nullBase.branch });
+});
+
+// `forge job new --branch` takes any safe name, and a daemon session may pass it, so a dependency's
+// branch is not proof that the job stacked on it or that a person chose it as a base.
+test('stackSource stacks only on a dependency whose branch Forge named', (t) => {
+  const { root, config, dependency, dependent, branchOff } = scratch(t);
+  // A decoy made with `--branch feature/x`: its base is git.base, but its branch is the feature branch.
+  const decoy = createJob(root, config, { title: 'decoy', branch: 'feature/x' });
+  branchOff('custom/work', 'main');
+  const custom = createJob(root, config, { title: 'custom branch', branch: 'custom/work' });
+  // A real feature dependency whose dependsOn lists the decoy, to look stacked on it.
+  const top = dependency('feature dependency with a decoy', 'feature/x');
+  setJob(root, top.id, { fields: { dependsOn: [decoy.id] } });
+
+  const rows: { name: string; dep: Job; message: RegExp }[] = [
+    { name: 'decoy whose branch is the feature branch', dep: decoy, message: /branch feature\/x is not the one Forge named for it/ },
+    { name: 'free-form branch on the same base', dep: custom, message: /branch custom\/work is not the one Forge named for it/ },
+    { name: 'decoy in the chain', dep: top, message: /lands on feature\/x/ },
+  ];
+  for (const row of rows) {
+    const job = dependent(row.name, 'main', row.dep);
+    assert.throws(
+      () => stackSource(root, config, job),
+      (e: Error) => {
+        assert.match(e.message, row.message, row.name);
+        assert.ok([job.id, row.dep.id].every((s) => e.message.includes(s)), `${row.name}: ${e.message}`);
+        return true;
+      },
+      row.name,
+    );
+  }
+  // A job on the feature branch still stacks on the real dependency: the decoy in its dependsOn is not followed.
+  const onFeature = dependent('feature job, real dependency', 'feature/x', top);
+  assert.deepEqual(stackSource(root, config, onFeature), { dependency: top.id, start: top.branch, base: top.branch });
 });
 
 test('worktree create refuses a cross-base stack before creating anything', async (t) => {

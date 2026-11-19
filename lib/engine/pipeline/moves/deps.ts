@@ -155,9 +155,18 @@ export function isMerged(root: string, config: Config, dep: Job, base: string): 
 }
 
 /**
+ * Whether `job.branch` is the one Forge named for it (`git.branchPrefix` + id). `forge job new --branch`
+ * takes any safe name, a feature branch's included, and an adopted PR brings its own, so any other
+ * branch may be someone else's: `forge job delete` keeps it for the same reason.
+ */
+const forgeNamed = (config: Config, job: Job): boolean => job.branch === `${config.git.branchPrefix}${job.id}`;
+
+/**
  * The branch `job` lands on: its base, or, while stacked on a dependency's branch, the branch that
- * dependency lands on. Reads job files only. The seen set ends a hand-edited cycle at its first
- * repeat, whose base is a job branch, so it never matches a real base.
+ * dependency lands on. Reads job files only. A dependency counts as the one stacked on only through
+ * its Forge-named branch: a decoy job created with `--branch <the base>` would otherwise stand in
+ * for the stack and hide where the chain really lands. The seen set ends a hand-edited cycle at its
+ * first repeat, whose base is a job branch, so it never matches a real base.
  */
 export function landingBase(root: string, config: Config, job: Job): string {
   const seen = new Set<string>();
@@ -168,7 +177,7 @@ export function landingBase(root: string, config: Config, job: Job): string {
     seen.add(cur.id);
     const next = depIds(cur)
       .map((d) => tryLoad(root, d))
-      .find((d) => d?.branch === base);
+      .find((d) => d?.branch === base && forgeNamed(config, d));
     if (!next) return base;
     cur = next;
   }
@@ -176,8 +185,10 @@ export function landingBase(root: string, config: Config, job: Job): string {
 
 /**
  * Where a new branch for `job` starts: null for the usual base, or the one unmerged
- * dependency's branch to stack on. A dependency that lands on another base than the job's is
- * refused: once it merged, retargetPlan would move the job onto a base no person chose.
+ * dependency's branch to stack on. Two dependencies are refused, because stacking sets the job's
+ * base to the dependency's branch and retargetPlan later moves it to the dependency's base:
+ * one that lands on another base than the job's, and one whose branch Forge did not name (a free-form
+ * `--branch` may be a feature branch that no person chose as this job's base).
  */
 export function stackSource(root: string, config: Config, job: Job): { dependency: string; start: string; base: string } | null {
   const deps = depIds(job).map((d) => {
@@ -200,7 +211,12 @@ export function stackSource(root: string, config: Config, job: Job): { dependenc
   const start = depBranchRef(root, config, dep);
   if (!start) throw new ForgeError(`dependency ${dep.id} has no branch yet (${dep.branch}); create its worktree first`);
   // depBranchRef found a ref, so the dependency has a branch.
-  return { dependency: dep.id, start, base: dep.branch! };
+  const branch = dep.branch!;
+  if (!forgeNamed(config, dep))
+    throw new ForgeError(
+      `job ${job.id} can't stack on ${dep.id}: its branch ${branch} is not the one Forge named for it (${config.git.branchPrefix}${dep.id}), so stacking would make ${branch} the base of ${job.id}. Wait until ${dep.id} merges, or remove the dependency`,
+    );
+  return { dependency: dep.id, start, base: branch };
 }
 
 /**
