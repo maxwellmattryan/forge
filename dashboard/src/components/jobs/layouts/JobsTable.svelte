@@ -1,6 +1,7 @@
 <!-- The pipeline's table layout. The title is a button so Tab plus Enter opens the drawer; a click anywhere else on the
      row opens it too. Job, Title, Stage, State and Updated always show (only Job, Title and State below a 40rem
-     container); each other column only when some row fills it (src/lib/jobs/board.ts tableColumns). Headers sort (the
+     container); each other column only when some row fills it (src/lib/jobs/board.ts tableColumns), and Base only when
+     some job's base is not the repo's git.base, with rows on that base muted. Headers sort (the
      saved per-project `tableSort`, a third click back to the urgency order), JobsTableFilters narrows the rows, and
      Group by mandate (the saved `tableGroup`) splits them into one collapsible tbody per mandate. It loads the mandates
      list on mount: once loaded, a deleted mandate's jobs group under No mandate, and each readable mandate's group row
@@ -46,7 +47,8 @@
   const shown = $derived(sortTable(filterTable(jobs, chips, text), sort, all));
   // Columns judge the received jobs, not the filtered rows, so typing in the search never makes them jump. Budget asks
   // the same question BudgetCell does.
-  const cols = $derived(tableColumns(jobs, (j) => budgetCellModel(j as Job, S.data?.config?.pipeline?.budget, unattendedDefault(S.data?.config)).kind !== 'none', all));
+  const repoBase = $derived(S.data?.config?.base ?? null);
+  const cols = $derived(tableColumns(jobs, (j) => budgetCellModel(j as Job, S.data?.config?.pipeline?.budget, unattendedDefault(S.data?.config)).kind !== 'none', all, repoBase));
   // Once the mandates list has loaded, a deleted mandate's jobs group under No mandate, as on the graph.
   const known = $derived(S.mandates ? new Set(S.mandates.mandates.map((m) => m.id)) : null);
   // A job naming a deleted mandate still counts, so deleting the last mandate leaves the grouping (its jobs under No mandate).
@@ -110,6 +112,7 @@
     <td class={PHONE_HIDDEN}><div class="flex items-center gap-2"><StageStepper steps={m.steps} stage={m.stage} /><span class="whitespace-nowrap">{m.stage}</span></div></td>
     <td><StateChip job={j} /></td>
     {#if cols.has('needs')}<td class="{PHONE_HIDDEN} mono text-[11px]" title={needs.length ? needs.map(depChipTitle).join('\n') : undefined}>{needs.length ? needs.map((l) => l.ref ?? l.id).join(' ') : '—'}</td>{/if}
+    {#if cols.has('base')}<td class="{PHONE_HIDDEN} mono text-[11px] whitespace-nowrap {j.base === repoBase ? 'text-muted' : ''}">{j.base ?? '—'}</td>{/if}
     {#if cols.has('round')}<td class="{PHONE_HIDDEN} num">{m.round ? (m.round.max ? `${m.round.round}/${m.round.max}` : m.round.round) : '—'}</td>{/if}
     {#if cols.has('tasks')}<td class="{PHONE_HIDDEN} num">{j.progress?.total ? `${j.progress.done}/${j.progress.total}` : '—'}</td>{/if}
     {#if cols.has('verdicts')}<td class={PHONE_HIDDEN}><div class="flex flex-wrap gap-1">{#each m.lenses ?? [] as l, i (i)}<VerdictChip name={l.name} verdict={l.verdict} />{/each}</div></td>{/if}
@@ -130,6 +133,7 @@
       {@render head('stage', $t('table.stage'), PHONE_HIDDEN)}
       {@render head('state', $t('table.state'), '')}
       {#if cols.has('needs')}{@render head('needs', $t('table.needs'), PHONE_HIDDEN)}{/if}
+      {#if cols.has('base')}<th class={PHONE_HIDDEN}>{$t('table.base')}</th>{/if}
       {#if cols.has('round')}{@render head('round', $t('table.round'), PHONE_HIDDEN)}{/if}
       {#if cols.has('tasks')}{@render head('tasks', $t('table.tasks'), PHONE_HIDDEN)}{/if}
       {#if cols.has('verdicts')}<th class={PHONE_HIDDEN}>{$t('table.verdicts')}</th>{/if}

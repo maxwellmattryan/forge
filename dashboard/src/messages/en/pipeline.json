@@ -18,6 +18,7 @@
   "table": {
     "title": "Title",
     "needs": "Needs",
+    "base": "Base",
     "filter": {
       "search": "Filter jobs",
       "add": "Filter",
