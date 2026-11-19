@@ -35,8 +35,8 @@ const PLAN = [
 ].join('\n');
 
 /** A job at plan/running whose planner ended with PLAN, under split mode ask (the default). */
-function planned(root: string, title: string): string {
-  const { id } = jobAt(root, 'plan', { title, create: { mandate: 'm1' } });
+function planned(root: string, title: string, create: NonNullable<Parameters<typeof jobAt>[2]>['create'] = {}): string {
+  const { id } = jobAt(root, 'plan', { title, create: { mandate: 'm1', ...create } });
   updateJob(root, id, (j) => {
     j.agents.planner = { runs: 1, status: 'done', model: 'opus', agentId: null, startedAt: '2026-01-01T00:00:00.000Z', endedAt: '2026-01-01T00:01:00.000Z', round: 0 };
   });
@@ -53,7 +53,7 @@ test('job split creates the children once', async () => {
   const r = scratch();
   try {
     const root = r.dir;
-    const id = planned(root, 'the umbrella');
+    const id = planned(root, 'the umbrella', { base: 'feature/x' });
     logHumanEvent(root, id, 'human', { action: 'approve-split', note: null });
     // Driving work: another job's session, the inbox and the office may not split it.
     for (const scope of ['_inbox', '_office', '20260101-0000-other']) {
@@ -68,9 +68,9 @@ test('job split creates the children once', async () => {
     assert.deepEqual(out.children.map((c: any) => c.item), [1, 2, 3]);
     const [c1, c2, c3] = out.children.map((c: any) => loadJob(root, c.id));
 
-    // Children: the parent, its mandate, a backlog item each, and the scope fenced in request.md.
+    // Children: the parent, its mandate and base, a backlog item each, and the scope fenced in request.md.
     for (const c of [c1, c2, c3]) {
-      assert.deepEqual([c.parent, c.mandate, c.issues.length, c.issues[0]?.tracker], [id, 'm1', 1, 'local'], c.id);
+      assert.deepEqual([c.parent, c.mandate, c.base, c.repos[0].base, c.issues.length, c.issues[0]?.tracker], [id, 'm1', 'feature/x', 'feature/x', 1, 'local'], c.id);
       const lines = fs.readFileSync(path.join(jobDir(root, c.id), 'request.md'), 'utf8').split('\n');
       const fence = lines.findIndex((l) => l.startsWith(`Imported from plan.md of job ${id}.`));
       assert.ok(fence > 0, lines.join('\n'));
@@ -129,6 +129,24 @@ test('job split creates the children once', async () => {
       assert.equal(res.status, 1, `${what}: ${res.stdout}`);
       assert.deepEqual(state(), open, `${what}: nothing written`);
     }
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("a stacked parent's children get the base its dependency lands on", async () => {
+  const r = scratch();
+  try {
+    const root = r.dir;
+    const dep = jobAt(root, 'done', { title: 'the dependency', create: { base: 'feature/x' } });
+    const id = planned(root, 'a stacked umbrella', { base: dep.branch! });
+    setJob(root, id, { fields: { dependsOn: [dep.id] } });
+    logHumanEvent(root, id, 'human', { action: 'approve-split', note: null });
+    const res = await forgeInProcess(root, ['job', 'split', id]);
+    assert.equal(res.status, 0, JSON.stringify(res.error));
+    const children = loadJob(root, id).children.map((c) => loadJob(root, c));
+    assert.equal(children.length, 3);
+    assert.deepEqual(children.map((c) => c.base), ['feature/x', 'feature/x', 'feature/x']);
   } finally {
     r.cleanup();
   }
