@@ -12,7 +12,7 @@ import { EFFORTS } from '#core/job/schema.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { ForgeError } from '#core/errors.ts';
-import { assertSafeRef, safeText } from '#core/text.ts';
+import { assertSafeRef } from '#core/text.ts';
 import { git } from '#integrations/git/runner.ts';
 import type { Config, Effort, JobIssue } from '#core/types.ts';
 import { readMandate } from '#office/mandates/store.ts';
@@ -48,7 +48,8 @@ function newJobBase(root: string, config: Config, flags: Record<string, any>): s
   const ref = `refs/heads/${base}`;
   const r = git(root, ['ls-remote', '--heads', '--', remote, ref], { allowFail: true, timeoutMs: 30_000 });
   if (!r.ok) {
-    const why = r.timedOut ? 'timed out' : safeText(r.stderr.trim().split('\n').filter(Boolean).at(-1) ?? `git exited ${r.status}`, 160);
+    // Never git's stderr: a remote's `remote:` lines or a URL with credentials would reach the JSON agents read.
+    const why = r.timedOut ? 'timed out' : `git ls-remote exited ${r.status}; run git ls-remote --heads ${remote} to see why`;
     throw new ForgeError(`can't read branches on ${remote} to check --base ${base}: ${why}`, 'external');
   }
   const found = r.stdout.split('\n').some((l) => l.split(/\s+/)[1] === ref);
