@@ -31,6 +31,7 @@ export const JOB: HelpGroup = {
         ['--kind K', 'feature, bug, …'],
         ['--slug S', 'the words its id starts with (default: from the title)'],
         ['--branch B', 'the branch to push to (default: git.branchPrefix + id)'],
+        ['--base B', 'the branch it starts from and its PR targets (default: git.base); must be a branch on git.remote, and a daemon session may not pass it'],
         ['--parent ID', 'the umbrella job this one was split from'],
         ['--components a,b', 'the configured components it will change (the spec sets them otherwise)'],
         ['--services a,b', 'deprecated alias of --components'],
@@ -38,7 +39,10 @@ export const JOB: HelpGroup = {
         ['--mandate ID', "the mandate it works under, which narrows what the Foreman decides for it (default: --parent's); locked once set"],
         ['--force', 'start it past an exceeded repo budget (budget:), logged as a budget-override; a human only'],
       ],
-      exits: [[1, "an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, or a --mandate that is unknown (not_found), closed, unreadable or not --parent's"]],
+      exits: [
+        [1, "an unsafe --branch or ref, --no-issue with tracker.kind none, --effort or --force from a daemon session, a --mandate that is unknown (not_found), closed, unreadable or not --parent's, an unsafe --base, one not on git.remote or equal to --branch, or --base from a daemon session"],
+        [5, 'git ls-remote failed while checking --base'],
+      ],
     },
     {
       command: 'job from-ref',

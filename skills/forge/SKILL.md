@@ -35,7 +35,7 @@ Report `sync`, a line each: merges, PR feedback, conflicts, finished umbrellas, 
 | Arguments | Do |
 |---|---|
 | *(empty)* or `status` | `forge status`; summarise what runs, waits and comes next; offer `forge dash`. |
-| `<free text>` | `forge job new --title "<short title>" --body "<the full request>" --session ${CLAUDE_SESSION_ID}`, then **Run a job**. |
+| `<free text>` | `forge job new --title "<short title>" --body "<the full request>" --session ${CLAUDE_SESSION_ID}`, then **Run a job**; add `--base <branch>` when the user names a branch already on the remote for the work to land on instead of `git.base`. |
 | `next [n]` | `triage`, then up to `n` (default 1, max `runtime.maxParallelJobs`) times `forge next --claim --session ${CLAUDE_SESSION_ID}` (a queued job nobody drives, `resumed: true`, else a tracker item), then run them in parallel. |
 | `issue <ref>` | `forge job from-ref <ref> --session ${CLAUDE_SESSION_ID}` (planned as one job), then **Run a job**. |
 | `continue <job \| #pr \| ref> [note]` | `reference/pr-lifecycle.md` |

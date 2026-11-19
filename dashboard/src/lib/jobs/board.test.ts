@@ -7,7 +7,7 @@ import type { JobLike } from './state.ts';
 
 type Row = JobLike & { budgeted?: boolean };
 const hasBudget = (j: Row): boolean => j.budgeted === true;
-const cols = (jobs: Row[]): OptionalColumn[] => [...tableColumns(jobs, hasBudget)].sort();
+const cols = (jobs: Row[]): OptionalColumn[] => [...tableColumns(jobs, hasBudget, undefined, 'main')].sort();
 const ids = (jobs: JobLike[]): string[] => jobs.map((j) => String(j.id));
 const usage = (totalTokens: number): JobLike['usage'] => ({ totalTokens }) as JobLike['usage'];
 
@@ -24,10 +24,11 @@ test('pipelineLayout opens the graph unless board or table was saved', () => {
 });
 
 test('tableColumns shows a column only when a row fills it', () => {
-  const blank: Row = { id: 'blank', title: 'Blank', progress: { done: 0, total: 0 }, reviewers: [], pr: null, usage: undefined, dependsOn: ['finished'], round: 0 };
+  const blank: Row = { id: 'blank', title: 'Blank', progress: { done: 0, total: 0 }, reviewers: [], pr: null, usage: undefined, dependsOn: ['finished'], round: 0, base: 'main' };
   const finished: Row = { id: 'finished', state: 'done' };
   const fillers: [OptionalColumn, Row][] = [
     ['needs', { id: 'n', dependsOn: ['gone'] }],
+    ['base', { id: 'g', base: 'feature/x' }],
     ['round', { id: 'r', round: 2 }],
     ['tasks', { id: 'a', progress: { done: 1, total: 3 } }],
     ['verdicts', { id: 'b', reviewers: ['code'] }],
@@ -42,6 +43,8 @@ test('tableColumns shows a column only when a row fills it', () => {
   assert.deepEqual(cols(fillers.map(([, j]) => j)), [...OPTIONAL_COLUMNS].sort(), 'every column when each has a row');
   assert.deepEqual(cols([blank, finished, { id: 'g', pr: { url: 'x' } as Row['pr'], reviewers: 'code' as unknown as string[], progress: { total: 'x' } as unknown as Row['progress'] }]), [], 'a PR without a number, a non-list reviewers and a non-numeric total fill nothing');
   assert.deepEqual(cols([]), [], 'no column for no rows');
+  assert.equal(tableColumns([{ id: 'h', base: 'feature/x' }], hasBudget, undefined, null).has('base'), false, 'no Base column without a repo base');
+  assert.equal(tableColumns([{ id: 'h', base: '' }], hasBudget, undefined, 'main').has('base'), false, 'an empty base fills nothing');
 });
 
 test('nextSort cycles natural, reversed, then the urgency order', () => {

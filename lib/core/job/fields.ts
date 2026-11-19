@@ -18,7 +18,7 @@ export const LOCKED_FIELDS: Record<string, string> = {
   id: 'forge job new',
   createdAt: 'forge job new',
   branch: 'forge job new --branch',
-  base: 'forge worktree create or forge sync',
+  base: 'forge job new --base, forge worktree create or forge sync',
   worktree: 'forge worktree create|remove',
   port: 'forge worktree create|remove',
   owner: 'forge job claim|release',
