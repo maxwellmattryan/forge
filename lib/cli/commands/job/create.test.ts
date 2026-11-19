@@ -46,7 +46,7 @@ function withFeatureBranch(repo: ReturnType<typeof template>): string {
 
 type Created = { id: string; base: string };
 
-const jobDirs =(root: string) => (fs.existsSync(path.join(root, '.forge', 'jobs')) ? fs.readdirSync(path.join(root, '.forge', 'jobs')).sort() : []);
+const jobDirs = (root: string) => (fs.existsSync(path.join(root, '.forge', 'jobs')) ? fs.readdirSync(path.join(root, '.forge', 'jobs')).sort() : []);
 
 test('job new --base stamps a base that exists on the remote', async (t) => {
   const repo = scratch(t);
@@ -93,7 +93,7 @@ test("job new refuses a --base it can't trust", async (t) => {
   withFeatureBranch(repo);
   repo.git('remote', 'add', 'gone', path.join(root, 'no-such-remote.git'));
   const daemon = { FORGE_DAEMON: '1', [SCOPE_ENV]: INBOX_SCOPE };
-  const rows: { name: string; args: string[]; exit: number; code?: string; match?: RegExp; remote?: string; env?: NodeJS.ProcessEnv }[] = [
+  const rows: { name: string; args: string[]; exit: number; code?: string; match?: RegExp; notMatch?: RegExp; remote?: string; env?: NodeJS.ProcessEnv }[] = [
     { name: 'leading dash', args: ['--base=-x'], exit: 1, match: /not a safe branch name/ },
     { name: 'option smuggled', args: ['--base=--upload-pack=x'], exit: 1, match: /not a safe branch name/ },
     { name: 'space', args: ['--base', 'a b'], exit: 1, match: /not a safe branch name/ },
@@ -103,7 +103,7 @@ test("job new refuses a --base it can't trust", async (t) => {
     { name: 'tag only', args: ['--base', 'v1'], exit: 1, match: /not a branch on origin/ },
     { name: 'equal to --branch', args: ['--base', 'feature/x', '--branch', 'feature/x'], exit: 1, match: /can't target its own branch/ },
     { name: 'unsafe git.remote', args: ['--base', 'feature/x'], remote: '-x', exit: 1, match: /git\.remote "-x" is not a safe branch name/ },
-    { name: 'unreachable remote', args: ['--base', 'feature/x'], remote: 'gone', exit: 5, code: 'external', match: /can't read branches on gone/ },
+    { name: 'unreachable remote', args: ['--base', 'feature/x'], remote: 'gone', exit: 5, code: 'external', match: /can't read branches on gone/, notMatch: /fatal|no-such-remote/ },
     { name: 'daemon, feature base', args: ['--base', 'feature/x'], env: daemon, exit: 1, match: /a human runs it in their own session/ },
     { name: 'daemon, git.base', args: ['--base', 'main'], env: daemon, exit: 1, match: /a human runs it in their own session/ },
   ];
@@ -116,6 +116,7 @@ test("job new refuses a --base it can't trust", async (t) => {
     assert.equal(r.status, row.exit, `${row.name}: ${JSON.stringify(r.error ?? r.data)}`);
     if (row.code) assert.equal(r.error!.code, row.code, row.name);
     if (row.match) assert.match(r.error!.message, row.match, row.name);
+    if (row.notMatch) assert.doesNotMatch(r.error!.message, row.notMatch, row.name);
     assert.deepEqual(jobDirs(root), before, `${row.name}: no job dir`);
   }
 });
