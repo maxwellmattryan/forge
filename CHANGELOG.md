@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.24.0
+
+- feat(dashboard): add the Pipeline graph as the default layout (#726)
+- feat(dashboard): add the Pipeline graph as the default layout (#725)
+- Pipeline › Table: sort, filter chips and group by mandate (#723)
+- fix(dashboard): scrollbars hug the edge and grained plates never scroll themselves (#724)
+- Command bar: Cmd/Ctrl+K opens the command modal, smooth content transitions (#722)
+- feat(mandates): add forge mandate cancel and delete (#721)
+- feat(mandates): add a plan of scope issues and their dependencies (#720)
+- feat(dashboard): lay out a mandate's plan by dependency depth (#719)
+- fix: pool restarts for `--dev` (#718)
+- Sparse data: a number instead of a near-empty chart, and table columns only when they hold values (#717)
+- fix: title schema configuration (#710)
+- Project switcher drops the check column and the second trigger dot (#709)
+- Project switcher shows which projects have agents working (#708)
+- Split the runtime topics: `docs/architecture/foreman.md` and `daemon-runtime.md` get the same restructuring, link and anchor upkeep, and allowlist removal. (#698)
+- CLI/CONFIG docs and the remaining paragraphs: bring `docs/CLI.md` and `docs/CONFIG.md` paragraphs under the cap. Generated blocks change through their generators (`lib/core/config/keys/docs.ts`, `ERR…
+- Split the security topics: `docs/architecture/daemon-security.md`, `dashboard-security.md` and `untrusted-input.md` each become a folder with a small index, with paragraphs under the cap. Update ever…
+- Doc-size invariant and allowlist: extend `test/invariants/file-size.test.ts` (or a sibling) to cover `docs/**/*.md`, `skills/forge/**/*.md`, `agents/*.md` and the folder `AGENTS.md` files. It checks …
+- A verify failure after a conflict resolution gets one integrator fix pass (#688)
+- Auto-open the dashboard in the user's preferred browser (#690)
+- Verify reuses passing checks on the same tree, and the panel starts after the fast checks (#684)
+- Keyboard shortcut for the project switcher (Cmd/Ctrl+O) (#687)
+- One daemon pool per project: no cross-project caps, ordering or eviction (#686)
+- Mandate merge queue: within each overlap group, land the PR that took most work first (#683)
+- When a non-selected project has a new gate (#682)
+- Versions: config schema 52 → 54, job schema 23 → 25, event schema 26 → 29, `API_VERSION` 80 → 85.
+
 ## 0.23.0
 
 - Overlap check: which jobs, PRs and pushes touch the same code, and when to merge (#680)
