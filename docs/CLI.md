@@ -2409,7 +2409,7 @@ A job's git worktree.
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an unsafe branch name, a dependency that lands on another base than the job's, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
+| 1 | no such job, an unsafe branch name, a dependency that lands on another base than the job's or whose branch Forge did not name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
 | 5 | git failed |
 
 **`forge worktree path <id> [--repo NAME]`**: the worktree's path, or member repo NAME's (empty when it has none)
