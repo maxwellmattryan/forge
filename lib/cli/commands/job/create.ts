@@ -12,6 +12,8 @@ import { EFFORTS } from '#core/job/schema.ts';
 import { createAndLink, linkJob, markNoIssue, suggestLink, unlinkJob } from '#engine/trackers/link.ts';
 import { loadTracker } from '#engine/trackers/load.ts';
 import { ForgeError } from '#core/errors.ts';
+import { assertSafeRef, safeText } from '#core/text.ts';
+import { git } from '#integrations/git/runner.ts';
 import type { Config, Effort, JobIssue } from '#core/types.ts';
 import { readMandate } from '#office/mandates/store.ts';
 import { isReadable } from '#office/mandates/contract.ts';
@@ -25,6 +27,34 @@ const FORCE_DAEMON_REFUSAL = 'forge job new --force starts work past the repo bu
 const refuseForceInDaemon = () => {
   if (process.env.FORGE_DAEMON === '1') throw new ForgeError(FORCE_DAEMON_REFUSAL);
 };
+
+// A misled session could aim its work at a branch with weaker protection; mandates carry no base yet to authorise one.
+const BASE_DAEMON_REFUSAL = 'forge job new --base points a job at another branch than git.base, which a daemon session may not do; a human runs it in their own session';
+
+/**
+ * `forge job new --base`: the branch the job starts from and its PR targets, checked before anything
+ * is written. Anything but git.base must already be a branch on git.remote, matched exactly, since an
+ * ls-remote pattern also matches ref-name tails and tags. Undefined means createJob's git.base.
+ */
+function newJobBase(root: string, config: Config, flags: Record<string, any>): string | undefined {
+  // First, so a daemon call never reaches the network.
+  if (flags.base !== undefined && process.env.FORGE_DAEMON === '1') throw new ForgeError(BASE_DAEMON_REFUSAL);
+  const base = str(flags.base, '--base');
+  if (base === undefined) return undefined;
+  assertSafeRef(base, '--base');
+  if (flags.branch !== undefined && base === flags.branch) throw new ForgeError(`--base and --branch are both ${base}: a job can't target its own branch`);
+  if (base === config.git.base) return base;
+  const remote = assertSafeRef(config.git.remote, 'git.remote');
+  const ref = `refs/heads/${base}`;
+  const r = git(root, ['ls-remote', '--heads', '--', remote, ref], { allowFail: true, timeoutMs: 30_000 });
+  if (!r.ok) {
+    const why = r.timedOut ? 'timed out' : safeText(r.stderr.trim().split('\n').filter(Boolean).at(-1) ?? `git exited ${r.status}`, 160);
+    throw new ForgeError(`can't read branches on ${remote} to check --base ${base}: ${why}`, 'external');
+  }
+  const found = r.stdout.split('\n').some((l) => l.split(/\s+/)[1] === ref);
+  if (!found) throw new ForgeError(`--base ${base} is not a branch on ${remote}; push it first (git push ${remote} ${base})`);
+  return base;
+}
 
 /**
  * `forge job new`'s issue flags as createJob's list, checked before anything is written. Refs are
@@ -82,6 +112,7 @@ export function newCmd(root: string, config: Config, rest: string[], flags: Reco
   // Every issue check runs before createJob, so a refused flag leaves no job dir.
   const { issues, noIssue } = newJobIssues(root, config, flags);
   const mandate = newJobMandate(root, flags);
+  const base = newJobBase(root, config, flags);
   let effort: Effort | undefined;
   if (flags.effort !== undefined) {
     refuseEffortInDaemon();
@@ -106,11 +137,13 @@ export function newCmd(root: string, config: Config, rest: string[], flags: Reco
     components,
     effort,
     mandate,
+    base,
   });
   const waived = noIssue ? markNoIssue(root, job.id, noIssue.reason).noIssue : null;
   const created = {
     id: job.id,
     branch: job.branch,
+    base: job.base,
     dir: path.relative(root, jobDir(root, job.id)),
     issueLink: issueLinkStatus({ ...job, noIssue: waived }, config),
     ...(deprecated.length ? { deprecated } : {}),
