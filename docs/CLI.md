@@ -1474,7 +1474,7 @@ See [Job repos](architecture/job-repos.md).
 |---|---|
 | 1 | no such job |
 
-**`forge job split <id>`**: turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing
+**`forge job split <id>`**: turn a decided PLAN: SPLIT into child jobs (step's P2 and P2b run it): one per plan.md ## Jobs item, titled on one line, with the parent's mandate and base, the item's scope fenced as data in its request.md, and an issue under the parent's first one when a tracker is on; then each Depends on: #n as dependsOn, the parent parked on external (split into N jobs) and released, plan.md's ## External items quoted into its runbook.md, and a resume for each child nothing holds back. A rerun matches children by title and creates only what is missing
 
 | Exit | When |
 |---|---|
@@ -2409,7 +2409,7 @@ A job's git worktree.
 
 | Exit | When |
 |---|---|
-| 1 | no such job, an unsafe branch name, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
+| 1 | no such job, an unsafe branch name, a dependency that lands on another base than the job's, no free port, a member repo worktree that could not be created (the result names it), or the inbox or office daemon session ran it |
 | 5 | git failed |
 
 **`forge worktree path <id> [--repo NAME]`**: the worktree's path, or member repo NAME's (empty when it has none)
